@@ -150,6 +150,18 @@ export type ScreenerConditionResult = {
   matched: boolean;
 };
 
+export type ScreenerStageSummary = {
+  stage_name: string;
+  source_universe_size: number;
+  unique_symbols_scanned: number;
+  duplicate_symbols_skipped: number;
+  matched_symbols: number;
+  shortlisted_symbols: number;
+  buy_candidate_symbols: string[];
+  watch_candidate_symbols: string[];
+  stopped_here: boolean;
+};
+
 export type ScreenerResponse = {
   scanned_symbols: number;
   screener_name: string;
@@ -160,11 +172,15 @@ export type ScreenerResponse = {
   watch_candidate_symbols: string[];
   matched_symbols: string[];
   matches: ScreenerConditionResult[];
+  all_analyzed_stocks?: ScreenerConditionResult[];
   analysis?: FullAnalysisResponse | null;
   disclaimer: string;
   data_source?: string;
   data_warning?: string | null;
   market_context?: Record<string, string | number | boolean>;
+  scan_stages?: ScreenerStageSummary[];
+  stopped_at_stage?: string | null;
+  duplicate_symbols_skipped?: number;
 };
 
 export type CandidateRow = {
@@ -196,7 +212,6 @@ export type DashboardFilters = {
   scoreRange: [number, number];
   sortBy: SortKey;
   onlyHighConfidence: boolean;
-  sector: string;
 };
 
 export type MainAppView = "scanner" | "paper-trading";
@@ -254,9 +269,11 @@ export type PaperOrder = {
   id: number;
   symbol: string;
   side: "BUY" | "SELL";
-  type: "MARKET" | "LIMIT" | "STOP";
+  type: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT" | "GTT";
+  product_type?: "MIS" | "CNC" | "NRML";
   qty: number;
   price?: number | null;
+  stop_price?: number | null;
   stop_loss?: number | null;
   target?: number | null;
   status: "PENDING" | "FILLED" | "CANCELLED" | "REJECTED";
@@ -284,6 +301,74 @@ export type PaperTradeHistoryItem = {
   opened_at: string;
   closed_at: string;
   holding_period_hours: number;
+  exit_reason?: string | null;
+};
+
+export type TransactionItem = {
+  id: string;
+  timestamp: string;
+  symbol?: string | null;
+  action: string;
+  amount: number;
+  balance_after?: number | null;
+  qty?: number | null;
+  price?: number | null;
+};
+
+export type TransactionPageResponse = {
+  items: TransactionItem[];
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
+};
+
+export type NotificationItem = {
+  id: number;
+  message: string;
+  level: "info" | "success" | "error";
+  is_read: boolean;
+  created_at: string;
+};
+
+export type AlertItem = {
+  id: number;
+  symbol: string;
+  condition: ">=" | "<=";
+  target_price: number;
+  status: string;
+  created_at: string;
+  triggered_at?: string | null;
+  triggered_price?: number | null;
+};
+
+export type DailyPnlPoint = {
+  date: string;
+  pnl: number;
+};
+
+export type HoldingPeriodRow = {
+  symbol: string;
+  avg_holding_minutes: number;
+  total_trades: number;
+  win_rate_pct: number;
+};
+
+export type AnalyticsResponse = {
+  total_trades: number;
+  win_rate_pct: number;
+  profit_factor?: number | null;
+  average_profit?: number | null;
+  average_loss?: number | null;
+  best_trade_symbol?: string | null;
+  best_trade_amount?: number | null;
+  worst_trade_symbol?: string | null;
+  worst_trade_amount?: number | null;
+  daily_pnl: DailyPnlPoint[];
+  cumulative_pnl: DailyPnlPoint[];
+  wins: number;
+  losses: number;
+  holding_periods: HoldingPeriodRow[];
 };
 
 export type PaperWorkspaceSnapshot = {
@@ -317,7 +402,8 @@ export type PaperTradingDashboardResponse = {
 export type PaperOrderTicketState = {
   symbol: string;
   side: "BUY" | "SELL";
-  type: "MARKET" | "LIMIT" | "STOP";
+  type: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT" | "GTT";
+  productType?: "MIS" | "CNC" | "NRML";
   qty: number;
   limitPrice?: number | null;
   stopPrice?: number | null;

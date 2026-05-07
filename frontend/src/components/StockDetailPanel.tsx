@@ -329,13 +329,13 @@ function DataQualityBox({ analysis }: { analysis?: StockAnalysisResult }) {
   const quality = analysis?.data_quality ?? {};
   const mockWarning = Boolean(quality.mock_warning);
   return (
-    <div className={`data-quality-box ${mockWarning ? "is-risk" : "is-positive"}`}>
-      <strong>{mockWarning ? "Mock data warning" : "Data quality"}</strong>
-      <p>
-        Source {String(quality.source ?? analysis?.data_source ?? "unknown")} | candles {String(quality.candles ?? "--")} | latest {String(quality.latest_timestamp ?? "--")}
-      </p>
-      {mockWarning ? <p>Do not place real trades from this result until FYERS live data is confirmed.</p> : null}
-    </div>
+      <div className={`data-quality-box ${mockWarning ? "is-risk" : "is-positive"}`}>
+        <strong>{mockWarning ? "Mock data warning" : "Data quality"}</strong>
+        <p>
+          Source {String(quality.source ?? analysis?.data_source ?? "unknown")} | candles {String(quality.candles ?? "--")} | Candles fetched: {String(quality.candles_fetched ?? quality.candles ?? "--")} | latest {String(quality.latest_timestamp ?? "--")}
+        </p>
+        {mockWarning ? <p>Do not place real trades from this result until FYERS live data is confirmed.</p> : null}
+      </div>
   );
 }
 

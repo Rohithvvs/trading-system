@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { runPresetScreener } from "./api";
+import { loadLatestScan, runPresetScreener } from "./api";
+import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { FilterBar } from "./components/FilterBar";
 import { PaperTradingPage } from "./components/PaperTradingPage";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
-import { sampleScreenerResponse } from "./sampleData";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -28,7 +28,6 @@ const DEFAULT_FILTERS: DashboardFilters = {
   scoreRange: [0, 100],
   sortBy: "rank",
   onlyHighConfidence: false,
-  sector: "all",
 };
 
 export default function App() {
@@ -45,10 +44,21 @@ export default function App() {
   const [paperTradingPrefill, setPaperTradingPrefill] = useState<RecommendationPrefillRequest | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
+  const [lastScanLabel, setLastScanLabel] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    void loadLatestScan().then((saved) => {
+      if (!saved) {
+        return;
+      }
+      applyScanResult(saved, "restored");
+    });
+  }, []);
 
   const marketStatus = useMemo(() => getMarketStatus(), []);
   const analysisItems = screenerResult?.analysis?.items ?? [];
@@ -60,7 +70,14 @@ export default function App() {
   const filteredRows = useMemo(() => {
     const searchTerm = filters.search.trim().toUpperCase();
     return shortlistRows
-      .filter((row) => (filters.signal === "ALL" ? true : row.signal === filters.signal))
+      .filter((row) => {
+        if (filters.signal === 'ALL') return true;
+        const sig = (row.signal || '').toLowerCase().trim();
+        if (filters.signal === 'BUY')    return sig === 'buy'    || sig === 'bullish';
+        if (filters.signal === 'WATCH')  return sig === 'watch'  || sig === 'neutral' || sig === 'sideways';
+        if (filters.signal === 'REJECT') return sig === 'reject' || sig === 'bearish' || sig === 'sell';
+        return true;
+      })
       .filter((row) => row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1])
       .filter((row) => (filters.onlyHighConfidence ? (row.confidence ?? 0) >= 0.7 : true))
       .filter((row) => (searchTerm ? row.symbol.includes(searchTerm) : true))
@@ -96,29 +113,64 @@ export default function App() {
     setError(null);
 
     try {
-      const useSample = import.meta.env.VITE_USE_SAMPLE_DATA === "true";
-      const response = useSample
-        ? sampleScreenerResponse
-        : await runPresetScreener(
-            "swing",
-            {
-              intraday: "5m",
-              swing: timeframe,
-              lookback_window: lookback,
-            },
-            [],
-            topN,
-          );
+      console.info("[scanner] handleRunScanner triggered", {
+        timeframe,
+        lookback,
+        topN,
+      });
+      const response = await runPresetScreener(
+        "swing",
+        {
+          intraday: "5m",
+          swing: timeframe,
+          lookback_window: lookback,
+        },
+        [],
+        topN,
+      );
 
-      setScreenerResult(response);
-      setScanHistory((current) => saveScanHistory(response, current));
-      setSelectedSymbol(response.shortlisted_symbols[0] ?? response.buy_candidate_symbols[0] ?? response.watch_candidate_symbols[0] ?? null);
-      setDetailViewOpen(false);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Scanner failed.");
+      console.info("[scanner] storing scanner result", {
+        scanned: response.scanned_symbols,
+        shortlisted: response.shortlisted_symbols.length,
+        buy: response.buy_candidate_symbols.length,
+        watch: response.watch_candidate_symbols.length,
+        visibleAnalysisItems: response.analysis?.items.length ?? 0,
+      });
+
+      applyScanResult(response, "fresh");
+    } catch (requestError: any) {
+      console.error("[scanner] scanner request failed", requestError);
+      const detail = requestError?.response?.data?.detail || requestError?.detail || null;
+
+      let errorMessage = "Scanner failed. Please try again.";
+
+      if (detail?.error_type === "FYERS_TOKEN_EXPIRED") {
+        errorMessage = "🔴 Fyers Access Token Expired — Please re-authenticate with Fyers and restart the backend.";
+      } else if (detail?.error_type === "FYERS_TOKEN_INVALID") {
+        errorMessage = "🔴 Fyers Token Invalid — Your Fyers API credentials are wrong. Check your config file.";
+      } else if (detail?.error_type === "FYERS_RATE_LIMIT") {
+        errorMessage = "⚠️ Fyers Rate Limit Hit — Please wait 60 seconds and try again.";
+      } else if (detail?.error_type === "FYERS_API_ERROR") {
+        errorMessage = `🔴 Fyers API Error — ${detail.message}`;
+      } else if (detail?.message) {
+        errorMessage = `❌ Error: ${detail.message}`;
+      } else if (typeof requestError?.message === "string") {
+        errorMessage = `❌ ${requestError.message}`;
+      }
+
+      setError(errorMessage);
     } finally {
+      console.info("[scanner] handleRunScanner completed");
       setIsLoading(false);
     }
+  }
+
+  function applyScanResult(response: ScreenerResponse, source: "fresh" | "restored") {
+    setScreenerResult(response);
+    setScanHistory((current) => saveScanHistory(response, current));
+    setSelectedSymbol(response.shortlisted_symbols[0] ?? response.buy_candidate_symbols[0] ?? response.watch_candidate_symbols[0] ?? null);
+    setDetailViewOpen(false);
+    setLastScanLabel(source === "restored" ? "Restored from saved" : null);
   }
 
   return (
@@ -138,6 +190,7 @@ export default function App() {
         <DashboardHeader
           isLoading={isLoading}
           lastScanAt={screenerResult?.analysis?.generated_at ?? null}
+          lastScanLabel={lastScanLabel}
           marketStatus={marketStatus}
           search={filters.search}
           onSearchChange={(value) => setFilters((current) => ({ ...current, search: value }))}
@@ -196,7 +249,24 @@ export default function App() {
               </section>
             ) : null}
 
-            <FilterBar filters={filters} onChange={setFilters} />
+            {!showAllAnalyzedStocks ? <FilterBar filters={filters} onChange={setFilters} /> : null}
+
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+              <button
+                type="button"
+                className={`button ${!showAllAnalyzedStocks ? "primary-button" : ""}`}
+                onClick={() => setShowAllAnalyzedStocks(false)}
+              >
+                Shortlisted ({screenerResult?.shortlisted_symbols.length ?? 0})
+              </button>
+              <button
+                type="button"
+                className={`button ${showAllAnalyzedStocks ? "primary-button" : ""}`}
+                onClick={() => setShowAllAnalyzedStocks(true)}
+              >
+                All Analyzed ({screenerResult?.all_analyzed_stocks?.length ?? 0})
+              </button>
+            </div>
 
             {isLoading ? (
               <section className="panel loading-state">
@@ -210,24 +280,38 @@ export default function App() {
             ) : null}
 
             {error ? (
-              <section className="panel error-state">
-                <h2>Scanner request failed</h2>
-                <p>{error}</p>
-                <button type="button" className="button primary-button" onClick={handleRunScanner}>
-                  Retry scan
-                </button>
-              </section>
+              <div style={{
+                background: "#fee2e2",
+                border: "1px solid #f87171",
+                borderRadius: "8px",
+                padding: "12px 16px",
+                color: "#991b1b",
+                fontWeight: 600,
+                fontSize: "14px",
+                margin: "12px 0"
+              }}>
+                <div>{error}</div>
+                <div style={{ marginTop: 8 }}>
+                  <button type="button" className="button primary-button" onClick={handleRunScanner}>
+                    Retry scan
+                  </button>
+                </div>
+              </div>
             ) : null}
 
             {!isLoading && !error ? (
-              <CandidateTable
-                rows={filteredRows}
-                selectedSymbol={selectedRow?.symbol ?? null}
-                onSelect={(symbol) => {
-                  setSelectedSymbol(symbol);
-                  setDetailViewOpen(true);
-                }}
-              />
+              showAllAnalyzedStocks ? (
+                <AllAnalyzedStocksTable stocks={screenerResult?.all_analyzed_stocks ?? []} />
+              ) : (
+                <CandidateTable
+                  rows={filteredRows}
+                  selectedSymbol={selectedRow?.symbol ?? null}
+                  onSelect={(symbol) => {
+                    setSelectedSymbol(symbol);
+                    setDetailViewOpen(true);
+                  }}
+                />
+              )
             ) : null}
 
             {!screenerResult && !isLoading && !error ? (
@@ -264,10 +348,6 @@ export default function App() {
 
             <ScanHistoryPanel
               history={scanHistory}
-              onSelect={(symbol) => {
-                setSelectedSymbol(symbol);
-                setDetailViewOpen(true);
-              }}
             />
           </main>
         )}
@@ -365,10 +445,8 @@ function saveScanHistory(response: ScreenerResponse, current: ScanHistoryItem[])
 
 function ScanHistoryPanel({
   history,
-  onSelect,
 }: {
   history: ScanHistoryItem[];
-  onSelect: (symbol: string) => void;
 }) {
   if (!history.length) {
     return null;
@@ -390,9 +468,9 @@ function ScanHistoryPanel({
             </div>
             <div className="scan-history-symbols">
               {[...item.buy_symbols, ...item.watch_symbols].slice(0, 6).map((symbol) => (
-                <button key={`${item.id}-${symbol}`} type="button" className="helper-chip" onClick={() => onSelect(symbol)}>
+                <span key={`${item.id}-${symbol}`} className="helper-chip">
                   {symbol}
-                </button>
+                </span>
               ))}
             </div>
           </article>

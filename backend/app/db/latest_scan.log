@@ -1,0 +1,1516 @@
+2026-05-05 07:20:26 | INFO | ============================================================
+2026-05-05 07:20:26 | INFO | SCAN START | symbols=755 | lookback=180 | stage=NIFTY 500
+2026-05-05 07:20:26 | INFO | ============================================================
+2026-05-05 07:20:27 | INFO | CANDLE CHECK | symbol=ABB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:27 | INFO | SKIP data_quality_failed | symbol=ABB-EQ | candles=0
+2026-05-05 07:20:27 | INFO | CANDLE CHECK | symbol=ACC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:27 | INFO | SKIP data_quality_failed | symbol=ACC-EQ | candles=0
+2026-05-05 07:20:27 | INFO | CANDLE CHECK | symbol=360ONE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:27 | INFO | CANDLE CHECK | symbol=3MINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:27 | INFO | SKIP data_quality_failed | symbol=360ONE-EQ | candles=0
+2026-05-05 07:20:27 | INFO | SKIP data_quality_failed | symbol=3MINDIA-EQ | candles=0
+2026-05-05 07:20:27 | INFO | CANDLE CHECK | symbol=AIAENG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:27 | INFO | SKIP data_quality_failed | symbol=AIAENG-EQ | candles=0
+2026-05-05 07:20:27 | INFO | CANDLEl CHECK | symbol=ACMESOLAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:27 | INFO | SKIP data_quality_failed | symbol=ACMESOLAR-EQ | candles=0
+2026-05-05 07:20:28 | INFO | CANDLE CHECK | symbol=APLAPOLLO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:28 | INFO | SKIP data_quality_failed | symbol=APLAPOLLO-EQ | candles=0
+2026-05-05 07:20:28 | INFO | CANDLE CHECK | symbol=ASKAUTOLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:28 | INFO | SKIP data_quality_failed | symbol=ASKAUTOLTD-EQ | candles=0
+2026-05-05 07:20:28 | INFO | CANDLE CHECK | symbol=AUBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:28 | INFO | SKIP data_quality_failed | symbol=AUBANK-EQ | candles=0
+2026-05-05 07:20:28 | INFO | CANDLE CHECK | symbol=AWL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:28 | INFO | SKIP data_quality_failed | symbol=AWL-EQ | candles=0
+2026-05-05 07:20:28 | INFO | CANDLE CHECK | symbol=AXISCADES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:28 | INFO | SKIP data_quality_failed | symbol=AXISCADES-EQ | candles=0
+2026-05-05 07:20:28 | INFO | CANDLE CHECK | symbol=AADHARHFC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:28 | INFO | SKIP data_quality_failed | symbol=AADHARHFC-EQ | candles=0
+2026-05-05 07:20:29 | INFO | CANDLE CHECK | symbol=AARTIDRUGS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:29 | INFO | SKIP data_quality_failed | symbol=AARTIDRUGS-EQ | candles=0
+2026-05-05 07:20:30 | INFO | CANDLE CHECK | symbol=AAVAS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:30 | INFO | SKIP data_quality_failed | symbol=AAVAS-EQ | candles=0
+2026-05-05 07:20:30 | INFO | CANDLE CHECK | symbol=ABBOTINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:30 | INFO | SKIP data_quality_failed | symbol=ABBOTINDIA-EQ | candles=0
+2026-05-05 07:20:30 | INFO | CANDLE CHECK | symbol=AARTIIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:30 | INFO | SKIP data_quality_failed | symbol=AARTIIND-EQ | candles=0
+2026-05-05 07:20:30 | INFO | CANDLE CHECK | symbol=AARTIPHARM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:30 | INFO | SKIP data_quality_failed | symbol=AARTIPHARM-EQ | candles=0
+2026-05-05 07:20:30 | INFO | CANDLE CHECK | symbol=ACE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:30 | INFO | SKIP data_quality_failed | symbol=ACE-EQ | candles=0
+2026-05-05 07:20:30 | INFO | CANDLE CHECK | symbol=ACUTAAS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:30 | INFO | SKIP data_quality_failed | symbol=ACUTAAS-EQ | candles=0
+2026-05-05 07:20:31 | INFO | CANDLE CHECK | symbol=ADANIENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:31 | INFO | CANDLE CHECK | symbol=ADANIENSOL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:31 | INFO | SKIP data_quality_failed | symbol=ADANIENT-EQ | candles=0
+2026-05-05 07:20:31 | INFO | SKIP data_quality_failed | symbol=ADANIENSOL-EQ | candles=0
+2026-05-05 07:20:31 | INFO | CANDLE CHECK | symbol=ADANIPORTS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:31 | INFO | CANDLE CHECK | symbol=ADANIGREEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:31 | INFO | SKIP data_quality_failed | symbol=ADANIPORTS-EQ | candles=0
+2026-05-05 07:20:31 | INFO | SKIP data_quality_failed | symbol=ADANIGREEN-EQ | candles=0
+2026-05-05 07:20:31 | INFO | CANDLE CHECK | symbol=ADANIPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:31 | INFO | SKIP data_quality_failed | symbol=ADANIPOWER-EQ | candles=0
+2026-05-05 07:20:31 | INFO | CANDLE CHECK | symbol=ATGL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:31 | INFO | SKIP data_quality_failed | symbol=ATGL-EQ | candles=0
+2026-05-05 07:20:32 | INFO | CANDLE CHECK | symbol=ABFRL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:32 | INFO | CANDLE CHECK | symbol=ABCAPITAL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:32 | INFO | SKIP data_quality_failed | symbol=ABFRL-EQ | candles=0
+2026-05-05 07:20:32 | INFO | SKIP data_quality_failed | symbol=ABCAPITAL-EQ | candles=0
+2026-05-05 07:20:32 | INFO | CANDLE CHECK | symbol=ABREL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:32 | INFO | SKIP data_quality_failed | symbol=ABREL-EQ | candles=0
+2026-05-05 07:20:32 | INFO | CANDLE CHECK | symbol=ABLBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:32 | INFO | SKIP data_quality_failed | symbol=ABLBL-EQ | candles=0
+2026-05-05 07:20:32 | INFO | CANDLE CHECK | symbol=ABSLAMC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:32 | INFO | SKIP data_quality_failed | symbol=ABSLAMC-EQ | candles=0
+2026-05-05 07:20:33 | INFO | CANDLE CHECK | symbol=CPPLUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:33 | INFO | SKIP data_quality_failed | symbol=CPPLUS-EQ | candles=0
+2026-05-05 07:20:33 | INFO | CANDLE CHECK | symbol=ADVENZYMES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:33 | INFO | SKIP data_quality_failed | symbol=ADVENZYMES-EQ | candles=0
+2026-05-05 07:20:33 | INFO | CANDLE CHECK | symbol=AVL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:33 | INFO | SKIP data_quality_failed | symbol=AVL-EQ | candles=0
+2026-05-05 07:20:33 | INFO | CANDLE CHECK | symbol=AEGISLOG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:33 | INFO | SKIP data_quality_failed | symbol=AEGISLOG-EQ | candles=0
+2026-05-05 07:20:33 | INFO | CANDLE CHECK | symbol=AEGISVOPAK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:33 | INFO | SKIP data_quality_failed | symbol=AEGISVOPAK-EQ | candles=0
+2026-05-05 07:20:33 | INFO | CANDLE CHECK | symbol=AEQUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:33 | INFO | SKIP data_quality_failed | symbol=AEQUS-EQ | candles=0
+2026-05-05 07:20:34 | INFO | CANDLE CHECK | symbol=AETHER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:34 | INFO | SKIP data_quality_failed | symbol=AETHER-EQ | candles=0
+2026-05-05 07:20:34 | INFO | CANDLE CHECK | symbol=AFCONS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:34 | INFO | CANDLE CHECK | symbol=AFFLE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:34 | INFO | SKIP data_quality_failed | symbol=AFCONS-EQ | candles=0
+2026-05-05 07:20:34 | INFO | SKIP data_quality_failed | symbol=AFFLE-EQ | candles=0
+2026-05-05 07:20:35 | INFO | CANDLE CHECK | symbol=APLLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:35 | INFO | SKIP data_quality_failed | symbol=APLLTD-EQ | candles=0
+2026-05-05 07:20:35 | INFO | CANDLE CHECK | symbol=AHLUCONT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:35 | INFO | SKIP data_quality_failed | symbol=AHLUCONT-EQ | candles=0
+2026-05-05 07:20:35 | INFO | CANDLE CHECK | symbol=AJANTPHARM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:35 | INFO | SKIP data_quality_failed | symbol=AJANTPHARM-EQ | candles=0
+2026-05-05 07:20:35 | INFO | CANDLE CHECK | symbol=AKUMS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:35 | INFO | SKIP data_quality_failed | symbol=AKUMS-EQ | candles=0
+2026-05-05 07:20:35 | INFO | CANDLE CHECK | symbol=ALKEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:35 | INFO | SKIP data_quality_failed | symbol=ALKEM-EQ | candles=0
+2026-05-05 07:20:35 | INFO | CANDLE CHECK | symbol=ALIVUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:35 | INFO | SKIP data_quality_failed | symbol=ALIVUS-EQ | candles=0
+2026-05-05 07:20:36 | INFO | CANDLE CHECK | symbol=ALKYLAMINE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:36 | INFO | SKIP data_quality_failed | symbol=ALKYLAMINE-EQ | candles=0
+2026-05-05 07:20:36 | INFO | CANDLE CHECK | symbol=ALOKINDS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:36 | INFO | CANDLE CHECK | symbol=ABDL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:36 | INFO | SKIP data_quality_failed | symbol=ALOKINDS-EQ | candles=0
+2026-05-05 07:20:36 | INFO | SKIP data_quality_failed | symbol=ABDL-EQ | candles=0
+2026-05-05 07:20:36 | INFO | CANDLE CHECK | symbol=ARE&M-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:36 | INFO | SKIP data_quality_failed | symbol=ARE&M-EQ | candles=0
+2026-05-05 07:20:37 | INFO | CANDLE CHECK | symbol=AMBER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:37 | INFO | SKIP data_quality_failed | symbol=AMBER-EQ | candles=0
+2026-05-05 07:20:37 | INFO | CANDLE CHECK | symbol=AMBUJACEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:37 | INFO | SKIP data_quality_failed | symbol=AMBUJACEM-EQ | candles=0
+2026-05-05 07:20:37 | INFO | CANDLE CHECK | symbol=ANANDRATHI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:37 | INFO | SKIP data_quality_failed | symbol=ANANDRATHI-EQ | candles=0
+2026-05-05 07:20:38 | INFO | CANDLE CHECK | symbol=ANURAS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:38 | INFO | SKIP data_quality_failed | symbol=ANURAS-EQ | candles=0
+2026-05-05 07:20:38 | INFO | CANDLE CHECK | symbol=APARINDS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:38 | INFO | SKIP data_quality_failed | symbol=APARINDS-EQ | candles=0
+2026-05-05 07:20:38 | INFO | CANDLE CHECK | symbol=ANANTRAJ-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:38 | INFO | SKIP data_quality_failed | symbol=ANANTRAJ-EQ | candles=0
+2026-05-05 07:20:38 | INFO | CANDLE CHECK | symbol=ANTHEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:38 | INFO | SKIP data_quality_failed | symbol=ANTHEM-EQ | candles=0
+2026-05-05 07:20:38 | INFO | CANDLE CHECK | symbol=ANGELONE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:38 | INFO | SKIP data_quality_failed | symbol=ANGELONE-EQ | candles=0
+2026-05-05 07:20:39 | INFO | CANDLE CHECK | symbol=APOLLOHOSP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:39 | INFO | SKIP data_quality_failed | symbol=APOLLOHOSP-EQ | candles=0
+2026-05-05 07:20:39 | INFO | CANDLE CHECK | symbol=APOLLO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:39 | INFO | SKIP data_quality_failed | symbol=APOLLO-EQ | candles=0
+2026-05-05 07:20:39 | INFO | CANDLE CHECK | symbol=APOLLOTYRE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:39 | INFO | SKIP data_quality_failed | symbol=APOLLOTYRE-EQ | candles=0
+2026-05-05 07:20:39 | INFO | CANDLE CHECK | symbol=APTUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:39 | INFO | SKIP data_quality_failed | symbol=APTUS-EQ | candles=0
+2026-05-05 07:20:39 | INFO | CANDLE CHECK | symbol=ACI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:39 | INFO | SKIP data_quality_failed | symbol=ACI-EQ | candles=0
+2026-05-05 07:20:39 | INFO | CANDLE CHECK | symbol=ARVINDFASN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:39 | INFO | SKIP data_quality_failed | symbol=ARVINDFASN-EQ | candles=0
+2026-05-05 07:20:40 | INFO | CANDLE CHECK | symbol=ARVIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:40 | INFO | SKIP data_quality_failed | symbol=ARVIND-EQ | candles=0
+2026-05-05 07:20:40 | INFO | CANDLE CHECK | symbol=ASAHIINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:40 | INFO | SKIP data_quality_failed | symbol=ASAHIINDIA-EQ | candles=0
+2026-05-05 07:20:40 | INFO | CANDLE CHECK | symbol=ASHAPURMIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:40 | INFO | SKIP data_quality_failed | symbol=ASHAPURMIN-EQ | candles=0
+2026-05-05 07:20:40 | INFO | CANDLE CHECK | symbol=ASIANPAINT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:40 | INFO | SKIP data_quality_failed | symbol=ASIANPAINT-EQ | candles=0
+2026-05-05 07:20:40 | INFO | CANDLE CHECK | symbol=ASHOKA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:40 | INFO | SKIP data_quality_failed | symbol=ASHOKA-EQ | candles=0
+2026-05-05 07:20:40 | INFO | CANDLE CHECK | symbol=ASHOKLEY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:41 | INFO | SKIP data_quality_failed | symbol=ASHOKLEY-EQ | candles=0
+2026-05-05 07:20:41 | INFO | CANDLE CHECK | symbol=ASTERDM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:41 | INFO | SKIP data_quality_failed | symbol=ASTERDM-EQ | candles=0
+2026-05-05 07:20:41 | INFO | CANDLE CHECK | symbol=ASTRAMICRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:41 | INFO | SKIP data_quality_failed | symbol=ASTRAMICRO-EQ | candles=0
+2026-05-05 07:20:41 | INFO | CANDLE CHECK | symbol=ASTRAL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:41 | INFO | SKIP data_quality_failed | symbol=ASTRAL-EQ | candles=0
+2026-05-05 07:20:42 | INFO | CANDLE CHECK | symbol=ATLANTAELE-BE | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:42 | INFO | SKIP data_quality_failed | symbol=ATLANTAELE-BE | candles=0
+2026-05-05 07:20:42 | INFO | CANDLE CHECK | symbol=ATHERENERG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:42 | INFO | SKIP data_quality_failed | symbol=ATHERENERG-EQ | candles=0
+2026-05-05 07:20:42 | INFO | CANDLE CHECK | symbol=ATUL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:42 | INFO | SKIP data_quality_failed | symbol=ATUL-EQ | candles=0
+2026-05-05 07:20:42 | INFO | CANDLE CHECK | symbol=AURIONPRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:42 | INFO | SKIP data_quality_failed | symbol=AURIONPRO-EQ | candles=0
+2026-05-05 07:20:42 | INFO | CANDLE CHECK | symbol=AUROPHARMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:42 | INFO | SKIP data_quality_failed | symbol=AUROPHARMA-EQ | candles=0
+2026-05-05 07:20:42 | INFO | CANDLE CHECK | symbol=AIIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:42 | INFO | SKIP data_quality_failed | symbol=AIIL-EQ | candles=0
+2026-05-05 07:20:43 | INFO | CANDLE CHECK | symbol=AVALON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:43 | INFO | SKIP data_quality_failed | symbol=AVALON-EQ | candles=0
+2026-05-05 07:20:43 | INFO | CANDLE CHECK | symbol=AVANTIFEED-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:43 | INFO | SKIP data_quality_failed | symbol=AVANTIFEED-EQ | candles=0
+2026-05-05 07:20:43 | INFO | CANDLE CHECK | symbol=DMART-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:43 | INFO | SKIP data_quality_failed | symbol=DMART-EQ | candles=0
+2026-05-05 07:20:43 | INFO | CANDLE CHECK | symbol=CCAVENUE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:43 | INFO | SKIP data_quality_failed | symbol=CCAVENUE-EQ | candles=0
+2026-05-05 07:20:43 | INFO | CANDLE CHECK | symbol=AWFIS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:43 | INFO | SKIP data_quality_failed | symbol=AWFIS-EQ | candles=0
+2026-05-05 07:20:43 | INFO | CANDLE CHECK | symbol=AXISBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:43 | INFO | SKIP data_quality_failed | symbol=AXISBANK-EQ | candles=0
+2026-05-05 07:20:44 | INFO | CANDLE CHECK | symbol=AZAD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:44 | INFO | SKIP data_quality_failed | symbol=AZAD-EQ | candles=0
+2026-05-05 07:20:44 | INFO | CANDLE CHECK | symbol=BLS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:44 | INFO | SKIP data_quality_failed | symbol=BLS-EQ | candles=0
+2026-05-05 07:20:44 | INFO | CANDLE CHECK | symbol=BEML-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:44 | INFO | SKIP data_quality_failed | symbol=BEML-EQ | candles=0
+2026-05-05 07:20:44 | INFO | CANDLE CHECK | symbol=BSE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:44 | INFO | SKIP data_quality_failed | symbol=BSE-EQ | candles=0
+2026-05-05 07:20:44 | INFO | CANDLE CHECK | symbol=BAJAJ-AUTO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:44 | INFO | SKIP data_quality_failed | symbol=BAJAJ-AUTO-EQ | candles=0
+2026-05-05 07:20:44 | INFO | CANDLE CHECK | symbol=BAJAJELEC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:44 | INFO | SKIP data_quality_failed | symbol=BAJAJELEC-EQ | candles=0
+2026-05-05 07:20:45 | INFO | CANDLE CHECK | symbol=BAJFINANCE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:45 | INFO | SKIP data_quality_failed | symbol=BAJFINANCE-EQ | candles=0
+2026-05-05 07:20:45 | INFO | CANDLE CHECK | symbol=BAJAJFINSV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:45 | INFO | SKIP data_quality_failed | symbol=BAJAJFINSV-EQ | candles=0
+2026-05-05 07:20:45 | INFO | CANDLE CHECK | symbol=BAJAJHLDNG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:45 | INFO | SKIP data_quality_failed | symbol=BAJAJHLDNG-EQ | candles=0
+2026-05-05 07:20:45 | INFO | CANDLE CHECK | symbol=BAJAJHFL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:45 | INFO | SKIP data_quality_failed | symbol=BAJAJHFL-EQ | candles=0
+2026-05-05 07:20:45 | INFO | CANDLE CHECK | symbol=BALKRISIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:45 | INFO | SKIP data_quality_failed | symbol=BALKRISIND-EQ | candles=0
+2026-05-05 07:20:46 | INFO | CANDLE CHECK | symbol=BALAMINES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:46 | INFO | SKIP data_quality_failed | symbol=BALAMINES-EQ | candles=0
+2026-05-05 07:20:46 | INFO | CANDLE CHECK | symbol=BALRAMCHIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:46 | INFO | SKIP data_quality_failed | symbol=BALRAMCHIN-EQ | candles=0
+2026-05-05 07:20:46 | INFO | CANDLE CHECK | symbol=BALUFORGE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:46 | INFO | SKIP data_quality_failed | symbol=BALUFORGE-EQ | candles=0
+2026-05-05 07:20:46 | INFO | CANDLE CHECK | symbol=BANDHANBNK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:46 | INFO | SKIP data_quality_failed | symbol=BANDHANBNK-EQ | candles=0
+2026-05-05 07:20:46 | INFO | CANDLE CHECK | symbol=BANCOINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:46 | INFO | SKIP data_quality_failed | symbol=BANCOINDIA-EQ | candles=0
+2026-05-05 07:20:47 | INFO | CANDLE CHECK | symbol=BANKBARODA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:47 | INFO | SKIP data_quality_failed | symbol=BANKBARODA-EQ | candles=0
+2026-05-05 07:20:47 | INFO | CANDLE CHECK | symbol=BANKINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:47 | INFO | SKIP data_quality_failed | symbol=BANKINDIA-EQ | candles=0
+2026-05-05 07:20:48 | INFO | CANDLE CHECK | symbol=BAYERCROP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:48 | INFO | CANDLE CHECK | symbol=MAHABANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:48 | INFO | SKIP data_quality_failed | symbol=BAYERCROP-EQ | candles=0
+2026-05-05 07:20:48 | INFO | SKIP data_quality_failed | symbol=MAHABANK-EQ | candles=0
+2026-05-05 07:20:48 | INFO | CANDLE CHECK | symbol=BATAINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:48 | INFO | SKIP data_quality_failed | symbol=BATAINDIA-EQ | candles=0
+2026-05-05 07:20:48 | INFO | CANDLE CHECK | symbol=BERGEPAINT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:48 | INFO | CANDLE CHECK | symbol=BELRISE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:48 | INFO | SKIP data_quality_failed | symbol=BERGEPAINT-EQ | candles=0
+2026-05-05 07:20:48 | INFO | SKIP data_quality_failed | symbol=BELRISE-EQ | candles=0
+2026-05-05 07:20:48 | INFO | CANDLE CHECK | symbol=BDL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:48 | INFO | SKIP data_quality_failed | symbol=BDL-EQ | candles=0
+2026-05-05 07:20:49 | INFO | CANDLE CHECK | symbol=BEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:49 | INFO | SKIP data_quality_failed | symbol=BEL-EQ | candles=0
+2026-05-05 07:20:49 | INFO | CANDLE CHECK | symbol=BHARATFORG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:49 | INFO | SKIP data_quality_failed | symbol=BHARATFORG-EQ | candles=0
+2026-05-05 07:20:49 | INFO | CANDLE CHECK | symbol=BHEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:49 | INFO | SKIP data_quality_failed | symbol=BHEL-EQ | candles=0
+2026-05-05 07:20:49 | INFO | CANDLE CHECK | symbol=BPCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:49 | INFO | SKIP data_quality_failed | symbol=BPCL-EQ | candles=0
+2026-05-05 07:20:49 | INFO | CANDLE CHECK | symbol=BHARTIARTL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:49 | INFO | SKIP data_quality_failed | symbol=BHARTIARTL-EQ | candles=0
+2026-05-05 07:20:49 | INFO | CANDLE CHECK | symbol=BHARTIHEXA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:49 | INFO | SKIP data_quality_failed | symbol=BHARTIHEXA-EQ | candles=0
+2026-05-05 07:20:50 | INFO | CANDLE CHECK | symbol=BIKAJI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:50 | INFO | SKIP data_quality_failed | symbol=BIKAJI-EQ | candles=0
+2026-05-05 07:20:50 | INFO | CANDLE CHECK | symbol=GROWW-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:50 | INFO | SKIP data_quality_failed | symbol=GROWW-EQ | candles=0
+2026-05-05 07:20:50 | INFO | CANDLE CHECK | symbol=BIOCON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:50 | INFO | SKIP data_quality_failed | symbol=BIOCON-EQ | candles=0
+2026-05-05 07:20:50 | INFO | CANDLE CHECK | symbol=BIRLACORPN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:50 | INFO | SKIP data_quality_failed | symbol=BIRLACORPN-EQ | candles=0
+2026-05-05 07:20:50 | INFO | CANDLE CHECK | symbol=BSOFT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:50 | INFO | SKIP data_quality_failed | symbol=BSOFT-EQ | candles=0
+2026-05-05 07:20:50 | INFO | CANDLE CHECK | symbol=BBOX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:50 | INFO | SKIP data_quality_failed | symbol=BBOX-EQ | candles=0
+2026-05-05 07:20:51 | INFO | CANDLE CHECK | symbol=BLACKBUCK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:51 | INFO | SKIP data_quality_failed | symbol=BLACKBUCK-EQ | candles=0
+2026-05-05 07:20:51 | INFO | CANDLE CHECK | symbol=BLUEDART-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:51 | INFO | SKIP data_quality_failed | symbol=BLUEDART-EQ | candles=0
+2026-05-05 07:20:51 | INFO | CANDLE CHECK | symbol=BLUEJET-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:51 | INFO | SKIP data_quality_failed | symbol=BLUEJET-EQ | candles=0
+2026-05-05 07:20:51 | INFO | CANDLE CHECK | symbol=BLUESTONE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:51 | INFO | SKIP data_quality_failed | symbol=BLUESTONE-EQ | candles=0
+2026-05-05 07:20:51 | INFO | CANDLE CHECK | symbol=BBTC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:51 | INFO | SKIP data_quality_failed | symbol=BBTC-EQ | candles=0
+2026-05-05 07:20:51 | INFO | CANDLE CHECK | symbol=BLUESTARCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:51 | INFO | SKIP data_quality_failed | symbol=BLUESTARCO-EQ | candles=0
+2026-05-05 07:20:52 | INFO | CANDLE CHECK | symbol=BOSCHLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:52 | INFO | SKIP data_quality_failed | symbol=BOSCHLTD-EQ | candles=0
+2026-05-05 07:20:52 | INFO | CANDLE CHECK | symbol=FIRSTCRY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:52 | INFO | SKIP data_quality_failed | symbol=FIRSTCRY-EQ | candles=0
+2026-05-05 07:20:52 | INFO | CANDLE CHECK | symbol=BRIGADE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:52 | INFO | CANDLE CHECK | symbol=BRITANNIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:52 | INFO | SKIP data_quality_failed | symbol=BRIGADE-EQ | candles=0
+2026-05-05 07:20:52 | INFO | SKIP data_quality_failed | symbol=BRITANNIA-EQ | candles=0
+2026-05-05 07:20:52 | INFO | CANDLE CHECK | symbol=MAPMYINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:52 | INFO | SKIP data_quality_failed | symbol=MAPMYINDIA-EQ | candles=0
+2026-05-05 07:20:53 | INFO | CANDLE CHECK | symbol=CCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:53 | INFO | SKIP data_quality_failed | symbol=CCL-EQ | candles=0
+2026-05-05 07:20:53 | INFO | CANDLE CHECK | symbol=CESC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:53 | INFO | SKIP data_quality_failed | symbol=CESC-EQ | candles=0
+2026-05-05 07:20:53 | INFO | CANDLE CHECK | symbol=BORORENEW-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:53 | INFO | SKIP data_quality_failed | symbol=BORORENEW-EQ | candles=0
+2026-05-05 07:20:54 | INFO | CANDLE CHECK | symbol=CMSINFO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:54 | INFO | SKIP data_quality_failed | symbol=CMSINFO-EQ | candles=0
+2026-05-05 07:20:54 | INFO | CANDLE CHECK | symbol=CGPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:54 | INFO | SKIP data_quality_failed | symbol=CGPOWER-EQ | candles=0
+2026-05-05 07:20:54 | INFO | CANDLE CHECK | symbol=CORONA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:54 | INFO | CANDLE CHECK | symbol=CRISIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:54 | INFO | SKIP data_quality_failed | symbol=CORONA-EQ | candles=0
+2026-05-05 07:20:54 | INFO | SKIP data_quality_failed | symbol=CRISIL-EQ | candles=0
+2026-05-05 07:20:55 | INFO | CANDLE CHECK | symbol=CIEINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:55 | INFO | SKIP data_quality_failed | symbol=CIEINDIA-EQ | candles=0
+2026-05-05 07:20:55 | INFO | CANDLE CHECK | symbol=CSBBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:55 | INFO | SKIP data_quality_failed | symbol=CSBBANK-EQ | candles=0
+2026-05-05 07:20:55 | INFO | CANDLE CHECK | symbol=CAMPUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:55 | INFO | SKIP data_quality_failed | symbol=CAMPUS-EQ | candles=0
+2026-05-05 07:20:55 | INFO | CANDLE CHECK | symbol=CANFINHOME-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:55 | INFO | SKIP data_quality_failed | symbol=CANFINHOME-EQ | candles=0
+2026-05-05 07:20:56 | INFO | CANDLE CHECK | symbol=CAPILLARY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:56 | INFO | SKIP data_quality_failed | symbol=CAPILLARY-EQ | candles=0
+2026-05-05 07:20:56 | INFO | CANDLE CHECK | symbol=CANHLIFE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:56 | INFO | SKIP data_quality_failed | symbol=CANHLIFE-EQ | candles=0
+2026-05-05 07:20:56 | INFO | CANDLE CHECK | symbol=CRAMC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:56 | INFO | SKIP data_quality_failed | symbol=CRAMC-EQ | candles=0
+2026-05-05 07:20:56 | INFO | CANDLE CHECK | symbol=CANBK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:56 | INFO | SKIP data_quality_failed | symbol=CANBK-EQ | candles=0
+2026-05-05 07:20:56 | INFO | CANDLE CHECK | symbol=CAPLIPOINT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:56 | INFO | SKIP data_quality_failed | symbol=CAPLIPOINT-EQ | candles=0
+2026-05-05 07:20:56 | INFO | CANDLE CHECK | symbol=CGCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:56 | INFO | SKIP data_quality_failed | symbol=CGCL-EQ | candles=0
+2026-05-05 07:20:57 | INFO | CANDLE CHECK | symbol=CARBORUNIV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:57 | INFO | SKIP data_quality_failed | symbol=CARBORUNIV-EQ | candles=0
+2026-05-05 07:20:57 | INFO | CANDLE CHECK | symbol=CARTRADE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:57 | INFO | CANDLE CHECK | symbol=CASTROLIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:57 | INFO | SKIP data_quality_failed | symbol=CARTRADE-EQ | candles=0
+2026-05-05 07:20:57 | INFO | SKIP data_quality_failed | symbol=CASTROLIND-EQ | candles=0
+2026-05-05 07:20:57 | INFO | CANDLE CHECK | symbol=CEATLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:57 | INFO | SKIP data_quality_failed | symbol=CEATLTD-EQ | candles=0
+2026-05-05 07:20:57 | INFO | CANDLE CHECK | symbol=CELLO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:57 | INFO | SKIP data_quality_failed | symbol=CELLO-EQ | candles=0
+2026-05-05 07:20:57 | INFO | CANDLE CHECK | symbol=CEMPRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:57 | INFO | SKIP data_quality_failed | symbol=CEMPRO-EQ | candles=0
+2026-05-05 07:20:58 | INFO | CANDLE CHECK | symbol=CDSL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:58 | INFO | SKIP data_quality_failed | symbol=CDSL-EQ | candles=0
+2026-05-05 07:20:58 | INFO | CANDLE CHECK | symbol=CENTRALBK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:58 | INFO | CANDLE CHECK | symbol=CENTURYPLY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:58 | INFO | SKIP data_quality_failed | symbol=CENTRALBK-EQ | candles=0
+2026-05-05 07:20:58 | INFO | SKIP data_quality_failed | symbol=CENTURYPLY-EQ | candles=0
+2026-05-05 07:20:58 | INFO | CANDLE CHECK | symbol=CERA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:58 | INFO | SKIP data_quality_failed | symbol=CERA-EQ | candles=0
+2026-05-05 07:20:58 | INFO | CANDLE CHECK | symbol=CHALET-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:58 | INFO | SKIP data_quality_failed | symbol=CHALET-EQ | candles=0
+2026-05-05 07:20:58 | INFO | CANDLE CHECK | symbol=CHAMBLFERT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:58 | INFO | SKIP data_quality_failed | symbol=CHAMBLFERT-EQ | candles=0
+2026-05-05 07:20:59 | INFO | CANDLE CHECK | symbol=CHOICEIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:59 | INFO | SKIP data_quality_failed | symbol=CHOICEIN-EQ | candles=0
+2026-05-05 07:20:59 | INFO | CANDLE CHECK | symbol=CHENNPETRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:59 | INFO | SKIP data_quality_failed | symbol=CHENNPETRO-EQ | candles=0
+2026-05-05 07:20:59 | INFO | CANDLE CHECK | symbol=CHOLAHLDNG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:59 | INFO | SKIP data_quality_failed | symbol=CHOLAHLDNG-EQ | candles=0
+2026-05-05 07:20:59 | INFO | CANDLE CHECK | symbol=CHOLAFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:59 | INFO | SKIP data_quality_failed | symbol=CHOLAFIN-EQ | candles=0
+2026-05-05 07:20:59 | INFO | CANDLE CHECK | symbol=CIPLA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:20:59 | INFO | SKIP data_quality_failed | symbol=CIPLA-EQ | candles=0
+2026-05-05 07:21:00 | INFO | CANDLE CHECK | symbol=CIGNITITEC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:00 | INFO | SKIP data_quality_failed | symbol=CIGNITITEC-EQ | candles=0
+2026-05-05 07:21:00 | INFO | CANDLE CHECK | symbol=CUB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:00 | INFO | SKIP data_quality_failed | symbol=CUB-EQ | candles=0
+2026-05-05 07:21:00 | INFO | CANDLE CHECK | symbol=CLEAN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:00 | INFO | SKIP data_quality_failed | symbol=CLEAN-EQ | candles=0
+2026-05-05 07:21:00 | INFO | CANDLE CHECK | symbol=COCHINSHIP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:00 | INFO | SKIP data_quality_failed | symbol=COCHINSHIP-EQ | candles=0
+2026-05-05 07:21:00 | INFO | CANDLE CHECK | symbol=COFORGE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:00 | INFO | SKIP data_quality_failed | symbol=COFORGE-EQ | candles=0
+2026-05-05 07:21:01 | INFO | CANDLE CHECK | symbol=COHANCE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:01 | INFO | SKIP data_quality_failed | symbol=COHANCE-EQ | candles=0
+2026-05-05 07:21:01 | INFO | CANDLE CHECK | symbol=COLPAL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:01 | INFO | SKIP data_quality_failed | symbol=COLPAL-EQ | candles=0
+2026-05-05 07:21:01 | INFO | CANDLE CHECK | symbol=CAMS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:01 | INFO | SKIP data_quality_failed | symbol=CAMS-EQ | candles=0
+2026-05-05 07:21:01 | INFO | CANDLE CHECK | symbol=CONCORDBIO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:01 | INFO | SKIP data_quality_failed | symbol=CONCORDBIO-EQ | candles=0
+2026-05-05 07:21:01 | INFO | CANDLE CHECK | symbol=CONCOR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:01 | INFO | SKIP data_quality_failed | symbol=CONCOR-EQ | candles=0
+2026-05-05 07:21:02 | INFO | CANDLE CHECK | symbol=COROMANDEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:02 | INFO | SKIP data_quality_failed | symbol=COROMANDEL-EQ | candles=0
+2026-05-05 07:21:02 | INFO | CANDLE CHECK | symbol=CRAFTSMAN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:02 | INFO | SKIP data_quality_failed | symbol=CRAFTSMAN-EQ | candles=0
+2026-05-05 07:21:02 | INFO | CANDLE CHECK | symbol=CREDITACC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:02 | INFO | SKIP data_quality_failed | symbol=CREDITACC-EQ | candles=0
+2026-05-05 07:21:02 | INFO | CANDLE CHECK | symbol=CRIZAC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:02 | INFO | SKIP data_quality_failed | symbol=CRIZAC-EQ | candles=0
+2026-05-05 07:21:02 | INFO | CANDLE CHECK | symbol=CROMPTON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:02 | INFO | SKIP data_quality_failed | symbol=CROMPTON-EQ | candles=0
+2026-05-05 07:21:03 | INFO | CANDLE CHECK | symbol=CUMMINSIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:03 | INFO | SKIP data_quality_failed | symbol=CUMMINSIND-EQ | candles=0
+2026-05-05 07:21:03 | INFO | CANDLE CHECK | symbol=CUPID-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:03 | INFO | SKIP data_quality_failed | symbol=CUPID-EQ | candles=0
+2026-05-05 07:21:03 | INFO | CANDLE CHECK | symbol=COALINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:03 | INFO | SKIP data_quality_failed | symbol=COALINDIA-EQ | candles=0
+2026-05-05 07:21:03 | INFO | CANDLE CHECK | symbol=CYIENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:03 | INFO | SKIP data_quality_failed | symbol=CYIENT-EQ | candles=0
+2026-05-05 07:21:03 | INFO | CANDLE CHECK | symbol=DCBBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:03 | INFO | SKIP data_quality_failed | symbol=DCBBANK-EQ | candles=0
+2026-05-05 07:21:04 | INFO | CANDLE CHECK | symbol=DLF-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:04 | INFO | SKIP data_quality_failed | symbol=DLF-EQ | candles=0
+2026-05-05 07:21:04 | INFO | CANDLE CHECK | symbol=DCMSHRIRAM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:04 | INFO | SKIP data_quality_failed | symbol=DCMSHRIRAM-EQ | candles=0
+2026-05-05 07:21:04 | INFO | CANDLE CHECK | symbol=DOMS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:04 | INFO | SKIP data_quality_failed | symbol=DOMS-EQ | candles=0
+2026-05-05 07:21:04 | INFO | CANDLE CHECK | symbol=DABUR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:04 | INFO | SKIP data_quality_failed | symbol=DABUR-EQ | candles=0
+2026-05-05 07:21:04 | INFO | CANDLE CHECK | symbol=DATAPATTNS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:04 | INFO | SKIP data_quality_failed | symbol=DATAPATTNS-EQ | candles=0
+2026-05-05 07:21:05 | INFO | CANDLE CHECK | symbol=DALBHARAT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:05 | INFO | SKIP data_quality_failed | symbol=DALBHARAT-EQ | candles=0
+2026-05-05 07:21:05 | INFO | CANDLE CHECK | symbol=DATAMATICS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:05 | INFO | SKIP data_quality_failed | symbol=DATAMATICS-EQ | candles=0
+2026-05-05 07:21:05 | INFO | CANDLE CHECK | symbol=DEEPAKNTR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:05 | INFO | SKIP data_quality_failed | symbol=DEEPAKNTR-EQ | candles=0
+2026-05-05 07:21:05 | INFO | CANDLE CHECK | symbol=DEEPAKFERT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:05 | INFO | SKIP data_quality_failed | symbol=DEEPAKFERT-EQ | candles=0
+2026-05-05 07:21:05 | INFO | CANDLE CHECK | symbol=DEVYANI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:05 | INFO | SKIP data_quality_failed | symbol=DEVYANI-EQ | candles=0
+2026-05-05 07:21:05 | INFO | CANDLE CHECK | symbol=DIACABS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:05 | INFO | SKIP data_quality_failed | symbol=DIACABS-EQ | candles=0
+2026-05-05 07:21:06 | INFO | CANDLE CHECK | symbol=DBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:06 | INFO | SKIP data_quality_failed | symbol=DBL-EQ | candles=0
+2026-05-05 07:21:06 | INFO | CANDLE CHECK | symbol=DELHIVERY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:06 | INFO | SKIP data_quality_failed | symbol=DELHIVERY-EQ | candles=0
+2026-05-05 07:21:06 | INFO | CANDLE CHECK | symbol=DIVISLAB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:06 | INFO | SKIP data_quality_failed | symbol=DIVISLAB-EQ | candles=0
+2026-05-05 07:21:06 | INFO | CANDLE CHECK | symbol=DIXON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:06 | INFO | SKIP data_quality_failed | symbol=DIXON-EQ | candles=0
+2026-05-05 07:21:06 | INFO | CANDLE CHECK | symbol=LALPATHLAB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:06 | INFO | SKIP data_quality_failed | symbol=LALPATHLAB-EQ | candles=0
+2026-05-05 07:21:07 | INFO | CANDLE CHECK | symbol=DUMMYALCAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:07 | INFO | SKIP data_quality_failed | symbol=DUMMYALCAR-EQ | candles=0
+2026-05-05 07:21:07 | INFO | CANDLE CHECK | symbol=DUMMYVEDL1-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:07 | INFO | SKIP data_quality_failed | symbol=DUMMYVEDL1-EQ | candles=0
+2026-05-05 07:21:07 | INFO | CANDLE CHECK | symbol=DRREDDY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:07 | INFO | SKIP data_quality_failed | symbol=DRREDDY-EQ | candles=0
+2026-05-05 07:21:07 | INFO | CANDLE CHECK | symbol=DUMMYVEDL3-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:07 | INFO | SKIP data_quality_failed | symbol=DUMMYVEDL3-EQ | candles=0
+2026-05-05 07:21:07 | INFO | CANDLE CHECK | symbol=DUMMYVEDL4-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:07 | INFO | SKIP data_quality_failed | symbol=DUMMYVEDL4-EQ | candles=0
+2026-05-05 07:21:07 | INFO | CANDLE CHECK | symbol=DYNAMATECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:07 | INFO | SKIP data_quality_failed | symbol=DYNAMATECH-EQ | candles=0
+2026-05-05 07:21:08 | INFO | CANDLE CHECK | symbol=DUMMYVEDL2-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:08 | INFO | SKIP data_quality_failed | symbol=DUMMYVEDL2-EQ | candles=0
+2026-05-05 07:21:08 | INFO | CANDLE CHECK | symbol=EIHOTEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:08 | INFO | SKIP data_quality_failed | symbol=EIHOTEL-EQ | candles=0
+2026-05-05 07:21:08 | INFO | CANDLE CHECK | symbol=EPL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:08 | INFO | SKIP data_quality_failed | symbol=EPL-EQ | candles=0
+2026-05-05 07:21:08 | INFO | CANDLE CHECK | symbol=EDELWEISS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:08 | INFO | SKIP data_quality_failed | symbol=EDELWEISS-EQ | candles=0
+2026-05-05 07:21:09 | INFO | CANDLE CHECK | symbol=EICHERMOT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:09 | INFO | SKIP data_quality_failed | symbol=EICHERMOT-EQ | candles=0
+2026-05-05 07:21:09 | INFO | CANDLE CHECK | symbol=ELECON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:09 | INFO | SKIP data_quality_failed | symbol=ELECON-EQ | candles=0
+2026-05-05 07:21:09 | INFO | CANDLE CHECK | symbol=EMIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:09 | INFO | SKIP data_quality_failed | symbol=EMIL-EQ | candles=0
+2026-05-05 07:21:09 | INFO | CANDLE CHECK | symbol=ELECTCAST-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:09 | INFO | SKIP data_quality_failed | symbol=ELECTCAST-EQ | candles=0
+2026-05-05 07:21:10 | INFO | CANDLE CHECK | symbol=EIDPARRY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:10 | INFO | SKIP data_quality_failed | symbol=EIDPARRY-EQ | candles=0
+2026-05-05 07:21:10 | INFO | CANDLE CHECK | symbol=ELGIEQUIP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:10 | INFO | SKIP data_quality_failed | symbol=ELGIEQUIP-EQ | candles=0
+2026-05-05 07:21:10 | INFO | CANDLE CHECK | symbol=AGARWALEYE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:10 | INFO | SKIP data_quality_failed | symbol=AGARWALEYE-EQ | candles=0
+2026-05-05 07:21:10 | INFO | CANDLE CHECK | symbol=ELLEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:10 | INFO | SKIP data_quality_failed | symbol=ELLEN-EQ | candles=0
+2026-05-05 07:21:10 | INFO | CANDLE CHECK | symbol=EMBDL-BE | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:10 | INFO | SKIP data_quality_failed | symbol=EMBDL-BE | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=EMAMILTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=EMAMILTD-EQ | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=EMCURE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=EMCURE-EQ | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=ENDURANCE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=ENDURANCE-EQ | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=EMMVEE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=EMMVEE-EQ | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=ENTERO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=ENTERO-EQ | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=ENGINERSIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=ENGINERSIN-EQ | candles=0
+2026-05-05 07:21:11 | INFO | CANDLE CHECK | symbol=ERIS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:11 | INFO | SKIP data_quality_failed | symbol=ERIS-EQ | candles=0
+2026-05-05 07:21:12 | INFO | CANDLE CHECK | symbol=EIEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:12 | INFO | SKIP data_quality_failed | symbol=EIEL-EQ | candles=0
+2026-05-05 07:21:12 | INFO | CANDLE CHECK | symbol=ETERNAL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:12 | INFO | SKIP data_quality_failed | symbol=ETERNAL-EQ | candles=0
+2026-05-05 07:21:12 | INFO | CANDLE CHECK | symbol=ETHOSLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:12 | INFO | SKIP data_quality_failed | symbol=ETHOSLTD-EQ | candles=0
+2026-05-05 07:21:12 | INFO | CANDLE CHECK | symbol=EUREKAFORB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:12 | INFO | SKIP data_quality_failed | symbol=EUREKAFORB-EQ | candles=0
+2026-05-05 07:21:13 | INFO | CANDLE CHECK | symbol=ESCORTS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:13 | INFO | SKIP data_quality_failed | symbol=ESCORTS-EQ | candles=0
+2026-05-05 07:21:13 | INFO | CANDLE CHECK | symbol=NYKAA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:13 | INFO | SKIP data_quality_failed | symbol=NYKAA-EQ | candles=0
+2026-05-05 07:21:13 | INFO | CANDLE CHECK | symbol=EQUITASBNK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:13 | INFO | SKIP data_quality_failed | symbol=EQUITASBNK-EQ | candles=0
+2026-05-05 07:21:13 | INFO | CANDLE CHECK | symbol=FEDFINA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:13 | INFO | SKIP data_quality_failed | symbol=FEDFINA-EQ | candles=0
+2026-05-05 07:21:13 | INFO | CANDLE CHECK | symbol=FEDERALBNK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:13 | INFO | SKIP data_quality_failed | symbol=FEDERALBNK-EQ | candles=0
+2026-05-05 07:21:14 | INFO | CANDLE CHECK | symbol=FACT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:14 | INFO | SKIP data_quality_failed | symbol=FACT-EQ | candles=0
+2026-05-05 07:21:14 | INFO | CANDLE CHECK | symbol=FIEMIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:14 | INFO | SKIP data_quality_failed | symbol=FIEMIND-EQ | candles=0
+2026-05-05 07:21:14 | INFO | CANDLE CHECK | symbol=FINCABLES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:14 | INFO | SKIP data_quality_failed | symbol=FINCABLES-EQ | candles=0
+2026-05-05 07:21:14 | INFO | CANDLE CHECK | symbol=FINPIPE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:14 | INFO | SKIP data_quality_failed | symbol=FINPIPE-EQ | candles=0
+2026-05-05 07:21:14 | INFO | CANDLE CHECK | symbol=FSL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:14 | INFO | SKIP data_quality_failed | symbol=FSL-EQ | candles=0
+2026-05-05 07:21:14 | INFO | CANDLE CHECK | symbol=FORCEMOT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:14 | INFO | SKIP data_quality_failed | symbol=FORCEMOT-EQ | candles=0
+2026-05-05 07:21:15 | INFO | CANDLE CHECK | symbol=FIVESTAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:15 | INFO | SKIP data_quality_failed | symbol=FIVESTAR-EQ | candles=0
+2026-05-05 07:21:15 | INFO | CANDLE CHECK | symbol=UTLSOLAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:15 | INFO | SKIP data_quality_failed | symbol=UTLSOLAR-EQ | candles=0
+2026-05-05 07:21:15 | INFO | CANDLE CHECK | symbol=GAIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:15 | INFO | SKIP data_quality_failed | symbol=GAIL-EQ | candles=0
+2026-05-05 07:21:15 | INFO | CANDLE CHECK | symbol=GVT&D-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:15 | INFO | SKIP data_quality_failed | symbol=GVT&D-EQ | candles=0
+2026-05-05 07:21:16 | INFO | CANDLE CHECK | symbol=GHCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:16 | INFO | SKIP data_quality_failed | symbol=GHCL-EQ | candles=0
+2026-05-05 07:21:16 | INFO | CANDLE CHECK | symbol=FORTIS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:16 | INFO | SKIP data_quality_failed | symbol=FORTIS-EQ | candles=0
+2026-05-05 07:21:16 | INFO | CANDLE CHECK | symbol=GMRAIRPORT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:16 | INFO | SKIP data_quality_failed | symbol=GMRAIRPORT-EQ | candles=0
+2026-05-05 07:21:16 | INFO | CANDLE CHECK | symbol=GMRP&UI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:16 | INFO | SKIP data_quality_failed | symbol=GMRP&UI-EQ | candles=0
+2026-05-05 07:21:17 | INFO | CANDLE CHECK | symbol=EXIDEIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:17 | INFO | SKIP data_quality_failed | symbol=EXIDEIND-EQ | candles=0
+2026-05-05 07:21:17 | INFO | CANDLE CHECK | symbol=GABRIEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:17 | INFO | SKIP data_quality_failed | symbol=GABRIEL-EQ | candles=0
+2026-05-05 07:21:17 | INFO | CANDLE CHECK | symbol=GALLANTT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:17 | INFO | SKIP data_quality_failed | symbol=GALLANTT-EQ | candles=0
+2026-05-05 07:21:17 | INFO | CANDLE CHECK | symbol=GRSE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:17 | INFO | SKIP data_quality_failed | symbol=GRSE-EQ | candles=0
+2026-05-05 07:21:17 | INFO | CANDLE CHECK | symbol=GRWRHITECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:17 | INFO | SKIP data_quality_failed | symbol=GRWRHITECH-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=GICRE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=GICRE-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=GILLETTE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=GILLETTE-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=GMMPFAUDLR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=GMMPFAUDLR-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=GLAND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=GLAND-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=GLENMARK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=GLENMARK-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=MEDANTA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=MEDANTA-EQ | candles=0
+2026-05-05 07:21:18 | INFO | CANDLE CHECK | symbol=GPIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:18 | INFO | SKIP data_quality_failed | symbol=GPIL-EQ | candles=0
+2026-05-05 07:21:19 | INFO | CANDLE CHECK | symbol=GODIGIT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:19 | INFO | SKIP data_quality_failed | symbol=GODIGIT-EQ | candles=0
+2026-05-05 07:21:19 | INFO | CANDLE CHECK | symbol=GODREJAGRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:19 | INFO | SKIP data_quality_failed | symbol=GODREJAGRO-EQ | candles=0
+2026-05-05 07:21:19 | INFO | CANDLE CHECK | symbol=GLAXO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:19 | INFO | SKIP data_quality_failed | symbol=GLAXO-EQ | candles=0
+2026-05-05 07:21:19 | INFO | CANDLE CHECK | symbol=GODREJIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:19 | INFO | SKIP data_quality_failed | symbol=GODREJIND-EQ | candles=0
+2026-05-05 07:21:20 | INFO | CANDLE CHECK | symbol=GODREJPROP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:20 | INFO | SKIP data_quality_failed | symbol=GODREJPROP-EQ | candles=0
+2026-05-05 07:21:20 | INFO | CANDLE CHECK | symbol=GOKEX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:20 | INFO | SKIP data_quality_failed | symbol=GOKEX-EQ | candles=0
+2026-05-05 07:21:20 | INFO | CANDLE CHECK | symbol=GOKULAGRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:20 | INFO | SKIP data_quality_failed | symbol=GOKULAGRO-EQ | candles=0
+2026-05-05 07:21:21 | INFO | CANDLE CHECK | symbol=GODFRYPHLP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:21 | INFO | SKIP data_quality_failed | symbol=GODFRYPHLP-EQ | candles=0
+2026-05-05 07:21:21 | INFO | CANDLE CHECK | symbol=GODREJCP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:21 | INFO | SKIP data_quality_failed | symbol=GODREJCP-EQ | candles=0
+2026-05-05 07:21:21 | INFO | CANDLE CHECK | symbol=GRAPHITE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:21 | INFO | SKIP data_quality_failed | symbol=GRAPHITE-EQ | candles=0
+2026-05-05 07:21:21 | INFO | CANDLE CHECK | symbol=GRANULES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:21 | INFO | SKIP data_quality_failed | symbol=GRANULES-EQ | candles=0
+2026-05-05 07:21:21 | INFO | CANDLE CHECK | symbol=GRASIM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:21 | INFO | SKIP data_quality_failed | symbol=GRASIM-EQ | candles=0
+2026-05-05 07:21:21 | INFO | CANDLE CHECK | symbol=GRAVITA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:21 | INFO | SKIP data_quality_failed | symbol=GRAVITA-EQ | candles=0
+2026-05-05 07:21:22 | INFO | CANDLE CHECK | symbol=GESHIP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:22 | INFO | SKIP data_quality_failed | symbol=GESHIP-EQ | candles=0
+2026-05-05 07:21:22 | INFO | CANDLE CHECK | symbol=GREAVESCOT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:22 | INFO | SKIP data_quality_failed | symbol=GREAVESCOT-EQ | candles=0
+2026-05-05 07:21:22 | INFO | CANDLE CHECK | symbol=FLUOROCHEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:22 | INFO | SKIP data_quality_failed | symbol=FLUOROCHEM-EQ | candles=0
+2026-05-05 07:21:22 | INFO | CANDLE CHECK | symbol=GAEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:22 | INFO | SKIP data_quality_failed | symbol=GAEL-EQ | candles=0
+2026-05-05 07:21:23 | INFO | CANDLE CHECK | symbol=GNFC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:23 | INFO | SKIP data_quality_failed | symbol=GNFC-EQ | candles=0
+2026-05-05 07:21:23 | INFO | CANDLE CHECK | symbol=GPPL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:23 | INFO | SKIP data_quality_failed | symbol=GPPL-EQ | candles=0
+2026-05-05 07:21:23 | INFO | CANDLE CHECK | symbol=GSFC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:23 | INFO | SKIP data_quality_failed | symbol=GSFC-EQ | candles=0
+2026-05-05 07:21:23 | INFO | CANDLE CHECK | symbol=GMDCLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:23 | INFO | SKIP data_quality_failed | symbol=GMDCLTD-EQ | candles=0
+2026-05-05 07:21:23 | INFO | CANDLE CHECK | symbol=GSPL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:23 | INFO | SKIP data_quality_failed | symbol=GSPL-EQ | candles=0
+2026-05-05 07:21:23 | INFO | CANDLE CHECK | symbol=HEG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:23 | INFO | SKIP data_quality_failed | symbol=HEG-EQ | candles=0
+2026-05-05 07:21:24 | INFO | CANDLE CHECK | symbol=HGINFRA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:24 | INFO | SKIP data_quality_failed | symbol=HGINFRA-EQ | candles=0
+2026-05-05 07:21:24 | INFO | CANDLE CHECK | symbol=HBLENGINE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:24 | INFO | CANDLE CHECK | symbol=HCLTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:24 | INFO | SKIP data_quality_failed | symbol=HBLENGINE-EQ | candles=0
+2026-05-05 07:21:24 | INFO | SKIP data_quality_failed | symbol=HCLTECH-EQ | candles=0
+2026-05-05 07:21:24 | INFO | CANDLE CHECK | symbol=HDFCAMC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:24 | INFO | SKIP data_quality_failed | symbol=HDFCAMC-EQ | candles=0
+2026-05-05 07:21:24 | INFO | CANDLE CHECK | symbol=HDFCBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:24 | INFO | SKIP data_quality_failed | symbol=HDFCBANK-EQ | candles=0
+2026-05-05 07:21:25 | INFO | CANDLE CHECK | symbol=HDBFS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:25 | INFO | SKIP data_quality_failed | symbol=HDBFS-EQ | candles=0
+2026-05-05 07:21:25 | INFO | CANDLE CHECK | symbol=HDFCLIFE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:25 | INFO | SKIP data_quality_failed | symbol=HDFCLIFE-EQ | candles=0
+2026-05-05 07:21:25 | INFO | CANDLE CHECK | symbol=HFCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:25 | INFO | SKIP data_quality_failed | symbol=HFCL-EQ | candles=0
+2026-05-05 07:21:25 | INFO | CANDLE CHECK | symbol=HAPPSTMNDS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:25 | INFO | SKIP data_quality_failed | symbol=HAPPSTMNDS-EQ | candles=0
+2026-05-05 07:21:25 | INFO | CANDLE CHECK | symbol=HAVELLS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:25 | INFO | SKIP data_quality_failed | symbol=HAVELLS-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HCG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HCG-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HEMIPROP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HEMIPROP-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HERITGFOOD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HERITGFOOD-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HEROMOTOCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HEROMOTOCO-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HSCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HSCL-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HINDALCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HINDALCO-EQ | candles=0
+2026-05-05 07:21:26 | INFO | CANDLE CHECK | symbol=HCC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:26 | INFO | SKIP data_quality_failed | symbol=HCC-EQ | candles=0
+2026-05-05 07:21:27 | INFO | CANDLE CHECK | symbol=HAL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:27 | INFO | SKIP data_quality_failed | symbol=HAL-EQ | candles=0
+2026-05-05 07:21:27 | INFO | CANDLE CHECK | symbol=HINDPETRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:27 | INFO | SKIP data_quality_failed | symbol=HINDPETRO-EQ | candles=0
+2026-05-05 07:21:27 | INFO | CANDLE CHECK | symbol=HINDUNILVR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:27 | INFO | SKIP data_quality_failed | symbol=HINDUNILVR-EQ | candles=0
+2026-05-05 07:21:27 | INFO | CANDLE CHECK | symbol=HINDZINC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:27 | INFO | SKIP data_quality_failed | symbol=HINDZINC-EQ | candles=0
+2026-05-05 07:21:28 | INFO | CANDLE CHECK | symbol=HINDCOPPER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:28 | INFO | SKIP data_quality_failed | symbol=HINDCOPPER-EQ | candles=0
+2026-05-05 07:21:28 | INFO | CANDLE CHECK | symbol=HOMEFIRST-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:28 | INFO | SKIP data_quality_failed | symbol=HOMEFIRST-EQ | candles=0
+2026-05-05 07:21:28 | INFO | CANDLE CHECK | symbol=HONASA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:28 | INFO | SKIP data_quality_failed | symbol=HONASA-EQ | candles=0
+2026-05-05 07:21:28 | INFO | CANDLE CHECK | symbol=HEXT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:28 | INFO | SKIP data_quality_failed | symbol=HEXT-EQ | candles=0
+2026-05-05 07:21:29 | INFO | CANDLE CHECK | symbol=HONAUT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:29 | INFO | SKIP data_quality_failed | symbol=HONAUT-EQ | candles=0
+2026-05-05 07:21:29 | INFO | CANDLE CHECK | symbol=POWERINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:29 | INFO | SKIP data_quality_failed | symbol=POWERINDIA-EQ | candles=0
+2026-05-05 07:21:29 | INFO | CANDLE CHECK | symbol=HUDCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:29 | INFO | SKIP data_quality_failed | symbol=HUDCO-EQ | candles=0
+2026-05-05 07:21:29 | INFO | CANDLE CHECK | symbol=HYUNDAI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:29 | INFO | SKIP data_quality_failed | symbol=HYUNDAI-EQ | candles=0
+2026-05-05 07:21:29 | INFO | CANDLE CHECK | symbol=ICICIBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:29 | INFO | SKIP data_quality_failed | symbol=ICICIBANK-EQ | candles=0
+2026-05-05 07:21:29 | INFO | CANDLE CHECK | symbol=ICICIAMC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:29 | INFO | SKIP data_quality_failed | symbol=ICICIAMC-EQ | candles=0
+2026-05-05 07:21:30 | INFO | CANDLE CHECK | symbol=ICICIGI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:30 | INFO | SKIP data_quality_failed | symbol=ICICIGI-EQ | candles=0
+2026-05-05 07:21:30 | INFO | CANDLE CHECK | symbol=ICICIPRULI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:30 | INFO | SKIP data_quality_failed | symbol=ICICIPRULI-EQ | candles=0
+2026-05-05 07:21:30 | INFO | CANDLE CHECK | symbol=IDFCFIRSTB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:30 | INFO | SKIP data_quality_failed | symbol=IDFCFIRSTB-EQ | candles=0
+2026-05-05 07:21:30 | INFO | CANDLE CHECK | symbol=IFBIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:30 | INFO | SKIP data_quality_failed | symbol=IFBIND-EQ | candles=0
+2026-05-05 07:21:30 | INFO | CANDLE CHECK | symbol=IFCI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:30 | INFO | SKIP data_quality_failed | symbol=IFCI-EQ | candles=0
+2026-05-05 07:21:31 | INFO | CANDLE CHECK | symbol=IDBI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:31 | INFO | SKIP data_quality_failed | symbol=IDBI-EQ | candles=0
+2026-05-05 07:21:31 | INFO | CANDLE CHECK | symbol=IIFL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:31 | INFO | SKIP data_quality_failed | symbol=IIFL-EQ | candles=0
+2026-05-05 07:21:31 | INFO | CANDLE CHECK | symbol=INOXINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:31 | INFO | SKIP data_quality_failed | symbol=INOXINDIA-EQ | candles=0
+2026-05-05 07:21:31 | INFO | CANDLE CHECK | symbol=IRB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:31 | INFO | SKIP data_quality_failed | symbol=IRB-EQ | candles=0
+2026-05-05 07:21:31 | INFO | CANDLE CHECK | symbol=IRCON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:31 | INFO | SKIP data_quality_failed | symbol=IRCON-EQ | candles=0
+2026-05-05 07:21:32 | INFO | CANDLE CHECK | symbol=ITCHOTELS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:32 | INFO | SKIP data_quality_failed | symbol=ITCHOTELS-EQ | candles=0
+2026-05-05 07:21:32 | INFO | CANDLE CHECK | symbol=ITC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:32 | INFO | SKIP data_quality_failed | symbol=ITC-EQ | candles=0
+2026-05-05 07:21:32 | INFO | CANDLE CHECK | symbol=IIFLCAPS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:32 | INFO | SKIP data_quality_failed | symbol=IIFLCAPS-EQ | candles=0
+2026-05-05 07:21:32 | INFO | CANDLE CHECK | symbol=ITI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:32 | INFO | SKIP data_quality_failed | symbol=ITI-EQ | candles=0
+2026-05-05 07:21:32 | INFO | CANDLE CHECK | symbol=INDIAGLYCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:32 | INFO | SKIP data_quality_failed | symbol=INDIAGLYCO-EQ | candles=0
+2026-05-05 07:21:32 | INFO | CANDLE CHECK | symbol=INDIASHLTR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:32 | INFO | SKIP data_quality_failed | symbol=INDIASHLTR-EQ | candles=0
+2026-05-05 07:21:33 | INFO | CANDLE CHECK | symbol=INDIAMART-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:33 | INFO | SKIP data_quality_failed | symbol=INDIAMART-EQ | candles=0
+2026-05-05 07:21:33 | INFO | CANDLE CHECK | symbol=INDIANB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:33 | INFO | SKIP data_quality_failed | symbol=INDIANB-EQ | candles=0
+2026-05-05 07:21:33 | INFO | CANDLE CHECK | symbol=IEX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:33 | INFO | SKIP data_quality_failed | symbol=IEX-EQ | candles=0
+2026-05-05 07:21:33 | INFO | CANDLE CHECK | symbol=INDHOTEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:33 | INFO | SKIP data_quality_failed | symbol=INDHOTEL-EQ | candles=0
+2026-05-05 07:21:34 | INFO | CANDLE CHECK | symbol=INDIACEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:34 | INFO | SKIP data_quality_failed | symbol=INDIACEM-EQ | candles=0
+2026-05-05 07:21:34 | INFO | CANDLE CHECK | symbol=IOC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:34 | INFO | SKIP data_quality_failed | symbol=IOC-EQ | candles=0
+2026-05-05 07:21:34 | INFO | CANDLE CHECK | symbol=IRCTC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:34 | INFO | SKIP data_quality_failed | symbol=IRCTC-EQ | candles=0
+2026-05-05 07:21:34 | INFO | CANDLE CHECK | symbol=IOB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:34 | INFO | SKIP data_quality_failed | symbol=IOB-EQ | candles=0
+2026-05-05 07:21:34 | INFO | CANDLE CHECK | symbol=IRFC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:34 | INFO | SKIP data_quality_failed | symbol=IRFC-EQ | candles=0
+2026-05-05 07:21:35 | INFO | CANDLE CHECK | symbol=IREDA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:35 | INFO | SKIP data_quality_failed | symbol=IREDA-EQ | candles=0
+2026-05-05 07:21:35 | INFO | CANDLE CHECK | symbol=INDIGOPNTS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:35 | INFO | SKIP data_quality_failed | symbol=INDIGOPNTS-EQ | candles=0
+2026-05-05 07:21:35 | INFO | CANDLE CHECK | symbol=IMFA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:35 | INFO | SKIP data_quality_failed | symbol=IMFA-EQ | candles=0
+2026-05-05 07:21:36 | INFO | CANDLE CHECK | symbol=ICIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:36 | INFO | SKIP data_quality_failed | symbol=ICIL-EQ | candles=0
+2026-05-05 07:21:36 | INFO | CANDLE CHECK | symbol=IGL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:36 | INFO | SKIP data_quality_failed | symbol=IGL-EQ | candles=0
+2026-05-05 07:21:36 | INFO | CANDLE CHECK | symbol=INDGN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:36 | INFO | SKIP data_quality_failed | symbol=INDGN-EQ | candles=0
+2026-05-05 07:21:36 | INFO | CANDLE CHECK | symbol=INDUSTOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:36 | INFO | SKIP data_quality_failed | symbol=INDUSTOWER-EQ | candles=0
+2026-05-05 07:21:36 | INFO | CANDLE CHECK | symbol=INDUSINDBK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:36 | INFO | SKIP data_quality_failed | symbol=INDUSINDBK-EQ | candles=0
+2026-05-05 07:21:37 | INFO | CANDLE CHECK | symbol=INFY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:37 | INFO | SKIP data_quality_failed | symbol=INFY-EQ | candles=0
+2026-05-05 07:21:37 | INFO | CANDLE CHECK | symbol=NAUKRI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:37 | INFO | SKIP data_quality_failed | symbol=NAUKRI-EQ | candles=0
+2026-05-05 07:21:37 | INFO | CANDLE CHECK | symbol=INOXGREEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:37 | INFO | SKIP data_quality_failed | symbol=INOXGREEN-EQ | candles=0
+2026-05-05 07:21:37 | INFO | CANDLE CHECK | symbol=INOXWIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:37 | INFO | SKIP data_quality_failed | symbol=INOXWIND-EQ | candles=0
+2026-05-05 07:21:37 | INFO | CANDLE CHECK | symbol=INTELLECT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:37 | INFO | SKIP data_quality_failed | symbol=INTELLECT-EQ | candles=0
+2026-05-05 07:21:37 | INFO | CANDLE CHECK | symbol=INDIGO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:37 | INFO | SKIP data_quality_failed | symbol=INDIGO-EQ | candles=0
+2026-05-05 07:21:38 | INFO | CANDLE CHECK | symbol=IKS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:38 | INFO | SKIP data_quality_failed | symbol=IKS-EQ | candles=0
+2026-05-05 07:21:38 | INFO | CANDLE CHECK | symbol=IGIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:38 | INFO | SKIP data_quality_failed | symbol=IGIL-EQ | candles=0
+2026-05-05 07:21:38 | INFO | CANDLE CHECK | symbol=IONEXCHANG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:38 | INFO | SKIP data_quality_failed | symbol=IONEXCHANG-EQ | candles=0
+2026-05-05 07:21:38 | INFO | CANDLE CHECK | symbol=IPCALAB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:38 | INFO | SKIP data_quality_failed | symbol=IPCALAB-EQ | candles=0
+2026-05-05 07:21:38 | INFO | CANDLE CHECK | symbol=JBCHEPHARM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:38 | INFO | SKIP data_quality_failed | symbol=JBCHEPHARM-EQ | candles=0
+2026-05-05 07:21:38 | INFO | CANDLE CHECK | symbol=JKCEMENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:38 | INFO | SKIP data_quality_failed | symbol=JKCEMENT-EQ | candles=0
+2026-05-05 07:21:39 | INFO | CANDLE CHECK | symbol=JBMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:39 | INFO | SKIP data_quality_failed | symbol=JBMA-EQ | candles=0
+2026-05-05 07:21:39 | INFO | CANDLE CHECK | symbol=JKLAKSHMI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:39 | INFO | SKIP data_quality_failed | symbol=JKLAKSHMI-EQ | candles=0
+2026-05-05 07:21:39 | INFO | CANDLE CHECK | symbol=JKPAPER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:39 | INFO | SKIP data_quality_failed | symbol=JKPAPER-EQ | candles=0
+2026-05-05 07:21:39 | INFO | CANDLE CHECK | symbol=JKTYRE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:39 | INFO | SKIP data_quality_failed | symbol=JKTYRE-EQ | candles=0
+2026-05-05 07:21:39 | INFO | CANDLE CHECK | symbol=JSWDULUX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:39 | INFO | SKIP data_quality_failed | symbol=JSWDULUX-EQ | candles=0
+2026-05-05 07:21:39 | INFO | CANDLE CHECK | symbol=JSWENERGY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:39 | INFO | SKIP data_quality_failed | symbol=JSWENERGY-EQ | candles=0
+2026-05-05 07:21:40 | INFO | CANDLE CHECK | symbol=JSWINFRA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:40 | INFO | SKIP data_quality_failed | symbol=JSWINFRA-EQ | candles=0
+2026-05-05 07:21:40 | INFO | CANDLE CHECK | symbol=JSWSTEEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:40 | INFO | SKIP data_quality_failed | symbol=JSWSTEEL-EQ | candles=0
+2026-05-05 07:21:40 | INFO | CANDLE CHECK | symbol=JMFINANCIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:40 | INFO | SKIP data_quality_failed | symbol=JMFINANCIL-EQ | candles=0
+2026-05-05 07:21:40 | INFO | CANDLE CHECK | symbol=JAINREC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:40 | INFO | SKIP data_quality_failed | symbol=JAINREC-EQ | candles=0
+2026-05-05 07:21:41 | INFO | CANDLE CHECK | symbol=J&KBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:41 | INFO | SKIP data_quality_failed | symbol=J&KBANK-EQ | candles=0
+2026-05-05 07:21:41 | INFO | CANDLE CHECK | symbol=JAIBALAJI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:41 | INFO | SKIP data_quality_failed | symbol=JAIBALAJI-EQ | candles=0
+2026-05-05 07:21:41 | INFO | CANDLE CHECK | symbol=JAMNAAUTO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:41 | INFO | SKIP data_quality_failed | symbol=JAMNAAUTO-EQ | candles=0
+2026-05-05 07:21:41 | INFO | CANDLE CHECK | symbol=JSFB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:41 | INFO | SKIP data_quality_failed | symbol=JSFB-EQ | candles=0
+2026-05-05 07:21:42 | INFO | CANDLE CHECK | symbol=JPPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:42 | INFO | SKIP data_quality_failed | symbol=JPPOWER-EQ | candles=0
+2026-05-05 07:21:42 | INFO | CANDLE CHECK | symbol=JAYNECOIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:42 | INFO | SKIP data_quality_failed | symbol=JAYNECOIND-EQ | candles=0
+2026-05-05 07:21:42 | INFO | CANDLE CHECK | symbol=JSWCEMENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:42 | INFO | SKIP data_quality_failed | symbol=JSWCEMENT-EQ | candles=0
+2026-05-05 07:21:42 | INFO | CANDLE CHECK | symbol=JINDALSAW-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:42 | INFO | SKIP data_quality_failed | symbol=JINDALSAW-EQ | candles=0
+2026-05-05 07:21:42 | INFO | CANDLE CHECK | symbol=JSL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:42 | INFO | SKIP data_quality_failed | symbol=JSL-EQ | candles=0
+2026-05-05 07:21:43 | INFO | CANDLE CHECK | symbol=JSLL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:43 | INFO | SKIP data_quality_failed | symbol=JSLL-EQ | candles=0
+2026-05-05 07:21:43 | INFO | CANDLE CHECK | symbol=JINDALSTEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:43 | INFO | SKIP data_quality_failed | symbol=JINDALSTEL-EQ | candles=0
+2026-05-05 07:21:43 | INFO | CANDLE CHECK | symbol=JUBLINGREA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:43 | INFO | SKIP data_quality_failed | symbol=JUBLINGREA-EQ | candles=0
+2026-05-05 07:21:43 | INFO | CANDLE CHECK | symbol=JIOFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:43 | INFO | SKIP data_quality_failed | symbol=JIOFIN-EQ | candles=0
+2026-05-05 07:21:44 | INFO | CANDLE CHECK | symbol=JUBLFOOD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:44 | INFO | SKIP data_quality_failed | symbol=JUBLFOOD-EQ | candles=0
+2026-05-05 07:21:44 | INFO | CANDLE CHECK | symbol=JLHL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:44 | INFO | SKIP data_quality_failed | symbol=JLHL-EQ | candles=0
+2026-05-05 07:21:44 | INFO | CANDLE CHECK | symbol=JWL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:44 | INFO | SKIP data_quality_failed | symbol=JWL-EQ | candles=0
+2026-05-05 07:21:44 | INFO | CANDLE CHECK | symbol=JUSTDIAL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:44 | INFO | SKIP data_quality_failed | symbol=JUSTDIAL-EQ | candles=0
+2026-05-05 07:21:45 | INFO | CANDLE CHECK | symbol=JUBLPHARMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:45 | INFO | CANDLE CHECK | symbol=JYOTHYLAB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:45 | INFO | SKIP data_quality_failed | symbol=JUBLPHARMA-EQ | candles=0
+2026-05-05 07:21:45 | INFO | SKIP data_quality_failed | symbol=JYOTHYLAB-EQ | candles=0
+2026-05-05 07:21:45 | INFO | CANDLE CHECK | symbol=JYOTICNC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:45 | INFO | SKIP data_quality_failed | symbol=JYOTICNC-EQ | candles=0
+2026-05-05 07:21:45 | INFO | CANDLE CHECK | symbol=KPRMILL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:45 | INFO | SKIP data_quality_failed | symbol=KPRMILL-EQ | candles=0
+2026-05-05 07:21:45 | INFO | CANDLE CHECK | symbol=KEI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:45 | INFO | SKIP data_quality_failed | symbol=KEI-EQ | candles=0
+2026-05-05 07:21:45 | INFO | CANDLE CHECK | symbol=KNRCON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:45 | INFO | SKIP data_quality_failed | symbol=KNRCON-EQ | candles=0
+2026-05-05 07:21:46 | INFO | CANDLE CHECK | symbol=KPIGREEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:46 | INFO | SKIP data_quality_failed | symbol=KPIGREEN-EQ | candles=0
+2026-05-05 07:21:46 | INFO | CANDLE CHECK | symbol=KPITTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:46 | INFO | SKIP data_quality_failed | symbol=KPITTECH-EQ | candles=0
+2026-05-05 07:21:46 | INFO | CANDLE CHECK | symbol=KRN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:46 | INFO | SKIP data_quality_failed | symbol=KRN-EQ | candles=0
+2026-05-05 07:21:46 | INFO | CANDLE CHECK | symbol=KRBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:46 | INFO | SKIP data_quality_failed | symbol=KRBL-EQ | candles=0
+2026-05-05 07:21:46 | INFO | CANDLE CHECK | symbol=KSB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:46 | INFO | SKIP data_quality_failed | symbol=KSB-EQ | candles=0
+2026-05-05 07:21:46 | INFO | CANDLE CHECK | symbol=KAJARIACER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:46 | INFO | SKIP data_quality_failed | symbol=KAJARIACER-EQ | candles=0
+2026-05-05 07:21:47 | INFO | CANDLE CHECK | symbol=KALYANKJIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:47 | INFO | SKIP data_quality_failed | symbol=KALYANKJIL-EQ | candles=0
+2026-05-05 07:21:47 | INFO | CANDLE CHECK | symbol=KPIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:47 | INFO | SKIP data_quality_failed | symbol=KPIL-EQ | candles=0
+2026-05-05 07:21:47 | INFO | CANDLE CHECK | symbol=KANSAINER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:47 | INFO | SKIP data_quality_failed | symbol=KANSAINER-EQ | candles=0
+2026-05-05 07:21:47 | INFO | CANDLE CHECK | symbol=KARURVYSYA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:47 | INFO | SKIP data_quality_failed | symbol=KARURVYSYA-EQ | candles=0
+2026-05-05 07:21:47 | INFO | CANDLE CHECK | symbol=KSCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:47 | INFO | SKIP data_quality_failed | symbol=KSCL-EQ | candles=0
+2026-05-05 07:21:47 | INFO | CANDLE CHECK | symbol=KTKBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:47 | INFO | SKIP data_quality_failed | symbol=KTKBANK-EQ | candles=0
+2026-05-05 07:21:48 | INFO | CANDLE CHECK | symbol=KAYNES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:48 | INFO | SKIP data_quality_failed | symbol=KAYNES-EQ | candles=0
+2026-05-05 07:21:48 | INFO | CANDLE CHECK | symbol=KEC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:48 | INFO | SKIP data_quality_failed | symbol=KEC-EQ | candles=0
+2026-05-05 07:21:48 | INFO | CANDLE CHECK | symbol=KFINTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:48 | INFO | SKIP data_quality_failed | symbol=KFINTECH-EQ | candles=0
+2026-05-05 07:21:48 | INFO | CANDLE CHECK | symbol=KIRLOSENG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:48 | INFO | SKIP data_quality_failed | symbol=KIRLOSENG-EQ | candles=0
+2026-05-05 07:21:48 | INFO | CANDLE CHECK | symbol=KIRLOSBROS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:48 | INFO | SKIP data_quality_failed | symbol=KIRLOSBROS-EQ | candles=0
+2026-05-05 07:21:49 | INFO | CANDLE CHECK | symbol=KOTAKBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:49 | INFO | SKIP data_quality_failed | symbol=KOTAKBANK-EQ | candles=0
+2026-05-05 07:21:49 | INFO | CANDLE CHECK | symbol=KIMS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:49 | INFO | SKIP data_quality_failed | symbol=KIMS-EQ | candles=0
+2026-05-05 07:21:49 | INFO | CANDLE CHECK | symbol=LTF-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:49 | INFO | SKIP data_quality_failed | symbol=LTF-EQ | candles=0
+2026-05-05 07:21:49 | INFO | CANDLE CHECK | symbol=KIRLPNU-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:49 | INFO | SKIP data_quality_failed | symbol=KIRLPNU-EQ | candles=0
+2026-05-05 07:21:50 | INFO | CANDLE CHECK | symbol=LGEINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:50 | INFO | SKIP data_quality_failed | symbol=LGEINDIA-EQ | candles=0
+2026-05-05 07:21:50 | INFO | CANDLE CHECK | symbol=LICHSGFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:50 | INFO | SKIP data_quality_failed | symbol=LICHSGFIN-EQ | candles=0
+2026-05-05 07:21:50 | INFO | CANDLE CHECK | symbol=LTFOODS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:50 | INFO | SKIP data_quality_failed | symbol=LTFOODS-EQ | candles=0
+2026-05-05 07:21:50 | INFO | CANDLE CHECK | symbol=KITEX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:50 | INFO | SKIP data_quality_failed | symbol=KITEX-EQ | candles=0
+2026-05-05 07:21:50 | INFO | CANDLE CHECK | symbol=LTM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:50 | INFO | SKIP data_quality_failed | symbol=LTM-EQ | candles=0
+2026-05-05 07:21:50 | INFO | CANDLE CHECK | symbol=LT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:50 | INFO | SKIP data_quality_failed | symbol=LT-EQ | candles=0
+2026-05-05 07:21:51 | INFO | CANDLE CHECK | symbol=LATENTVIEW-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:51 | INFO | SKIP data_quality_failed | symbol=LATENTVIEW-EQ | candles=0
+2026-05-05 07:21:51 | INFO | CANDLE CHECK | symbol=LTTS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:51 | INFO | SKIP data_quality_failed | symbol=LTTS-EQ | candles=0
+2026-05-05 07:21:51 | INFO | CANDLE CHECK | symbol=LAURUSLABS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:51 | INFO | SKIP data_quality_failed | symbol=LAURUSLABS-EQ | candles=0
+2026-05-05 07:21:51 | INFO | CANDLE CHECK | symbol=IXIGO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:51 | INFO | SKIP data_quality_failed | symbol=IXIGO-EQ | candles=0
+2026-05-05 07:21:51 | INFO | CANDLE CHECK | symbol=THELEELA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:51 | INFO | SKIP data_quality_failed | symbol=THELEELA-EQ | candles=0
+2026-05-05 07:21:52 | INFO | CANDLE CHECK | symbol=LEMONTREE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:52 | INFO | SKIP data_quality_failed | symbol=LEMONTREE-EQ | candles=0
+2026-05-05 07:21:52 | INFO | CANDLE CHECK | symbol=LENSKART-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:52 | INFO | SKIP data_quality_failed | symbol=LENSKART-EQ | candles=0
+2026-05-05 07:21:52 | INFO | CANDLE CHECK | symbol=LICI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:52 | INFO | SKIP data_quality_failed | symbol=LICI-EQ | candles=0
+2026-05-05 07:21:52 | INFO | CANDLE CHECK | symbol=LXCHEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:52 | INFO | SKIP data_quality_failed | symbol=LXCHEM-EQ | candles=0
+2026-05-05 07:21:52 | INFO | CANDLE CHECK | symbol=LINDEINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:52 | INFO | SKIP data_quality_failed | symbol=LINDEINDIA-EQ | candles=0
+2026-05-05 07:21:53 | INFO | CANDLE CHECK | symbol=LLOYDSENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:53 | INFO | SKIP data_quality_failed | symbol=LLOYDSENT-EQ | candles=0
+2026-05-05 07:21:53 | INFO | CANDLE CHECK | symbol=LODHA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:53 | INFO | SKIP data_quality_failed | symbol=LODHA-EQ | candles=0
+2026-05-05 07:21:53 | INFO | CANDLE CHECK | symbol=LLOYDSME-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:53 | INFO | SKIP data_quality_failed | symbol=LLOYDSME-EQ | candles=0
+2026-05-05 07:21:53 | INFO | CANDLE CHECK | symbol=LUMAXTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:53 | INFO | SKIP data_quality_failed | symbol=LUMAXTECH-EQ | candles=0
+2026-05-05 07:21:53 | INFO | CANDLE CHECK | symbol=MMTC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:53 | INFO | SKIP data_quality_failed | symbol=MMTC-EQ | candles=0
+2026-05-05 07:21:54 | INFO | CANDLE CHECK | symbol=LUPIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:54 | INFO | SKIP data_quality_failed | symbol=LUPIN-EQ | candles=0
+2026-05-05 07:21:54 | INFO | CANDLE CHECK | symbol=MRF-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:54 | INFO | SKIP data_quality_failed | symbol=MRF-EQ | candles=0
+2026-05-05 07:21:54 | INFO | CANDLE CHECK | symbol=MTARTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:54 | INFO | SKIP data_quality_failed | symbol=MTARTECH-EQ | candles=0
+2026-05-05 07:21:54 | INFO | CANDLE CHECK | symbol=MSTCLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:54 | INFO | SKIP data_quality_failed | symbol=MSTCLTD-EQ | candles=0
+2026-05-05 07:21:54 | INFO | CANDLE CHECK | symbol=MGL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:54 | INFO | SKIP data_quality_failed | symbol=MGL-EQ | candles=0
+2026-05-05 07:21:54 | INFO | CANDLE CHECK | symbol=MAHSCOOTER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:54 | INFO | SKIP data_quality_failed | symbol=MAHSCOOTER-EQ | candles=0
+2026-05-05 07:21:55 | INFO | CANDLE CHECK | symbol=MAHSEAMLES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:55 | INFO | SKIP data_quality_failed | symbol=MAHSEAMLES-EQ | candles=0
+2026-05-05 07:21:55 | INFO | CANDLE CHECK | symbol=LLOYDSENGG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:55 | INFO | SKIP data_quality_failed | symbol=LLOYDSENGG-EQ | candles=0
+2026-05-05 07:21:55 | INFO | CANDLE CHECK | symbol=M&M-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:55 | INFO | SKIP data_quality_failed | symbol=M&M-EQ | candles=0
+2026-05-05 07:21:56 | INFO | CANDLE CHECK | symbol=MANAPPURAM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:56 | INFO | SKIP data_quality_failed | symbol=MANAPPURAM-EQ | candles=0
+2026-05-05 07:21:56 | INFO | CANDLE CHECK | symbol=MRPL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:56 | INFO | SKIP data_quality_failed | symbol=MRPL-EQ | candles=0
+2026-05-05 07:21:56 | INFO | CANDLE CHECK | symbol=M&MFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:56 | INFO | SKIP data_quality_failed | symbol=M&MFIN-EQ | candles=0
+2026-05-05 07:21:56 | INFO | CANDLE CHECK | symbol=MANORAMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:56 | INFO | SKIP data_quality_failed | symbol=MANORAMA-EQ | candles=0
+2026-05-05 07:21:56 | INFO | CANDLE CHECK | symbol=MANKIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:56 | INFO | SKIP data_quality_failed | symbol=MANKIND-EQ | candles=0
+2026-05-05 07:21:56 | INFO | CANDLE CHECK | symbol=MARICO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:56 | INFO | SKIP data_quality_failed | symbol=MARICO-EQ | candles=0
+2026-05-05 07:21:57 | INFO | CANDLE CHECK | symbol=MARUTI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:57 | INFO | SKIP data_quality_failed | symbol=MARUTI-EQ | candles=0
+2026-05-05 07:21:57 | INFO | CANDLE CHECK | symbol=MARKSANS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:57 | INFO | SKIP data_quality_failed | symbol=MARKSANS-EQ | candles=0
+2026-05-05 07:21:57 | INFO | CANDLE CHECK | symbol=MASTEK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:57 | INFO | SKIP data_quality_failed | symbol=MASTEK-EQ | candles=0
+2026-05-05 07:21:57 | INFO | CANDLE CHECK | symbol=MFSL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:57 | INFO | SKIP data_quality_failed | symbol=MFSL-EQ | candles=0
+2026-05-05 07:21:57 | INFO | CANDLE CHECK | symbol=MOIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:57 | INFO | SKIP data_quality_failed | symbol=MOIL-EQ | candles=0
+2026-05-05 07:21:58 | INFO | CANDLE CHECK | symbol=MAZDOCK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:58 | INFO | SKIP data_quality_failed | symbol=MAZDOCK-EQ | candles=0
+2026-05-05 07:21:58 | INFO | CANDLE CHECK | symbol=MEESHO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:58 | INFO | SKIP data_quality_failed | symbol=MEESHO-EQ | candles=0
+2026-05-05 07:21:58 | INFO | CANDLE CHECK | symbol=MEDPLUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:58 | INFO | SKIP data_quality_failed | symbol=MEDPLUS-EQ | candles=0
+2026-05-05 07:21:58 | INFO | CANDLE CHECK | symbol=METROPOLIS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:58 | INFO | SKIP data_quality_failed | symbol=METROPOLIS-EQ | candles=0
+2026-05-05 07:21:59 | INFO | CANDLE CHECK | symbol=MINDACORP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:59 | INFO | SKIP data_quality_failed | symbol=MINDACORP-EQ | candles=0
+2026-05-05 07:21:59 | INFO | CANDLE CHECK | symbol=MIDHANI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:59 | INFO | CANDLE CHECK | symbol=MAXHEALTH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:59 | INFO | SKIP data_quality_failed | symbol=MIDHANI-EQ | candles=0
+2026-05-05 07:21:59 | INFO | SKIP data_quality_failed | symbol=MAXHEALTH-EQ | candles=0
+2026-05-05 07:21:59 | INFO | CANDLE CHECK | symbol=MSUMI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:59 | INFO | SKIP data_quality_failed | symbol=MSUMI-EQ | candles=0
+2026-05-05 07:21:59 | INFO | CANDLE CHECK | symbol=MPHASIS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:59 | INFO | SKIP data_quality_failed | symbol=MPHASIS-EQ | candles=0
+2026-05-05 07:21:59 | INFO | CANDLE CHECK | symbol=MOTILALOFS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:21:59 | INFO | SKIP data_quality_failed | symbol=MOTILALOFS-EQ | candles=0
+2026-05-05 07:22:00 | INFO | CANDLE CHECK | symbol=BECTORFOOD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:00 | INFO | SKIP data_quality_failed | symbol=BECTORFOOD-EQ | candles=0
+2026-05-05 07:22:00 | INFO | CANDLE CHECK | symbol=MCX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:00 | INFO | SKIP data_quality_failed | symbol=MCX-EQ | candles=0
+2026-05-05 07:22:00 | INFO | CANDLE CHECK | symbol=MUTHOOTFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:00 | INFO | SKIP data_quality_failed | symbol=MUTHOOTFIN-EQ | candles=0
+2026-05-05 07:22:00 | INFO | CANDLE CHECK | symbol=NATCOPHARM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:00 | INFO | SKIP data_quality_failed | symbol=NATCOPHARM-EQ | candles=0
+2026-05-05 07:22:00 | INFO | CANDLE CHECK | symbol=NCC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:00 | INFO | SKIP data_quality_failed | symbol=NCC-EQ | candles=0
+2026-05-05 07:22:01 | INFO | CANDLE CHECK | symbol=NEOGEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:01 | INFO | SKIP data_quality_failed | symbol=NEOGEN-EQ | candles=0
+2026-05-05 07:22:01 | INFO | CANDLE CHECK | symbol=NBCC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:01 | INFO | SKIP data_quality_failed | symbol=NBCC-EQ | candles=0
+2026-05-05 07:22:01 | INFO | CANDLE CHECK | symbol=NESCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:01 | INFO | SKIP data_quality_failed | symbol=NESCO-EQ | candles=0
+2026-05-05 07:22:01 | INFO | CANDLE CHECK | symbol=NLCINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:01 | INFO | SKIP data_quality_failed | symbol=NLCINDIA-EQ | candles=0
+2026-05-05 07:22:01 | INFO | CANDLE CHECK | symbol=NMDC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:01 | INFO | SKIP data_quality_failed | symbol=NMDC-EQ | candles=0
+2026-05-05 07:22:02 | INFO | CANDLE CHECK | symbol=NTPCGREEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:02 | INFO | SKIP data_quality_failed | symbol=NTPCGREEN-EQ | candles=0
+2026-05-05 07:22:02 | INFO | CANDLE CHECK | symbol=NHPC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:02 | INFO | SKIP data_quality_failed | symbol=NHPC-EQ | candles=0
+2026-05-05 07:22:02 | INFO | CANDLE CHECK | symbol=NH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:02 | INFO | SKIP data_quality_failed | symbol=NH-EQ | candles=0
+2026-05-05 07:22:02 | INFO | CANDLE CHECK | symbol=NTPC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:02 | INFO | SKIP data_quality_failed | symbol=NTPC-EQ | candles=0
+2026-05-05 07:22:02 | INFO | CANDLE CHECK | symbol=NFL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:02 | INFO | SKIP data_quality_failed | symbol=NFL-EQ | candles=0
+2026-05-05 07:22:03 | INFO | CANDLE CHECK | symbol=NAVA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:03 | INFO | SKIP data_quality_failed | symbol=NAVA-EQ | candles=0
+2026-05-05 07:22:03 | INFO | CANDLE CHECK | symbol=NAVINFLUOR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:03 | INFO | SKIP data_quality_failed | symbol=NAVINFLUOR-EQ | candles=0
+2026-05-05 07:22:03 | INFO | CANDLE CHECK | symbol=NSLNISP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:03 | INFO | SKIP data_quality_failed | symbol=NSLNISP-EQ | candles=0
+2026-05-05 07:22:03 | INFO | CANDLE CHECK | symbol=NAZARA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:03 | INFO | SKIP data_quality_failed | symbol=NAZARA-EQ | candles=0
+2026-05-05 07:22:04 | INFO | CANDLE CHECK | symbol=NATIONALUM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:04 | INFO | SKIP data_quality_failed | symbol=NATIONALUM-EQ | candles=0
+2026-05-05 07:22:04 | INFO | CANDLE CHECK | symbol=NETWEB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:04 | INFO | SKIP data_quality_failed | symbol=NETWEB-EQ | candles=0
+2026-05-05 07:22:04 | INFO | CANDLE CHECK | symbol=NETWORK18-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:04 | INFO | SKIP data_quality_failed | symbol=NETWORK18-EQ | candles=0
+2026-05-05 07:22:04 | INFO | CANDLE CHECK | symbol=NEULANDLAB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:04 | INFO | SKIP data_quality_failed | symbol=NEULANDLAB-EQ | candles=0
+2026-05-05 07:22:04 | INFO | CANDLE CHECK | symbol=NEWGEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:04 | INFO | SKIP data_quality_failed | symbol=NEWGEN-EQ | candles=0
+2026-05-05 07:22:04 | INFO | CANDLE CHECK | symbol=NAM-INDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:04 | INFO | SKIP data_quality_failed | symbol=NAM-INDIA-EQ | candles=0
+2026-05-05 07:22:05 | INFO | CANDLE CHECK | symbol=NIVABUPA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:05 | INFO | SKIP data_quality_failed | symbol=NIVABUPA-EQ | candles=0
+2026-05-05 07:22:05 | INFO | CANDLE CHECK | symbol=NUVAMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:05 | INFO | SKIP data_quality_failed | symbol=NUVAMA-EQ | candles=0
+2026-05-05 07:22:05 | INFO | CANDLE CHECK | symbol=NUVOCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:05 | INFO | SKIP data_quality_failed | symbol=NUVOCO-EQ | candles=0
+2026-05-05 07:22:05 | INFO | CANDLE CHECK | symbol=OBEROIRLTY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:05 | INFO | SKIP data_quality_failed | symbol=OBEROIRLTY-EQ | candles=0
+2026-05-05 07:22:05 | INFO | CANDLE CHECK | symbol=OIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:05 | INFO | SKIP data_quality_failed | symbol=OIL-EQ | candles=0
+2026-05-05 07:22:06 | INFO | CANDLE CHECK | symbol=ONGC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:06 | INFO | SKIP data_quality_failed | symbol=ONGC-EQ | candles=0
+2026-05-05 07:22:06 | INFO | CANDLE CHECK | symbol=OLAELEC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:06 | INFO | SKIP data_quality_failed | symbol=OLAELEC-EQ | candles=0
+2026-05-05 07:22:06 | INFO | CANDLE CHECK | symbol=OLECTRA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:06 | INFO | SKIP data_quality_failed | symbol=OLECTRA-EQ | candles=0
+2026-05-05 07:22:06 | INFO | CANDLE CHECK | symbol=PAYTM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:06 | INFO | SKIP data_quality_failed | symbol=PAYTM-EQ | candles=0
+2026-05-05 07:22:06 | INFO | CANDLE CHECK | symbol=NESTLEIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:06 | INFO | SKIP data_quality_failed | symbol=NESTLEIND-EQ | candles=0
+2026-05-05 07:22:06 | INFO | CANDLE CHECK | symbol=OPTIEMUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:06 | INFO | SKIP data_quality_failed | symbol=OPTIEMUS-EQ | candles=0
+2026-05-05 07:22:07 | INFO | CANDLE CHECK | symbol=OFSS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:07 | INFO | SKIP data_quality_failed | symbol=OFSS-EQ | candles=0
+2026-05-05 07:22:07 | INFO | CANDLE CHECK | symbol=ORIENTCEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:07 | INFO | SKIP data_quality_failed | symbol=ORIENTCEM-EQ | candles=0
+2026-05-05 07:22:07 | INFO | CANDLE CHECK | symbol=ORKLAINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:07 | INFO | SKIP data_quality_failed | symbol=ORKLAINDIA-EQ | candles=0
+2026-05-05 07:22:08 | INFO | CANDLE CHECK | symbol=PNGJL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:08 | INFO | SKIP data_quality_failed | symbol=PNGJL-EQ | candles=0
+2026-05-05 07:22:08 | INFO | CANDLE CHECK | symbol=POLICYBZR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:08 | INFO | CANDLE CHECK | symbol=OSWALPUMPS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:08 | INFO | SKIP data_quality_failed | symbol=POLICYBZR-EQ | candles=0
+2026-05-05 07:22:08 | INFO | SKIP data_quality_failed | symbol=OSWALPUMPS-EQ | candles=0
+2026-05-05 07:22:08 | INFO | CANDLE CHECK | symbol=ONESOURCE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:08 | INFO | SKIP data_quality_failed | symbol=ONESOURCE-EQ | candles=0
+2026-05-05 07:22:08 | INFO | CANDLE CHECK | symbol=PCJEWELLER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:08 | INFO | SKIP data_quality_failed | symbol=PCJEWELLER-EQ | candles=0
+2026-05-05 07:22:08 | INFO | CANDLE CHECK | symbol=PGEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:08 | INFO | SKIP data_quality_failed | symbol=PGEL-EQ | candles=0
+2026-05-05 07:22:09 | INFO | CANDLE CHECK | symbol=PCBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:09 | INFO | SKIP data_quality_failed | symbol=PCBL-EQ | candles=0
+2026-05-05 07:22:09 | INFO | CANDLE CHECK | symbol=PIIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:09 | INFO | SKIP data_quality_failed | symbol=PIIND-EQ | candles=0
+2026-05-05 07:22:09 | INFO | CANDLE CHECK | symbol=PNBHOUSING-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:09 | INFO | SKIP data_quality_failed | symbol=PNBHOUSING-EQ | candles=0
+2026-05-05 07:22:09 | INFO | CANDLE CHECK | symbol=PTC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:09 | INFO | SKIP data_quality_failed | symbol=PTC-EQ | candles=0
+2026-05-05 07:22:10 | INFO | CANDLE CHECK | symbol=PTCIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:10 | INFO | SKIP data_quality_failed | symbol=PTCIL-EQ | candles=0
+2026-05-05 07:22:10 | INFO | CANDLE CHECK | symbol=PVRINOX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:10 | INFO | SKIP data_quality_failed | symbol=PVRINOX-EQ | candles=0
+2026-05-05 07:22:10 | INFO | CANDLE CHECK | symbol=PNCINFRA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:10 | INFO | SKIP data_quality_failed | symbol=PNCINFRA-EQ | candles=0
+2026-05-05 07:22:10 | INFO | CANDLE CHECK | symbol=PARADEEP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:10 | INFO | SKIP data_quality_failed | symbol=PARADEEP-EQ | candles=0
+2026-05-05 07:22:10 | INFO | CANDLE CHECK | symbol=PARAS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:10 | INFO | SKIP data_quality_failed | symbol=PARAS-EQ | candles=0
+2026-05-05 07:22:10 | INFO | CANDLE CHECK | symbol=PARKHOSPS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:10 | INFO | SKIP data_quality_failed | symbol=PARKHOSPS-EQ | candles=0
+2026-05-05 07:22:11 | INFO | CANDLE CHECK | symbol=PATANJALI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:11 | INFO | SKIP data_quality_failed | symbol=PATANJALI-EQ | candles=0
+2026-05-05 07:22:11 | INFO | CANDLE CHECK | symbol=PGIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:11 | INFO | SKIP data_quality_failed | symbol=PGIL-EQ | candles=0
+2026-05-05 07:22:11 | INFO | CANDLE CHECK | symbol=PERSISTENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:11 | INFO | SKIP data_quality_failed | symbol=PERSISTENT-EQ | candles=0
+2026-05-05 07:22:11 | INFO | CANDLE CHECK | symbol=PETRONET-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:11 | INFO | SKIP data_quality_failed | symbol=PETRONET-EQ | candles=0
+2026-05-05 07:22:11 | INFO | CANDLE CHECK | symbol=PFIZER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:11 | INFO | SKIP data_quality_failed | symbol=PFIZER-EQ | candles=0
+2026-05-05 07:22:12 | INFO | CANDLE CHECK | symbol=PHOENIXLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:12 | INFO | SKIP data_quality_failed | symbol=PHOENIXLTD-EQ | candles=0
+2026-05-05 07:22:12 | INFO | CANDLE CHECK | symbol=PICCADIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:12 | INFO | SKIP data_quality_failed | symbol=PICCADIL-EQ | candles=0
+2026-05-05 07:22:12 | INFO | CANDLE CHECK | symbol=PIDILITIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:12 | INFO | SKIP data_quality_failed | symbol=PIDILITIND-EQ | candles=0
+2026-05-05 07:22:12 | INFO | CANDLE CHECK | symbol=PINELABS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:12 | INFO | SKIP data_quality_failed | symbol=PINELABS-EQ | candles=0
+2026-05-05 07:22:13 | INFO | CANDLE CHECK | symbol=PIRAMALFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:13 | INFO | SKIP data_quality_failed | symbol=PIRAMALFIN-EQ | candles=0
+2026-05-05 07:22:13 | INFO | CANDLE CHECK | symbol=PWL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:13 | INFO | SKIP data_quality_failed | symbol=PWL-EQ | candles=0
+2026-05-05 07:22:13 | INFO | CANDLE CHECK | symbol=PPLPHARMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:13 | INFO | SKIP data_quality_failed | symbol=PPLPHARMA-EQ | candles=0
+2026-05-05 07:22:13 | INFO | CANDLE CHECK | symbol=POLYMED-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:13 | INFO | SKIP data_quality_failed | symbol=POLYMED-EQ | candles=0
+2026-05-05 07:22:13 | INFO | CANDLE CHECK | symbol=PAGEIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:13 | INFO | SKIP data_quality_failed | symbol=PAGEIND-EQ | candles=0
+2026-05-05 07:22:13 | INFO | CANDLE CHECK | symbol=POONAWALLA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:13 | INFO | SKIP data_quality_failed | symbol=POONAWALLA-EQ | candles=0
+2026-05-05 07:22:14 | INFO | CANDLE CHECK | symbol=POLYCAB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:14 | INFO | SKIP data_quality_failed | symbol=POLYCAB-EQ | candles=0
+2026-05-05 07:22:14 | INFO | CANDLE CHECK | symbol=PFC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:14 | INFO | SKIP data_quality_failed | symbol=PFC-EQ | candles=0
+2026-05-05 07:22:14 | INFO | CANDLE CHECK | symbol=POWERGRID-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:14 | INFO | SKIP data_quality_failed | symbol=POWERGRID-EQ | candles=0
+2026-05-05 07:22:14 | INFO | CANDLE CHECK | symbol=PRAJIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:14 | INFO | SKIP data_quality_failed | symbol=PRAJIND-EQ | candles=0
+2026-05-05 07:22:14 | INFO | CANDLE CHECK | symbol=PREMIERENE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:14 | INFO | SKIP data_quality_failed | symbol=PREMIERENE-EQ | candles=0
+2026-05-05 07:22:14 | INFO | CANDLE CHECK | symbol=PRESTIGE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:14 | INFO | SKIP data_quality_failed | symbol=PRESTIGE-EQ | candles=0
+2026-05-05 07:22:15 | INFO | CANDLE CHECK | symbol=PRICOLLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:15 | INFO | SKIP data_quality_failed | symbol=PRICOLLTD-EQ | candles=0
+2026-05-05 07:22:15 | INFO | CANDLE CHECK | symbol=PFOCUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:15 | INFO | SKIP data_quality_failed | symbol=PFOCUS-EQ | candles=0
+2026-05-05 07:22:15 | INFO | CANDLE CHECK | symbol=PRSMJOHNSN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:15 | INFO | SKIP data_quality_failed | symbol=PRSMJOHNSN-EQ | candles=0
+2026-05-05 07:22:15 | INFO | CANDLE CHECK | symbol=PRIVISCL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:15 | INFO | SKIP data_quality_failed | symbol=PRIVISCL-EQ | candles=0
+2026-05-05 07:22:16 | INFO | CANDLE CHECK | symbol=PRUDENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:16 | INFO | SKIP data_quality_failed | symbol=PRUDENT-EQ | candles=0
+2026-05-05 07:22:16 | INFO | CANDLE CHECK | symbol=PNB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:16 | INFO | SKIP data_quality_failed | symbol=PNB-EQ | candles=0
+2026-05-05 07:22:16 | INFO | CANDLE CHECK | symbol=QPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:16 | INFO | SKIP data_quality_failed | symbol=QPOWER-EQ | candles=0
+2026-05-05 07:22:17 | INFO | CANDLE CHECK | symbol=QUESS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:17 | INFO | SKIP data_quality_failed | symbol=QUESS-EQ | candles=0
+2026-05-05 07:22:17 | INFO | CANDLE CHECK | symbol=POWERMECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:17 | INFO | CANDLE CHECK | symbol=PURVA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:17 | INFO | SKIP data_quality_failed | symbol=POWERMECH-EQ | candles=0
+2026-05-05 07:22:17 | INFO | SKIP data_quality_failed | symbol=PURVA-EQ | candles=0
+2026-05-05 07:22:17 | INFO | CANDLE CHECK | symbol=RRKABEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:17 | INFO | SKIP data_quality_failed | symbol=RRKABEL-EQ | candles=0
+2026-05-05 07:22:17 | INFO | CANDLE CHECK | symbol=RBLBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:17 | INFO | SKIP data_quality_failed | symbol=RBLBANK-EQ | candles=0
+2026-05-05 07:22:17 | INFO | CANDLE CHECK | symbol=RECLTD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:17 | INFO | SKIP data_quality_failed | symbol=RECLTD-EQ | candles=0
+2026-05-05 07:22:18 | INFO | CANDLE CHECK | symbol=RHIM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:18 | INFO | SKIP data_quality_failed | symbol=RHIM-EQ | candles=0
+2026-05-05 07:22:18 | INFO | CANDLE CHECK | symbol=RADICO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:18 | INFO | CANDLE CHECK | symbol=RITES-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:18 | INFO | SKIP data_quality_failed | symbol=RADICO-EQ | candles=0
+2026-05-05 07:22:18 | INFO | SKIP data_quality_failed | symbol=RITES-EQ | candles=0
+2026-05-05 07:22:18 | INFO | CANDLE CHECK | symbol=RVNL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:18 | INFO | SKIP data_quality_failed | symbol=RVNL-EQ | candles=0
+2026-05-05 07:22:18 | INFO | CANDLE CHECK | symbol=RAIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:18 | INFO | SKIP data_quality_failed | symbol=RAIN-EQ | candles=0
+2026-05-05 07:22:19 | INFO | CANDLE CHECK | symbol=RAINBOW-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:19 | INFO | SKIP data_quality_failed | symbol=RAINBOW-EQ | candles=0
+2026-05-05 07:22:19 | INFO | CANDLE CHECK | symbol=RAILTEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:19 | INFO | SKIP data_quality_failed | symbol=RAILTEL-EQ | candles=0
+2026-05-05 07:22:19 | INFO | CANDLE CHECK | symbol=RALLIS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:19 | INFO | SKIP data_quality_failed | symbol=RALLIS-EQ | candles=0
+2026-05-05 07:22:19 | INFO | CANDLE CHECK | symbol=RCF-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:19 | INFO | SKIP data_quality_failed | symbol=RCF-EQ | candles=0
+2026-05-05 07:22:19 | INFO | CANDLE CHECK | symbol=RKFORGE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:19 | INFO | SKIP data_quality_failed | symbol=RKFORGE-EQ | candles=0
+2026-05-05 07:22:20 | INFO | CANDLE CHECK | symbol=RTNINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:20 | INFO | SKIP data_quality_failed | symbol=RTNINDIA-EQ | candles=0
+2026-05-05 07:22:20 | INFO | CANDLE CHECK | symbol=RATEGAIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:20 | INFO | SKIP data_quality_failed | symbol=RATEGAIN-EQ | candles=0
+2026-05-05 07:22:20 | INFO | CANDLE CHECK | symbol=RTNPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:20 | INFO | SKIP data_quality_failed | symbol=RTNPOWER-EQ | candles=0
+2026-05-05 07:22:20 | INFO | CANDLE CHECK | symbol=RAYMONDLSL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:20 | INFO | SKIP data_quality_failed | symbol=RAYMONDLSL-EQ | candles=0
+2026-05-05 07:22:20 | INFO | CANDLE CHECK | symbol=REDTAPE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:20 | INFO | SKIP data_quality_failed | symbol=REDTAPE-EQ | candles=0
+2026-05-05 07:22:21 | INFO | CANDLE CHECK | symbol=REFEX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:21 | INFO | SKIP data_quality_failed | symbol=REFEX-EQ | candles=0
+2026-05-05 07:22:21 | INFO | CANDLE CHECK | symbol=REDINGTON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:21 | INFO | SKIP data_quality_failed | symbol=REDINGTON-EQ | candles=0
+2026-05-05 07:22:21 | INFO | CANDLE CHECK | symbol=RELAXO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:21 | INFO | SKIP data_quality_failed | symbol=RELAXO-EQ | candles=0
+2026-05-05 07:22:21 | INFO | CANDLE CHECK | symbol=RELIANCE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:21 | INFO | SKIP data_quality_failed | symbol=RELIANCE-EQ | candles=0
+2026-05-05 07:22:21 | INFO | CANDLE CHECK | symbol=RELIGARE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:21 | INFO | SKIP data_quality_failed | symbol=RELIGARE-EQ | candles=0
+2026-05-05 07:22:21 | INFO | CANDLE CHECK | symbol=RBA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:21 | INFO | SKIP data_quality_failed | symbol=RBA-EQ | candles=0
+2026-05-05 07:22:22 | INFO | CANDLE CHECK | symbol=ROUTE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:22 | INFO | SKIP data_quality_failed | symbol=ROUTE-EQ | candles=0
+2026-05-05 07:22:22 | INFO | CANDLE CHECK | symbol=RUBICON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:22 | INFO | SKIP data_quality_failed | symbol=RUBICON-EQ | candles=0
+2026-05-05 07:22:22 | INFO | CANDLE CHECK | symbol=RPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:22 | INFO | SKIP data_quality_failed | symbol=RPOWER-EQ | candles=0
+2026-05-05 07:22:22 | INFO | CANDLE CHECK | symbol=SBILIFE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:22 | INFO | SKIP data_quality_failed | symbol=SBILIFE-EQ | candles=0
+2026-05-05 07:22:23 | INFO | CANDLE CHECK | symbol=SKFINDUS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:23 | INFO | SKIP data_quality_failed | symbol=SKFINDUS-EQ | candles=0
+2026-05-05 07:22:23 | INFO | CANDLE CHECK | symbol=SBFC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:23 | INFO | SKIP data_quality_failed | symbol=SBFC-EQ | candles=0
+2026-05-05 07:22:23 | INFO | CANDLE CHECK | symbol=SJVN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:23 | INFO | CANDLE CHECK | symbol=SKFINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:23 | INFO | SKIP data_quality_failed | symbol=SJVN-EQ | candles=0
+2026-05-05 07:22:23 | INFO | SKIP data_quality_failed | symbol=SKFINDIA-EQ | candles=0
+2026-05-05 07:22:24 | INFO | CANDLE CHECK | symbol=SKYGOLD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:24 | INFO | SKIP data_quality_failed | symbol=SKYGOLD-EQ | candles=0
+2026-05-05 07:22:24 | INFO | CANDLE CHECK | symbol=SBICARD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:24 | INFO | SKIP data_quality_failed | symbol=SBICARD-EQ | candles=0
+2026-05-05 07:22:24 | INFO | CANDLE CHECK | symbol=SMLMAH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:24 | INFO | SKIP data_quality_failed | symbol=SMLMAH-EQ | candles=0
+2026-05-05 07:22:25 | INFO | CANDLE CHECK | symbol=SRF-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:25 | INFO | SKIP data_quality_failed | symbol=SRF-EQ | candles=0
+2026-05-05 07:22:25 | INFO | CANDLE CHECK | symbol=SAFARI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:25 | INFO | SKIP data_quality_failed | symbol=SAFARI-EQ | candles=0
+2026-05-05 07:22:25 | INFO | CANDLE CHECK | symbol=SAATVIKGL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:25 | INFO | SKIP data_quality_failed | symbol=SAATVIKGL-EQ | candles=0
+2026-05-05 07:22:25 | INFO | CANDLE CHECK | symbol=SAGILITY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:25 | INFO | SKIP data_quality_failed | symbol=SAGILITY-EQ | candles=0
+2026-05-05 07:22:26 | INFO | CANDLE CHECK | symbol=SAILIFE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:26 | INFO | SKIP data_quality_failed | symbol=SAILIFE-EQ | candles=0
+2026-05-05 07:22:26 | INFO | CANDLE CHECK | symbol=SAMHI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:26 | INFO | SKIP data_quality_failed | symbol=SAMHI-EQ | candles=0
+2026-05-05 07:22:26 | INFO | CANDLE CHECK | symbol=MOTHERSON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:26 | INFO | SKIP data_quality_failed | symbol=MOTHERSON-EQ | candles=0
+2026-05-05 07:22:26 | INFO | CANDLE CHECK | symbol=SANDUMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:26 | INFO | SKIP data_quality_failed | symbol=SANDUMA-EQ | candles=0
+2026-05-05 07:22:26 | INFO | CANDLE CHECK | symbol=SAMMAANCAP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:26 | INFO | SKIP data_quality_failed | symbol=SAMMAANCAP-EQ | candles=0
+2026-05-05 07:22:27 | INFO | CANDLE CHECK | symbol=SANSERA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:27 | INFO | SKIP data_quality_failed | symbol=SANSERA-EQ | candles=0
+2026-05-05 07:22:27 | INFO | CANDLE CHECK | symbol=SARDAEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:27 | INFO | SKIP data_quality_failed | symbol=SARDAEN-EQ | candles=0
+2026-05-05 07:22:27 | INFO | CANDLE CHECK | symbol=SAPPHIRE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:27 | INFO | SKIP data_quality_failed | symbol=SAPPHIRE-EQ | candles=0
+2026-05-05 07:22:28 | INFO | CANDLE CHECK | symbol=SAREGAMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:28 | INFO | SKIP data_quality_failed | symbol=SAREGAMA-EQ | candles=0
+2026-05-05 07:22:28 | INFO | CANDLE CHECK | symbol=SCHAEFFLER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:28 | INFO | SKIP data_quality_failed | symbol=SCHAEFFLER-EQ | candles=0
+2026-05-05 07:22:28 | INFO | CANDLE CHECK | symbol=SCHNEIDER-BE | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:28 | INFO | SKIP data_quality_failed | symbol=SCHNEIDER-BE | candles=0
+2026-05-05 07:22:28 | INFO | CANDLE CHECK | symbol=STYL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:28 | INFO | SKIP data_quality_failed | symbol=STYL-EQ | candles=0
+2026-05-05 07:22:28 | INFO | CANDLE CHECK | symbol=SENCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:28 | INFO | SKIP data_quality_failed | symbol=SENCO-EQ | candles=0
+2026-05-05 07:22:28 | INFO | CANDLE CHECK | symbol=SHAILY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:28 | INFO | SKIP data_quality_failed | symbol=SHAILY-EQ | candles=0
+2026-05-05 07:22:29 | INFO | CANDLE CHECK | symbol=SHAKTIPUMP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:29 | INFO | SKIP data_quality_failed | symbol=SHAKTIPUMP-EQ | candles=0
+2026-05-05 07:22:29 | INFO | CANDLE CHECK | symbol=SHARDACROP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:29 | INFO | SKIP data_quality_failed | symbol=SHARDACROP-EQ | candles=0
+2026-05-05 07:22:29 | INFO | CANDLE CHECK | symbol=SHAREINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:29 | INFO | SKIP data_quality_failed | symbol=SHAREINDIA-EQ | candles=0
+2026-05-05 07:22:29 | INFO | CANDLE CHECK | symbol=SFL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:29 | INFO | SKIP data_quality_failed | symbol=SFL-EQ | candles=0
+2026-05-05 07:22:29 | INFO | CANDLE CHECK | symbol=SHILPAMED-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:29 | INFO | SKIP data_quality_failed | symbol=SHILPAMED-EQ | candles=0
+2026-05-05 07:22:29 | INFO | CANDLE CHECK | symbol=SCI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:29 | INFO | SKIP data_quality_failed | symbol=SCI-EQ | candles=0
+2026-05-05 07:22:30 | INFO | CANDLE CHECK | symbol=SHREECEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:30 | INFO | SKIP data_quality_failed | symbol=SHREECEM-EQ | candles=0
+2026-05-05 07:22:30 | INFO | CANDLE CHECK | symbol=RENUKA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:30 | INFO | SKIP data_quality_failed | symbol=RENUKA-EQ | candles=0
+2026-05-05 07:22:30 | INFO | CANDLE CHECK | symbol=SHRIRAMFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:30 | INFO | SKIP data_quality_failed | symbol=SHRIRAMFIN-EQ | candles=0
+2026-05-05 07:22:30 | INFO | CANDLE CHECK | symbol=SHRIPISTON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:30 | INFO | SKIP data_quality_failed | symbol=SHRIPISTON-EQ | candles=0
+2026-05-05 07:22:30 | INFO | CANDLE CHECK | symbol=SHYAMMETL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:30 | INFO | SKIP data_quality_failed | symbol=SHYAMMETL-EQ | candles=0
+2026-05-05 07:22:30 | INFO | CANDLE CHECK | symbol=ENRIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:30 | INFO | SKIP data_quality_failed | symbol=ENRIN-EQ | candles=0
+2026-05-05 07:22:31 | INFO | CANDLE CHECK | symbol=SIGNATURE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:31 | INFO | SKIP data_quality_failed | symbol=SIGNATURE-EQ | candles=0
+2026-05-05 07:22:31 | INFO | CANDLE CHECK | symbol=SIEMENS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:31 | INFO | SKIP data_quality_failed | symbol=SIEMENS-EQ | candles=0
+2026-05-05 07:22:31 | INFO | CANDLE CHECK | symbol=SKIPPER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:31 | INFO | SKIP data_quality_failed | symbol=SKIPPER-EQ | candles=0
+2026-05-05 07:22:31 | INFO | CANDLE CHECK | symbol=SMARTWORKS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:31 | INFO | SKIP data_quality_failed | symbol=SMARTWORKS-EQ | candles=0
+2026-05-05 07:22:31 | INFO | CANDLE CHECK | symbol=SOBHA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:31 | INFO | SKIP data_quality_failed | symbol=SOBHA-EQ | candles=0
+2026-05-05 07:22:31 | INFO | CANDLE CHECK | symbol=SOLARINDS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:31 | INFO | SKIP data_quality_failed | symbol=SOLARINDS-EQ | candles=0
+2026-05-05 07:22:32 | INFO | CANDLE CHECK | symbol=SONACOMS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:32 | INFO | SKIP data_quality_failed | symbol=SONACOMS-EQ | candles=0
+2026-05-05 07:22:32 | INFO | CANDLE CHECK | symbol=SONATSOFTW-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:32 | INFO | SKIP data_quality_failed | symbol=SONATSOFTW-EQ | candles=0
+2026-05-05 07:22:32 | INFO | CANDLE CHECK | symbol=SOUTHBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:32 | INFO | SKIP data_quality_failed | symbol=SOUTHBANK-EQ | candles=0
+2026-05-05 07:22:33 | INFO | CANDLE CHECK | symbol=LOTUSDEV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:33 | INFO | SKIP data_quality_failed | symbol=LOTUSDEV-EQ | candles=0
+2026-05-05 07:22:33 | INFO | CANDLE CHECK | symbol=STARCEMENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:33 | INFO | SKIP data_quality_failed | symbol=STARCEMENT-EQ | candles=0
+2026-05-05 07:22:33 | INFO | CANDLE CHECK | symbol=STARHEALTH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:33 | INFO | SKIP data_quality_failed | symbol=STARHEALTH-EQ | candles=0
+2026-05-05 07:22:33 | INFO | CANDLE CHECK | symbol=SBIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:33 | INFO | SKIP data_quality_failed | symbol=SBIN-EQ | candles=0
+2026-05-05 07:22:33 | INFO | CANDLE CHECK | symbol=SAIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:33 | INFO | SKIP data_quality_failed | symbol=SAIL-EQ | candles=0
+2026-05-05 07:22:33 | INFO | CANDLE CHECK | symbol=SWSOLAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:33 | INFO | SKIP data_quality_failed | symbol=SWSOLAR-EQ | candles=0
+2026-05-05 07:22:34 | INFO | CANDLE CHECK | symbol=STLTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:34 | INFO | SKIP data_quality_failed | symbol=STLTECH-EQ | candles=0
+2026-05-05 07:22:34 | INFO | CANDLE CHECK | symbol=STAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:34 | INFO | SKIP data_quality_failed | symbol=STAR-EQ | candles=0
+2026-05-05 07:22:34 | INFO | CANDLE CHECK | symbol=STYRENIX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:34 | INFO | SKIP data_quality_failed | symbol=STYRENIX-EQ | candles=0
+2026-05-05 07:22:34 | INFO | CANDLE CHECK | symbol=SUBROS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:34 | INFO | SKIP data_quality_failed | symbol=SUBROS-EQ | candles=0
+2026-05-05 07:22:34 | INFO | CANDLE CHECK | symbol=SUDARSCHEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:34 | INFO | SKIP data_quality_failed | symbol=SUDARSCHEM-EQ | candles=0
+2026-05-05 07:22:35 | INFO | CANDLE CHECK | symbol=SUMICHEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:35 | INFO | SKIP data_quality_failed | symbol=SUMICHEM-EQ | candles=0
+2026-05-05 07:22:35 | INFO | CANDLE CHECK | symbol=SUDEEPPHRM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:35 | INFO | SKIP data_quality_failed | symbol=SUDEEPPHRM-EQ | candles=0
+2026-05-05 07:22:36 | INFO | CANDLE CHECK | symbol=SPARC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:36 | INFO | SKIP data_quality_failed | symbol=SPARC-EQ | candles=0
+2026-05-05 07:22:36 | INFO | CANDLE CHECK | symbol=SUNTV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:36 | INFO | SKIP data_quality_failed | symbol=SUNTV-EQ | candles=0
+2026-05-05 07:22:36 | INFO | CANDLE CHECK | symbol=SUNDARMFIN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:36 | INFO | SKIP data_quality_failed | symbol=SUNDARMFIN-EQ | candles=0
+2026-05-05 07:22:36 | INFO | CANDLE CHECK | symbol=SUNPHARMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:36 | INFO | SKIP data_quality_failed | symbol=SUNPHARMA-EQ | candles=0
+2026-05-05 07:22:36 | INFO | CANDLE CHECK | symbol=SUNTECK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:36 | INFO | SKIP data_quality_failed | symbol=SUNTECK-EQ | candles=0
+2026-05-05 07:22:37 | INFO | CANDLE CHECK | symbol=SUPREMEIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:37 | INFO | SKIP data_quality_failed | symbol=SUPREMEIND-EQ | candles=0
+2026-05-05 07:22:37 | INFO | CANDLE CHECK | symbol=SPLPETRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:37 | INFO | SKIP data_quality_failed | symbol=SPLPETRO-EQ | candles=0
+2026-05-05 07:22:37 | INFO | CANDLE CHECK | symbol=SUPRIYA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:37 | INFO | SKIP data_quality_failed | symbol=SUPRIYA-EQ | candles=0
+2026-05-05 07:22:37 | INFO | CANDLE CHECK | symbol=SURYAROSNI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:37 | INFO | SKIP data_quality_failed | symbol=SURYAROSNI-EQ | candles=0
+2026-05-05 07:22:37 | INFO | CANDLE CHECK | symbol=SUZLON-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:37 | INFO | SKIP data_quality_failed | symbol=SUZLON-EQ | candles=0
+2026-05-05 07:22:38 | INFO | CANDLE CHECK | symbol=SWANCORP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:38 | INFO | SKIP data_quality_failed | symbol=SWANCORP-EQ | candles=0
+2026-05-05 07:22:38 | INFO | CANDLE CHECK | symbol=SWIGGY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:38 | INFO | SKIP data_quality_failed | symbol=SWIGGY-EQ | candles=0
+2026-05-05 07:22:38 | INFO | CANDLE CHECK | symbol=SYNGENE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:38 | INFO | SKIP data_quality_failed | symbol=SYNGENE-EQ | candles=0
+2026-05-05 07:22:38 | INFO | CANDLE CHECK | symbol=SYRMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:38 | INFO | SKIP data_quality_failed | symbol=SYRMA-EQ | candles=0
+2026-05-05 07:22:38 | INFO | CANDLE CHECK | symbol=TARC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:38 | INFO | SKIP data_quality_failed | symbol=TARC-EQ | candles=0
+2026-05-05 07:22:38 | INFO | CANDLE CHECK | symbol=TBOTEK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:38 | INFO | SKIP data_quality_failed | symbol=TBOTEK-EQ | candles=0
+2026-05-05 07:22:39 | INFO | CANDLE CHECK | symbol=TDPOWERSYS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:39 | INFO | SKIP data_quality_failed | symbol=TDPOWERSYS-EQ | candles=0
+2026-05-05 07:22:39 | INFO | CANDLE CHECK | symbol=TSFINV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:39 | INFO | SKIP data_quality_failed | symbol=TSFINV-EQ | candles=0
+2026-05-05 07:22:40 | INFO | CANDLE CHECK | symbol=TVSMOTOR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:40 | INFO | SKIP data_quality_failed | symbol=TVSMOTOR-EQ | candles=0
+2026-05-05 07:22:40 | INFO | CANDLE CHECK | symbol=TVSSCS-BE | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:40 | INFO | SKIP data_quality_failed | symbol=TVSSCS-BE | candles=0
+2026-05-05 07:22:40 | INFO | CANDLE CHECK | symbol=TMB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:40 | INFO | SKIP data_quality_failed | symbol=TMB-EQ | candles=0
+2026-05-05 07:22:40 | INFO | CANDLE CHECK | symbol=TANLA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:40 | INFO | SKIP data_quality_failed | symbol=TANLA-EQ | candles=0
+2026-05-05 07:22:40 | INFO | CANDLE CHECK | symbol=TATACAP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:40 | INFO | SKIP data_quality_failed | symbol=TATACAP-EQ | candles=0
+2026-05-05 07:22:41 | INFO | CANDLE CHECK | symbol=TATACHEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:41 | INFO | SKIP data_quality_failed | symbol=TATACHEM-EQ | candles=0
+2026-05-05 07:22:41 | INFO | CANDLE CHECK | symbol=TATACOMM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:41 | INFO | SKIP data_quality_failed | symbol=TATACOMM-EQ | candles=0
+2026-05-05 07:22:41 | INFO | CANDLE CHECK | symbol=TCS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:41 | INFO | SKIP data_quality_failed | symbol=TCS-EQ | candles=0
+2026-05-05 07:22:41 | INFO | CANDLE CHECK | symbol=TATACONSUM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:41 | INFO | SKIP data_quality_failed | symbol=TATACONSUM-EQ | candles=0
+2026-05-05 07:22:41 | INFO | CANDLE CHECK | symbol=TATAELXSI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:41 | INFO | SKIP data_quality_failed | symbol=TATAELXSI-EQ | candles=0
+2026-05-05 07:22:42 | INFO | CANDLE CHECK | symbol=TATAINVEST-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:42 | INFO | SKIP data_quality_failed | symbol=TATAINVEST-EQ | candles=0
+2026-05-05 07:22:42 | INFO | CANDLE CHECK | symbol=TMCV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:42 | INFO | SKIP data_quality_failed | symbol=TMCV-EQ | candles=0
+2026-05-05 07:22:42 | INFO | CANDLE CHECK | symbol=TMPV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:42 | INFO | SKIP data_quality_failed | symbol=TMPV-EQ | candles=0
+2026-05-05 07:22:42 | INFO | CANDLE CHECK | symbol=TATAPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:42 | INFO | SKIP data_quality_failed | symbol=TATAPOWER-EQ | candles=0
+2026-05-05 07:22:42 | INFO | CANDLE CHECK | symbol=TATASTEEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:42 | INFO | SKIP data_quality_failed | symbol=TATASTEEL-EQ | candles=0
+2026-05-05 07:22:43 | INFO | CANDLE CHECK | symbol=TATATECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:43 | INFO | SKIP data_quality_failed | symbol=TATATECH-EQ | candles=0
+2026-05-05 07:22:43 | INFO | CANDLE CHECK | symbol=TTML-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:43 | INFO | SKIP data_quality_failed | symbol=TTML-EQ | candles=0
+2026-05-05 07:22:43 | INFO | CANDLE CHECK | symbol=TECHM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:43 | INFO | SKIP data_quality_failed | symbol=TECHM-EQ | candles=0
+2026-05-05 07:22:44 | INFO | CANDLE CHECK | symbol=TEGA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:44 | INFO | CANDLE CHECK | symbol=TEJASNET-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:44 | INFO | SKIP data_quality_failed | symbol=TEGA-EQ | candles=0
+2026-05-05 07:22:44 | INFO | SKIP data_quality_failed | symbol=TEJASNET-EQ | candles=0
+2026-05-05 07:22:44 | INFO | CANDLE CHECK | symbol=TECHNOE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:44 | INFO | SKIP data_quality_failed | symbol=TECHNOE-EQ | candles=0
+2026-05-05 07:22:44 | INFO | CANDLE CHECK | symbol=TENNIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:44 | INFO | SKIP data_quality_failed | symbol=TENNIND-EQ | candles=0
+2026-05-05 07:22:44 | INFO | CANDLE CHECK | symbol=TEXRAIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:44 | INFO | SKIP data_quality_failed | symbol=TEXRAIL-EQ | candles=0
+2026-05-05 07:22:45 | INFO | CANDLE CHECK | symbol=THANGAMAYL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:45 | INFO | SKIP data_quality_failed | symbol=THANGAMAYL-EQ | candles=0
+2026-05-05 07:22:45 | INFO | CANDLE CHECK | symbol=ANUP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:45 | INFO | SKIP data_quality_failed | symbol=ANUP-EQ | candles=0
+2026-05-05 07:22:45 | INFO | CANDLE CHECK | symbol=NIACL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:45 | INFO | SKIP data_quality_failed | symbol=NIACL-EQ | candles=0
+2026-05-05 07:22:45 | INFO | CANDLE CHECK | symbol=RAMCOCEM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:45 | INFO | SKIP data_quality_failed | symbol=RAMCOCEM-EQ | candles=0
+2026-05-05 07:22:45 | INFO | CANDLE CHECK | symbol=THERMAX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:45 | INFO | SKIP data_quality_failed | symbol=THERMAX-EQ | candles=0
+2026-05-05 07:22:45 | INFO | CANDLE CHECK | symbol=THOMASCOOK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:45 | INFO | SKIP data_quality_failed | symbol=THOMASCOOK-EQ | candles=0
+2026-05-05 07:22:46 | INFO | CANDLE CHECK | symbol=THYROCARE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:46 | INFO | SKIP data_quality_failed | symbol=THYROCARE-EQ | candles=0
+2026-05-05 07:22:46 | INFO | CANDLE CHECK | symbol=TI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:46 | INFO | SKIP data_quality_failed | symbol=TI-EQ | candles=0
+2026-05-05 07:22:46 | INFO | CANDLE CHECK | symbol=TIMETECHNO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:46 | INFO | CANDLE CHECK | symbol=TIMKEN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:46 | INFO | SKIP data_quality_failed | symbol=TIMETECHNO-EQ | candles=0
+2026-05-05 07:22:46 | INFO | SKIP data_quality_failed | symbol=TIMKEN-EQ | candles=0
+2026-05-05 07:22:46 | INFO | CANDLE CHECK | symbol=TIPSMUSIC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:46 | INFO | SKIP data_quality_failed | symbol=TIPSMUSIC-EQ | candles=0
+2026-05-05 07:22:46 | INFO | CANDLE CHECK | symbol=TITAGARH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:46 | INFO | SKIP data_quality_failed | symbol=TITAGARH-EQ | candles=0
+2026-05-05 07:22:47 | INFO | CANDLE CHECK | symbol=TITAN-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:47 | INFO | SKIP data_quality_failed | symbol=TITAN-EQ | candles=0
+2026-05-05 07:22:47 | INFO | CANDLE CHECK | symbol=TORNTPHARM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:47 | INFO | SKIP data_quality_failed | symbol=TORNTPHARM-EQ | candles=0
+2026-05-05 07:22:47 | INFO | CANDLE CHECK | symbol=TORNTPOWER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:47 | INFO | SKIP data_quality_failed | symbol=TORNTPOWER-EQ | candles=0
+2026-05-05 07:22:47 | INFO | CANDLE CHECK | symbol=TARIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:47 | INFO | SKIP data_quality_failed | symbol=TARIL-EQ | candles=0
+2026-05-05 07:22:48 | INFO | CANDLE CHECK | symbol=TRANSRAILL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:48 | INFO | SKIP data_quality_failed | symbol=TRANSRAILL-EQ | candles=0
+2026-05-05 07:22:48 | INFO | CANDLE CHECK | symbol=TRAVELFOOD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:48 | INFO | SKIP data_quality_failed | symbol=TRAVELFOOD-EQ | candles=0
+2026-05-05 07:22:48 | INFO | CANDLE CHECK | symbol=TRENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:48 | INFO | SKIP data_quality_failed | symbol=TRENT-EQ | candles=0
+2026-05-05 07:22:48 | INFO | CANDLE CHECK | symbol=TRIDENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:48 | INFO | SKIP data_quality_failed | symbol=TRIDENT-EQ | candles=0
+2026-05-05 07:22:49 | INFO | CANDLE CHECK | symbol=TRITURBINE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:49 | INFO | CANDLE CHECK | symbol=TRIVENI-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:49 | INFO | SKIP data_quality_failed | symbol=TRITURBINE-EQ | candles=0
+2026-05-05 07:22:49 | INFO | SKIP data_quality_failed | symbol=TRIVENI-EQ | candles=0
+2026-05-05 07:22:49 | INFO | CANDLE CHECK | symbol=TIINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:49 | INFO | SKIP data_quality_failed | symbol=TIINDIA-EQ | candles=0
+2026-05-05 07:22:49 | INFO | CANDLE CHECK | symbol=UCOBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:49 | INFO | SKIP data_quality_failed | symbol=UCOBANK-EQ | candles=0
+2026-05-05 07:22:49 | INFO | CANDLE CHECK | symbol=UPL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:49 | INFO | CANDLE CHECK | symbol=UNOMINDA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:49 | INFO | SKIP data_quality_failed | symbol=UPL-EQ | candles=0
+2026-05-05 07:22:49 | INFO | SKIP data_quality_failed | symbol=UNOMINDA-EQ | candles=0
+2026-05-05 07:22:50 | INFO | CANDLE CHECK | symbol=UJJIVANSFB-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:50 | INFO | SKIP data_quality_failed | symbol=UJJIVANSFB-EQ | candles=0
+2026-05-05 07:22:50 | INFO | CANDLE CHECK | symbol=UTIAMC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:50 | INFO | SKIP data_quality_failed | symbol=UTIAMC-EQ | candles=0
+2026-05-05 07:22:50 | INFO | CANDLE CHECK | symbol=ULTRACEMCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:50 | INFO | SKIP data_quality_failed | symbol=ULTRACEMCO-EQ | candles=0
+2026-05-05 07:22:50 | INFO | CANDLE CHECK | symbol=UNIONBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:50 | INFO | SKIP data_quality_failed | symbol=UNIONBANK-EQ | candles=0
+2026-05-05 07:22:51 | INFO | CANDLE CHECK | symbol=UBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:51 | INFO | SKIP data_quality_failed | symbol=UBL-EQ | candles=0
+2026-05-05 07:22:51 | INFO | CANDLE CHECK | symbol=UNITDSPR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:51 | INFO | SKIP data_quality_failed | symbol=UNITDSPR-EQ | candles=0
+2026-05-05 07:22:51 | INFO | CANDLE CHECK | symbol=URBANCO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:51 | INFO | SKIP data_quality_failed | symbol=URBANCO-EQ | candles=0
+2026-05-05 07:22:51 | INFO | CANDLE CHECK | symbol=USHAMART-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:51 | INFO | SKIP data_quality_failed | symbol=USHAMART-EQ | candles=0
+2026-05-05 07:22:51 | INFO | CANDLE CHECK | symbol=VGUARD-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:51 | INFO | CANDLE CHECK | symbol=VMART-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:51 | INFO | SKIP data_quality_failed | symbol=VGUARD-EQ | candles=0
+2026-05-05 07:22:51 | INFO | SKIP data_quality_failed | symbol=VMART-EQ | candles=0
+2026-05-05 07:22:52 | INFO | CANDLE CHECK | symbol=VIPIND-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:52 | INFO | SKIP data_quality_failed | symbol=VIPIND-EQ | candles=0
+2026-05-05 07:22:52 | INFO | CANDLE CHECK | symbol=V2RETAIL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:52 | INFO | SKIP data_quality_failed | symbol=V2RETAIL-EQ | candles=0
+2026-05-05 07:22:52 | INFO | CANDLE CHECK | symbol=WABAG-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:52 | INFO | SKIP data_quality_failed | symbol=WABAG-EQ | candles=0
+2026-05-05 07:22:52 | INFO | CANDLE CHECK | symbol=VAIBHAVGBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:52 | INFO | SKIP data_quality_failed | symbol=VAIBHAVGBL-EQ | candles=0
+2026-05-05 07:22:52 | INFO | CANDLE CHECK | symbol=VTL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:52 | INFO | CANDLE CHECK | symbol=DBREALTY-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:52 | INFO | SKIP data_quality_failed | symbol=VTL-EQ | candles=0
+2026-05-05 07:22:52 | INFO | SKIP data_quality_failed | symbol=DBREALTY-EQ | candles=0
+2026-05-05 07:22:53 | INFO | CANDLE CHECK | symbol=VARROC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:53 | INFO | SKIP data_quality_failed | symbol=VARROC-EQ | candles=0
+2026-05-05 07:22:53 | INFO | CANDLE CHECK | symbol=VBL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:53 | INFO | SKIP data_quality_failed | symbol=VBL-EQ | candles=0
+2026-05-05 07:22:53 | INFO | CANDLE CHECK | symbol=MANYAVAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:53 | INFO | SKIP data_quality_failed | symbol=MANYAVAR-EQ | candles=0
+2026-05-05 07:22:53 | INFO | CANDLE CHECK | symbol=VEDL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:53 | INFO | SKIP data_quality_failed | symbol=VEDL-EQ | candles=0
+2026-05-05 07:22:53 | INFO | CANDLE CHECK | symbol=VIJAYA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:53 | INFO | SKIP data_quality_failed | symbol=VIJAYA-EQ | candles=0
+2026-05-05 07:22:53 | INFO | CANDLE CHECK | symbol=VIKRAMSOLR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:53 | INFO | SKIP data_quality_failed | symbol=VIKRAMSOLR-EQ | candles=0
+2026-05-05 07:22:54 | INFO | CANDLE CHECK | symbol=VMM-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:54 | INFO | SKIP data_quality_failed | symbol=VMM-EQ | candles=0
+2026-05-05 07:22:54 | INFO | CANDLE CHECK | symbol=VIYASH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:54 | INFO | SKIP data_quality_failed | symbol=VIYASH-EQ | candles=0
+2026-05-05 07:22:54 | INFO | CANDLE CHECK | symbol=IDEA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:54 | INFO | SKIP data_quality_failed | symbol=IDEA-EQ | candles=0
+2026-05-05 07:22:54 | INFO | CANDLE CHECK | symbol=VOLTAMP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:54 | INFO | SKIP data_quality_failed | symbol=VOLTAMP-EQ | candles=0
+2026-05-05 07:22:54 | INFO | CANDLE CHECK | symbol=VOLTAS-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:54 | INFO | CANDLE CHECK | symbol=WAAREEENER-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:54 | INFO | SKIP data_quality_failed | symbol=VOLTAS-EQ | candles=0
+2026-05-05 07:22:54 | INFO | SKIP data_quality_failed | symbol=WAAREEENER-EQ | candles=0
+2026-05-05 07:22:55 | INFO | CANDLE CHECK | symbol=WAAREERTL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:55 | INFO | SKIP data_quality_failed | symbol=WAAREERTL-EQ | candles=0
+2026-05-05 07:22:55 | INFO | CANDLE CHECK | symbol=WAKEFIT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:55 | INFO | SKIP data_quality_failed | symbol=WAKEFIT-EQ | candles=0
+2026-05-05 07:22:55 | INFO | CANDLE CHECK | symbol=WEWORK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:55 | INFO | SKIP data_quality_failed | symbol=WEWORK-EQ | candles=0
+2026-05-05 07:22:55 | INFO | CANDLE CHECK | symbol=WEBELSOLAR-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:55 | INFO | SKIP data_quality_failed | symbol=WEBELSOLAR-EQ | candles=0
+2026-05-05 07:22:55 | INFO | CANDLE CHECK | symbol=WELCORP-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:55 | INFO | SKIP data_quality_failed | symbol=WELCORP-EQ | candles=0
+2026-05-05 07:22:56 | INFO | CANDLE CHECK | symbol=WELENT-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:56 | INFO | SKIP data_quality_failed | symbol=WELENT-EQ | candles=0
+2026-05-05 07:22:56 | INFO | CANDLE CHECK | symbol=WELSPUNLIV-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:56 | INFO | SKIP data_quality_failed | symbol=WELSPUNLIV-EQ | candles=0
+2026-05-05 07:22:56 | INFO | CANDLE CHECK | symbol=WESTLIFE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:56 | INFO | SKIP data_quality_failed | symbol=WESTLIFE-EQ | candles=0
+2026-05-05 07:22:56 | INFO | CANDLE CHECK | symbol=WHIRLPOOL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:56 | INFO | SKIP data_quality_failed | symbol=WHIRLPOOL-EQ | candles=0
+2026-05-05 07:22:57 | INFO | CANDLE CHECK | symbol=WIPRO-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:57 | INFO | SKIP data_quality_failed | symbol=WIPRO-EQ | candles=0
+2026-05-05 07:22:57 | INFO | CANDLE CHECK | symbol=WOCKPHARMA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:57 | INFO | SKIP data_quality_failed | symbol=WOCKPHARMA-EQ | candles=0
+2026-05-05 07:22:57 | INFO | CANDLE CHECK | symbol=YATHARTH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:57 | INFO | SKIP data_quality_failed | symbol=YATHARTH-EQ | candles=0
+2026-05-05 07:22:58 | INFO | CANDLE CHECK | symbol=YESBANK-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:58 | INFO | SKIP data_quality_failed | symbol=YESBANK-EQ | candles=0
+2026-05-05 07:22:58 | INFO | CANDLE CHECK | symbol=ZFCVINDIA-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:58 | INFO | SKIP data_quality_failed | symbol=ZFCVINDIA-EQ | candles=0
+2026-05-05 07:22:58 | INFO | CANDLE CHECK | symbol=ZAGGLE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:58 | INFO | SKIP data_quality_failed | symbol=ZAGGLE-EQ | candles=0
+2026-05-05 07:22:58 | INFO | CANDLE CHECK | symbol=ZEEL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:58 | INFO | SKIP data_quality_failed | symbol=ZEEL-EQ | candles=0
+2026-05-05 07:22:58 | INFO | CANDLE CHECK | symbol=ZENTEC-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:58 | INFO | SKIP data_quality_failed | symbol=ZENTEC-EQ | candles=0
+2026-05-05 07:22:58 | INFO | CANDLE CHECK | symbol=ZENSARTECH-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:58 | INFO | SKIP data_quality_failed | symbol=ZENSARTECH-EQ | candles=0
+2026-05-05 07:22:59 | INFO | CANDLE CHECK | symbol=ZYDUSLIFE-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:59 | INFO | SKIP data_quality_failed | symbol=ZYDUSLIFE-EQ | candles=0
+2026-05-05 07:22:59 | INFO | CANDLE CHECK | symbol=ECLERX-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:59 | INFO | SKIP data_quality_failed | symbol=ECLERX-EQ | candles=0
+2026-05-05 07:22:59 | INFO | CANDLE CHECK | symbol=ZYDUSWELL-EQ | candles=0 | minimum=220 | met=False
+2026-05-05 07:22:59 | INFO | SKIP data_quality_failed | symbol=ZYDUSWELL-EQ | candles=0
+2026-05-05 07:22:59 | INFO | ============================================================
+2026-05-05 07:22:59 | INFO | SCAN COMPLETE | total=755 | matched=0 | rejected=0 | datasource_failed=0 | data_quality_failed=755
+2026-05-05 07:22:59 | INFO | ============================================================

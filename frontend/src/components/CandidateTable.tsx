@@ -1,4 +1,6 @@
 import type { CandidateRow } from "../types";
+import { InfoTooltip } from "./InfoTooltip";
+import { TOOLTIPS } from "../constants/tooltips";
 
 type CandidateTableProps = {
   rows: CandidateRow[];
@@ -9,9 +11,15 @@ type CandidateTableProps = {
 export function CandidateTable({ rows, selectedSymbol, onSelect }: CandidateTableProps) {
   if (!rows.length) {
     return (
-      <section className="panel empty-state" aria-live="polite">
-        <h2>No shortlisted names yet</h2>
-        <p>Run the scanner to populate the candidate table. If no rows appear, the current market did not produce enough swing setups.</p>
+      <section className="panel table-panel">
+        <div
+          className="empty-state"
+          aria-live="polite"
+          style={{ textAlign: "center", color: "#6b7280", padding: "48px 16px" }}
+        >
+          <p style={{ margin: 0, fontWeight: 600 }}>No stocks match the current filters.</p>
+          <span style={{ display: "block", marginTop: 8 }}>Try relaxing the signal filter, score range, or search term.</span>
+        </div>
       </section>
     );
   }
@@ -39,17 +47,33 @@ export function CandidateTable({ rows, selectedSymbol, onSelect }: CandidateTabl
               <th>
                 <abbr title="Confidence is the model's conviction after combining technicals, news, and backtest support.">Confidence</abbr>
               </th>
-              <th>Entry</th>
-              <th>Stop loss</th>
-              <th>Target 1</th>
-              <th>Target 2</th>
               <th>
-                <abbr title="Risk-reward compares potential gain against the stop-loss risk.">Risk / Reward</abbr>
+                Entry <InfoTooltip content={TOOLTIPS.SCANNER.ENTRY_PRICE} />
               </th>
-              <th>Trend</th>
-              <th>Momentum</th>
-              <th>Volume</th>
-              <th>News</th>
+              <th>
+                Stop loss <InfoTooltip content={TOOLTIPS.SCANNER.STOP_LOSS} />
+              </th>
+              <th>
+                Target 1 <InfoTooltip content={TOOLTIPS.SCANNER.TARGET_1} />
+              </th>
+              <th>
+                Target 2 <InfoTooltip content={TOOLTIPS.SCANNER.TARGET_2} />
+              </th>
+              <th>
+                Risk / Reward <InfoTooltip content={TOOLTIPS.SCANNER.RISK_REWARD} />
+              </th>
+              <th>
+                Trend <InfoTooltip content={TOOLTIPS.SCANNER.TREND} />
+              </th>
+              <th>
+                Momentum <InfoTooltip content={TOOLTIPS.SCANNER.MOMENTUM} />
+              </th>
+              <th>
+                Volume <InfoTooltip content={TOOLTIPS.SCANNER.VOLUME} />
+              </th>
+              <th>
+                News <InfoTooltip content={TOOLTIPS.SCANNER.NEWS} />
+              </th>
               <th>Last updated</th>
             </tr>
           </thead>
@@ -127,9 +151,23 @@ function SignalBadge({ value }: { value: CandidateRow["signal"] }) {
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
+  const tooltipMap: Record<string, string | undefined> = {
+    Score: TOOLTIPS.SCANNER.SCORE_MIN,
+    Confidence: TOOLTIPS.SCANNER.CONFIDENCE_CHECKBOX,
+    Entry: TOOLTIPS.SCANNER.ENTRY_PRICE,
+    'Risk / Reward': TOOLTIPS.SCANNER.RISK_REWARD,
+    Trend: TOOLTIPS.SCANNER.TREND,
+    News: TOOLTIPS.SCANNER.NEWS,
+  };
+
+  const tip = tooltipMap[label];
+
   return (
     <div className="mini-metric">
-      <span>{label}</span>
+      <span>
+        {label}
+        {tip ? <InfoTooltip content={tip} /> : null}
+      </span>
       <strong>{value}</strong>
     </div>
   );

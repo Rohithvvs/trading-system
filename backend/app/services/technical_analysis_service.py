@@ -28,6 +28,14 @@ class TechnicalAnalysisService:
             mode.value,
             len(candles),
         )
+        if not candles:
+            return TechnicalAnalysisResult(
+                mode=mode,
+                signal="unknown",
+                score=0.0,
+                indicators={},
+                summary=f"{symbol} could not be analyzed because no live OHLCV candles were available.",
+            )
         frame = pd.DataFrame(
             {
                 "open": [candle.open for candle in candles],

@@ -24,10 +24,15 @@ def configure_logging() -> None:
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
 
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-
     root_logger.addHandler(stream_handler)
+
+    try:
+        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    except OSError as exc:
+        root_logger.warning("File logging disabled | path=%s | error=%s", LOG_FILE, exc)
+        return
+
+    file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
 

@@ -1,3 +1,7 @@
+from .core.logger import setup_logging
+setup_logging()
+
+from datetime import datetime
 from time import perf_counter
 
 from fastapi import FastAPI
@@ -7,11 +11,54 @@ from .config import settings
 from .db import init_db
 from .routes import api_router
 from .utils import configure_logging, get_logger
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from app.services.candle_store import (
+    get_all_cached_symbols,
+    is_cache_fresh,
+    get_last_stored_date,
+)
+from app.db.session import SessionLocal
+from app.services.paper_trading_service import PaperTradingService
+from app.services.fyers_service import FyersService
+# token_service refresh automation removed — manual access-token workflow only
+import asyncio
+from app.schemas import AnalysisMode
 
 
 configure_logging()
 init_db()
 request_logger = get_logger("app.http")
+config_logger = get_logger("app.config")
+logger = get_logger("app.scheduler")
+
+
+# Scheduler for background jobs (nightly tasks)
+scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
+
+# Log configuration at startup
+config_logger.info(
+    "System Configuration | app_env=%s | app_name=%s | host=%s | port=%s",
+    settings.app_env,
+    settings.app_name,
+    settings.app_host,
+    settings.app_port,
+)
+config_logger.info(
+    "Data Source Configuration | fyers_enabled=%s",
+    bool(settings.fyers_access_token),
+)
+config_logger.info(
+    "Universe Configuration | nifty500=%s | nifty_next_500=%s | bse500=%s | bse1000=%s",
+    len(settings.nifty500_symbols),
+    len(settings.nifty_next_500_symbols),
+    len(settings.bse500_symbols),
+    len(settings.bse1000_symbols),
+)
+if not settings.nifty500_symbols:
+    config_logger.warning(
+        "Nifty 500 universe is empty | Check NIFTY500_CSV_PATH, ind_nifty500list.csv, or NIFTY500_SYMBOLS"
+    )
 
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
@@ -56,3 +103,143 @@ async def log_http_requests(request, call_next):
 
 
 app.include_router(api_router)
+
+
+async def nightly_candle_sync():
+    logger.info("NIGHTLY SYNC started")
+    from app.services.fyers_service import FyersService
+    fyers = FyersService()
+    symbols = get_all_cached_symbols()
+    stale = [s for s in symbols if not is_cache_fresh(s)]
+    logger.info("NIGHTLY SYNC stale_symbols=%s total=%s", len(stale), len(symbols))
+    import asyncio
+    from app.schemas import AnalysisMode
+    for symbol in stale:
+        try:
+            # Run the synchronous cache-refresh in a thread so we don't block the event loop
+            await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
+            logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
+        except Exception as e:
+            logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)
+    logger.info("NIGHTLY SYNC complete")
+
+
+@app.on_event("startup")
+async def startup_event():
+    # Ensure the candle cache DB exists before scheduling jobs
+    try:
+        from app.services import candle_store
+        candle_store.init_db()
+    except Exception:
+        logger.exception("Failed to init candle_store DB on startup")
+
+    scheduler.add_job(
+        nightly_candle_sync,
+        CronTrigger(hour=18, minute=30, timezone="Asia/Kolkata"),
+        id="nightly_candle_sync",
+        replace_existing=True,
+    )
+    # FYERS refresh automation removed. Manual access-token workflow only.
+    scheduler.start()
+    logger.info("Scheduler started — nightly sync at 18:30 IST")
+
+    # Start the positions monitor background task
+    async def _monitor_positions_background():
+        logger.info("Position monitor starting (every 5s)")
+        fyers = FyersService()
+        while True:
+            try:
+                db = SessionLocal()
+                try:
+                    service = PaperTradingService(db)
+                    account = service._get_or_create_account()
+                    positions = service._position_models(account.id)
+                    for pos in positions:
+                        try:
+                            # Fetch LTP in a thread to avoid blocking event loop
+                            ltp = await asyncio.to_thread(fyers.fetch_ltp, pos.symbol)
+                            if ltp is None:
+                                candles = await asyncio.to_thread(
+                                    fyers.fetch_ohlcv, pos.symbol, AnalysisMode.swing, "1d", 2
+                                )
+                                if candles and len(candles) > 0:
+                                    ltp = candles[-1].close
+                                else:
+                                    logger.warning("No price data available for %s; skipping monitoring", pos.symbol)
+                                    continue
+                            if pos.target is not None and ltp >= pos.target:
+                                await asyncio.to_thread(service.auto_exit, pos.id, ltp, "TARGET_HIT")
+                            elif pos.stop_loss is not None and ltp <= pos.stop_loss:
+                                await asyncio.to_thread(service.auto_exit, pos.id, ltp, "STOPLOSS_HIT")
+                        except Exception:
+                            logger.exception("Error monitoring position %s", pos.symbol)
+                    # Check price alerts as well
+                    try:
+                        alerts = service.get_active_alerts()
+                        for a in alerts:
+                            try:
+                                ltp = await asyncio.to_thread(fyers.fetch_ltp, a.symbol)
+                                if ltp is None:
+                                    candles = await asyncio.to_thread(
+                                        fyers.fetch_ohlcv, a.symbol, AnalysisMode.swing, "1d", 2
+                                    )
+                                    if candles and len(candles) > 0:
+                                        ltp = candles[-1].close
+                                    else:
+                                        logger.warning("No price data available for alert %s; skipping", a.symbol)
+                                        continue
+                                if a.condition == ">=" and ltp >= a.target_price:
+                                    await asyncio.to_thread(service.trigger_alert, a.id, ltp)
+                                elif a.condition == "<=" and ltp <= a.target_price:
+                                    await asyncio.to_thread(service.trigger_alert, a.id, ltp)
+                            except Exception:
+                                logger.exception("Error monitoring alert %s", a.symbol)
+                    except Exception:
+                        logger.exception("Failed to check price alerts")
+                finally:
+                    db.close()
+            except Exception:
+                logger.exception("Position monitor loop failed")
+            await asyncio.sleep(5)
+
+    # Create background task but don't await it
+    try:
+        asyncio.create_task(_monitor_positions_background())
+    except Exception:
+        logger.exception("Failed to start position monitor task")
+
+    # ADD: Run offline gap replay on startup to handle fills/exits while server was down
+    try:
+        from app.core.gap_replay import run_gap_replay
+
+        db = SessionLocal()
+        fyers = FyersService()
+        try:
+            summary = run_gap_replay(db, fyers)
+        finally:
+            db.close()
+
+        app.state.last_gap_replay = summary
+        if summary.get("skipped_reason"):
+            print(f"[GAP_REPLAY] Skipped: {summary['skipped_reason']}")
+        else:
+            print("[GAP_REPLAY] Complete!")
+            print(f"  Orders filled:     {len(summary.get('orders_filled', []))}")
+            print(f"  Positions exited:  {len(summary.get('positions_exited', []))}")
+            for w in summary.get("warnings", []):
+                print(f"  ⚠️  {w}")
+    except Exception as e:
+        logger.exception("GAP_REPLAY startup failed: %s", e)
+        print(f"[GAP_REPLAY] Startup replay failed: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
+    try:
+        from app.core.server_state import write_shutdown_time
+
+        write_shutdown_time()
+        print("[server_state] Shutdown time saved.")
+    except Exception:
+        logger.exception("Failed to write shutdown time on shutdown")

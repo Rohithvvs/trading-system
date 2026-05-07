@@ -1,10 +1,14 @@
 import type { ChangeEvent, ReactNode } from "react";
+import { InfoTooltip } from './InfoTooltip';
+import { TOOLTIPS } from '../constants/tooltips';
 
 import type { ThemeMode } from "../types";
+import NotificationBell from "./NotificationBell";
 
 type DashboardHeaderProps = {
   isLoading: boolean;
   lastScanAt: string | null;
+  lastScanLabel?: string | null;
   marketStatus: string;
   search: string;
   onSearchChange: (value: string) => void;
@@ -22,6 +26,7 @@ type DashboardHeaderProps = {
 export function DashboardHeader({
   isLoading,
   lastScanAt,
+  lastScanLabel,
   marketStatus,
   search,
   onSearchChange,
@@ -46,45 +51,37 @@ export function DashboardHeader({
           <StatusPill label="Market" value={marketStatus} tone={marketStatus === "Open" ? "positive" : "neutral"} />
           <StatusPill
             label="Last scan"
-            value={lastScanAt ? new Date(lastScanAt).toLocaleString() : "Not run yet"}
+            value={lastScanLabel ?? (lastScanAt ? new Date(lastScanAt).toLocaleString() : "Not run yet")}
             tone="neutral"
           />
         </div>
       </div>
 
       <div className="header-actions">
-        <label className="search-input" aria-label="Quick search">
-          <span>Quick search</span>
-          <input
-            type="search"
-            value={search}
-            placeholder="Search symbol"
-            onChange={(event: ChangeEvent<HTMLInputElement>) => onSearchChange(event.target.value)}
-          />
-        </label>
-
         <div className="scan-controls" aria-label="Scanner settings">
-          <InlineField label="Timeframe">
+          <InlineField label="Timeframe" tooltip={TOOLTIPS.SCANNER.TIMEFRAME}>
             <select value={timeframe} onChange={(event) => onTimeframeChange(event.target.value)}>
               <option value="1h">1h</option>
               <option value="4h">4h</option>
               <option value="1d">1d</option>
             </select>
           </InlineField>
-          <InlineField label="Lookback">
+          <InlineField label="Lookback" tooltip={TOOLTIPS.SCANNER.LOOKBACK}>
             <input
               type="number"
               min={60}
               max={365}
+              placeholder="180"
               value={lookback}
               onChange={(event) => onLookbackChange(Number(event.target.value))}
             />
           </InlineField>
-          <InlineField label="Top set">
+          <InlineField label="Top set" tooltip={TOOLTIPS.SCANNER.TOP_SET}>
             <input
               type="number"
               min={5}
               max={50}
+              placeholder="20"
               value={topN}
               onChange={(event) => onTopNChange(Number(event.target.value))}
             />
@@ -92,6 +89,7 @@ export function DashboardHeader({
         </div>
 
         <div className="header-buttons">
+          <NotificationBell />
           <button type="button" className="button ghost-button" onClick={onThemeToggle}>
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
@@ -104,10 +102,13 @@ export function DashboardHeader({
   );
 }
 
-function InlineField({ label, children }: { label: string; children: ReactNode }) {
+function InlineField({ label, children, tooltip }: { label: string; children: ReactNode; tooltip?: string }) {
   return (
     <label className="inline-field">
-      <span>{label}</span>
+      <span>
+        {label}
+        {tooltip ? <InfoTooltip content={tooltip} /> : null}
+      </span>
       {children}
     </label>
   );

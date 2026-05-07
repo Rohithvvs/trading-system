@@ -24,15 +24,16 @@ class RecommendationService:
         llm_reasoning: dict[str, object],
     ) -> FinalRecommendation:
         technical_score = max(result.score for result in technical_results)
-        backtest_return = max(item.total_return for item in backtests)
+        best_backtest = max(backtests, key=lambda item: item.total_return)
         sentiment_component = (sentiment_score + 1) * 20
-        backtest_component = min(backtest_return * 2, 25)
+        backtest_component = self._backtest_component(best_backtest)
         score = round((technical_score * 0.5) + sentiment_component + backtest_component, 2)
         confidence = round(min(0.95, max(0.35, score / 120)), 2)
+        trade_plans = self._build_trade_plans(technical_results, backtests, candles_by_mode)
 
-        if score >= 78:
+        if score >= 72:
             action = "BUY"
-        elif score >= 58:
+        elif score >= 55:
             action = "WATCH"
         else:
             action = "REJECT"
@@ -42,7 +43,6 @@ class RecommendationService:
             risk_factors=list(llm_reasoning.get("risk_factors", [])),
             invalidation_signals=list(llm_reasoning.get("invalidation_signals", [])),
         )
-        trade_plans = self._build_trade_plans(technical_results, backtests, candles_by_mode)
         summary = str(
             llm_reasoning.get(
                 "summary",
@@ -57,6 +57,11 @@ class RecommendationService:
             trade_plans=trade_plans,
             summary=summary,
         )
+
+    def _backtest_component(self, backtest: BacktestResult) -> float:
+        if backtest.verdict == "insufficient" or backtest.trade_count < 5:
+            return 0.0
+        return round(min(max(backtest.total_return * 2, -5), 25), 2)
 
     def _build_trade_plans(
         self,

@@ -1,4 +1,6 @@
 import type { DashboardFilters, SignalFilter, SortKey } from "../types";
+import { InfoTooltip } from "./InfoTooltip";
+import { TOOLTIPS } from "../constants/tooltips";
 
 type FilterBarProps = {
   filters: DashboardFilters;
@@ -17,7 +19,10 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
   return (
     <section className="filter-bar panel" aria-label="Candidate filters">
       <div className="filter-group">
-        <span className="filter-label">Signal</span>
+        <span className="filter-label">
+          Signal
+          <InfoTooltip content={TOOLTIPS.SCANNER.SIGNAL_FILTER} />
+        </span>
         <div className="segmented-control" role="tablist" aria-label="Signal filter">
           {SIGNAL_OPTIONS.map((option) => (
             <button
@@ -33,7 +38,10 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
       </div>
 
       <label className="filter-field">
-        <span>Score</span>
+        <span>
+          Score
+          <InfoTooltip content={TOOLTIPS.SCANNER.SCORE_MIN} />
+        </span>
         <div className="range-pair">
           <input
             type="number"
@@ -53,15 +61,9 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
       </label>
 
       <label className="filter-field">
-        <span>Sector</span>
-        <select value={filters.sector} onChange={(event) => onChange({ ...filters, sector: event.target.value })}>
-          <option value="all">All sectors</option>
-          <option value="unknown">Unknown</option>
-        </select>
-      </label>
-
-      <label className="filter-field">
-        <span>Sort by</span>
+        <span>
+          Sort by
+        </span>
         <select value={filters.sortBy} onChange={(event) => onChange({ ...filters, sortBy: event.target.value as SortKey })}>
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -75,7 +77,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         <span>Search</span>
         <input
           type="search"
-          placeholder="RELIANCE-EQ"
+          placeholder="Search symbol (e.g., RELIANCE-EQ)"
           value={filters.search}
           onChange={(event) => onChange({ ...filters, search: event.target.value })}
         />
@@ -87,7 +89,10 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
           checked={filters.onlyHighConfidence}
           onChange={(event) => onChange({ ...filters, onlyHighConfidence: event.target.checked })}
         />
-        <span>Only high-confidence setups</span>
+        <span>
+          Only high-confidence setups
+          <InfoTooltip content={TOOLTIPS.SCANNER.CONFIDENCE_CHECKBOX} />
+        </span>
       </label>
     </section>
   );

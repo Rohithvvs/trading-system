@@ -12,3 +12,4 @@ build/
 backend/.env
 frontend/.env
 logs/
+backend/logs/

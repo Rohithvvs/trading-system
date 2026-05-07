@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from ..config import settings
 from ..schemas import ArticleItem
-from ..utils.mock_data import generate_mock_articles
 
 
 class NewsService:
@@ -11,4 +10,4 @@ class NewsService:
             # Marketaux integration is added in a later phase.
             pass
 
-        return [ArticleItem(**item) for item in generate_mock_articles(symbol)]
+        return []

@@ -49,9 +49,10 @@ class PaperOrderResponse(BaseModel):
     id: int
     symbol: str
     side: Literal["BUY", "SELL"]
-    type: Literal["MARKET", "LIMIT", "STOP"]
+    type: Literal["MARKET", "LIMIT", "STOP", "STOP_LIMIT", "GTT"]
     qty: int
     price: float | None = None
+    stop_price: float | None = None
     stop_loss: float | None = None
     target: float | None = None
     status: Literal["PENDING", "FILLED", "CANCELLED", "REJECTED"]
@@ -62,6 +63,8 @@ class PaperOrderResponse(BaseModel):
     created_at: datetime
     filled_at: datetime | None = None
     filled_price: float | None = None
+
+    product_type: str | None = None
 
 
 class PaperTradeHistoryItem(BaseModel):
@@ -79,6 +82,7 @@ class PaperTradeHistoryItem(BaseModel):
     opened_at: datetime
     closed_at: datetime
     holding_period_hours: float
+    exit_reason: str | None = None
 
 
 class PaperWorkspaceSnapshot(BaseModel):
@@ -113,10 +117,34 @@ class PaperTradingAccountResetRequest(BaseModel):
     starting_balance: float = Field(default=100000.0, ge=1000.0)
 
 
+class PaperAccountCapitalUpdateRequest(BaseModel):
+    amount: float = Field(default=100000.0, ge=1000.0)
+
+
+class TransactionItem(BaseModel):
+    id: str
+    timestamp: datetime
+    symbol: str | None = None
+    action: str
+    amount: float
+    balance_after: float
+    qty: int | None = None
+    price: float | None = None
+
+
+class TransactionPageResponse(BaseModel):
+    items: list[TransactionItem]
+    page: int
+    per_page: int
+    total: int
+    total_pages: int
+
+
 class PaperOrderCreateRequest(BaseModel):
     symbol: str
     side: Literal["BUY", "SELL"] = "BUY"
-    type: Literal["MARKET", "LIMIT", "STOP"] = "MARKET"
+    type: Literal["MARKET", "LIMIT", "STOP", "STOP_LIMIT", "GTT"] = "MARKET"
+    product_type: Literal["MIS", "CNC", "NRML"] = "CNC"
     qty: int = Field(ge=1, le=100000)
     limit_price: float | None = Field(default=None, gt=0)
     stop_price: float | None = Field(default=None, gt=0)
@@ -134,6 +162,16 @@ class PaperOrderCreateRequest(BaseModel):
         if not symbol:
             raise ValueError("Symbol is required.")
         return symbol
+
+
+class PaperOrderUpdateRequest(BaseModel):
+    qty: int | None = Field(default=None, ge=1, le=100000)
+    limit_price: float | None = Field(default=None, gt=0)
+    stop_price: float | None = Field(default=None, gt=0)
+    stop_loss: float | None = Field(default=None, gt=0)
+    target: float | None = Field(default=None, gt=0)
+    type: Literal["MARKET", "LIMIT", "STOP", "STOP_LIMIT", "GTT"] | None = None
+    product_type: Literal["MIS", "CNC", "NRML"] | None = None
 
 
 class PaperPositionUpdateRequest(BaseModel):
@@ -167,3 +205,61 @@ class PaperOrderActionResponse(BaseModel):
     position: PaperPositionResponse | None = None
     trade: PaperTradeHistoryItem | None = None
     message: str
+
+
+class NotificationItem(BaseModel):
+    id: int
+    message: str
+    level: Literal["info", "success", "error"] = "info"
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationMarkReadRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+
+
+class AlertCreateRequest(BaseModel):
+    symbol: str
+    condition: Literal[">=", "<="]
+    price: float
+
+
+class AlertItem(BaseModel):
+    id: int
+    symbol: str
+    condition: str
+    target_price: float
+    status: str
+    created_at: datetime
+    triggered_at: datetime | None = None
+    triggered_price: float | None = None
+
+
+class DailyPnlPoint(BaseModel):
+    date: str
+    pnl: float
+
+
+class HoldingPeriodItem(BaseModel):
+    symbol: str
+    avg_holding_minutes: float
+    total_trades: int
+    win_rate_pct: float
+
+
+class AnalyticsResponse(BaseModel):
+    total_trades: int
+    win_rate_pct: float
+    profit_factor: float | None = None
+    average_profit: float | None = None
+    average_loss: float | None = None
+    best_trade_symbol: str | None = None
+    best_trade_amount: float | None = None
+    worst_trade_symbol: str | None = None
+    worst_trade_amount: float | None = None
+    daily_pnl: list[DailyPnlPoint]
+    cumulative_pnl: list[DailyPnlPoint]
+    wins: int
+    losses: int
+    holding_periods: list[HoldingPeriodItem]

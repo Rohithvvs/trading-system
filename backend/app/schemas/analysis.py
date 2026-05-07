@@ -15,7 +15,7 @@ class AnalysisMode(str, Enum):
 class TimeframeConfig(BaseModel):
     intraday: str = "5m"
     swing: str = "1d"
-    lookback_window: int = 90
+    lookback_window: int = 260
 
 
 class AnalysisRequest(BaseModel):
@@ -183,8 +183,21 @@ class ScreenerConditionResult(BaseModel):
     screener_score: float
     technical_signal: str
     technical_score: float
+    candles_fetched: int = 0
     conditions: dict[str, bool]
     matched: bool
+
+
+class ScreenerStageSummary(BaseModel):
+    stage_name: str
+    source_universe_size: int
+    unique_symbols_scanned: int
+    duplicate_symbols_skipped: int
+    matched_symbols: int
+    shortlisted_symbols: int
+    buy_candidate_symbols: list[str] = Field(default_factory=list)
+    watch_candidate_symbols: list[str] = Field(default_factory=list)
+    stopped_here: bool = False
 
 
 class ScreenerResponse(BaseModel):
@@ -197,8 +210,12 @@ class ScreenerResponse(BaseModel):
     watch_candidate_symbols: list[str]
     matched_symbols: list[str]
     matches: list[ScreenerConditionResult]
+    all_analyzed_stocks: list[ScreenerConditionResult] = Field(default_factory=list)
     analysis: FullAnalysisResponse | None = None
     disclaimer: str
     data_source: str = "unknown"
     data_warning: str | None = None
     market_context: dict[str, str | float | bool] = Field(default_factory=dict)
+    scan_stages: list[ScreenerStageSummary] = Field(default_factory=list)
+    stopped_at_stage: str | None = None
+    duplicate_symbols_skipped: int = 0

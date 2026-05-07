@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,8 +38,17 @@ class Settings:
     )
     fyers_app_id: str = os.getenv("FYERS_APP_ID", "")
     fyers_access_token: str = os.getenv("FYERS_ACCESS_TOKEN", "")
+    fyers_secret_id: str = os.getenv("FYERS_SECRET_ID", "")
+    fyers_pin: str = os.getenv("FYERS_PIN", "")
+    fyers_redirect_uri: str = os.getenv("FYERS_REDIRECT_URI", "")
+    mongo_url: str = os.getenv("MONGO_URL", "")
+    mongo_db_name: str = os.getenv("MONGO_DB_NAME", "")
+    nifty500_csv_path: str = os.getenv("NIFTY500_CSV_PATH", "ind_nifty500list.csv")
     nifty500_symbols_raw: str = os.getenv("NIFTY500_SYMBOLS", "")
+    nifty_next_500_symbols_raw: str = os.getenv("NIFTY_NEXT_500_SYMBOLS", "")
     universe_symbols_raw: str = os.getenv("UNIVERSE_SYMBOLS", os.getenv("NIFTY1000_SYMBOLS", ""))
+    bse500_symbols_raw: str = os.getenv("BSE500_SYMBOLS", "")
+    bse1000_symbols_raw: str = os.getenv("BSE1000_SYMBOLS", "")
     fyers_screener_symbols_raw: str = os.getenv(
         "FYERS_SCREENER_SYMBOLS",
         (
@@ -61,6 +71,9 @@ class Settings:
     cors_origins: list[str] = field(init=False)
     fyers_screener_symbols: list[str] = field(init=False)
     nifty500_symbols: list[str] = field(init=False)
+    nifty_next_500_symbols: list[str] = field(init=False)
+    bse500_symbols: list[str] = field(init=False)
+    bse1000_symbols: list[str] = field(init=False)
     universe_symbols: list[str] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -68,14 +81,62 @@ class Settings:
         self.fyers_screener_symbols = [
             symbol.strip().upper() for symbol in self.fyers_screener_symbols_raw.split(",") if symbol.strip()
         ]
-        nifty500_source = self.nifty500_symbols_raw or self.fyers_screener_symbols_raw
-        self.nifty500_symbols = [
-            symbol.strip().upper() for symbol in nifty500_source.split(",") if symbol.strip()
+        self.nifty500_symbols = self._load_nifty500_symbols()
+        nifty_next_source = self.nifty_next_500_symbols_raw or self._difference(
+            self.universe_symbols_raw,
+            ",".join(self.nifty500_symbols),
+        )
+        self.nifty_next_500_symbols = [
+            symbol.strip().upper() for symbol in nifty_next_source.split(",") if symbol.strip()
         ]
-        universe_source = self.universe_symbols_raw or self.nifty500_symbols_raw or self.fyers_screener_symbols_raw
-        self.universe_symbols = [
-            symbol.strip().upper() for symbol in universe_source.split(",") if symbol.strip()
+        self.bse500_symbols = [
+            symbol.strip().upper() for symbol in self.bse500_symbols_raw.split(",") if symbol.strip()
         ]
+        self.bse1000_symbols = [
+            symbol.strip().upper() for symbol in self.bse1000_symbols_raw.split(",") if symbol.strip()
+        ]
+        if self.universe_symbols_raw:
+            self.universe_symbols = [
+                symbol.strip().upper() for symbol in self.universe_symbols_raw.split(",") if symbol.strip()
+            ]
+        else:
+            self.universe_symbols = list(self.nifty500_symbols)
+
+    def _difference(self, larger: str, smaller: str) -> str:
+        larger_symbols = [symbol.strip().upper() for symbol in larger.split(",") if symbol.strip()]
+        smaller_keys = {
+            symbol.strip().upper() for symbol in smaller.split(",") if symbol.strip()
+        }
+        return ",".join(symbol for symbol in larger_symbols if symbol not in smaller_keys)
+
+    def _load_nifty500_symbols(self) -> list[str]:
+        csv_symbols = self._load_nifty500_symbols_from_csv()
+        if csv_symbols:
+            return csv_symbols
+        if self.nifty500_symbols_raw:
+            return [
+                symbol.strip().upper() for symbol in self.nifty500_symbols_raw.split(",") if symbol.strip()
+            ]
+        return list(self.fyers_screener_symbols)
+
+    def _load_nifty500_symbols_from_csv(self) -> list[str]:
+        csv_path = Path(self.nifty500_csv_path)
+        if not csv_path.is_absolute():
+            csv_path = ROOT_DIR / csv_path
+        if not csv_path.exists():
+            return []
+
+        symbols: list[str] = []
+        with csv_path.open(newline="", encoding="utf-8-sig") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                symbol = (row.get("Symbol") or "").strip().upper()
+                series = (row.get("Series") or "").strip().upper()
+                if not symbol:
+                    continue
+                combined = f"{symbol}-{series}" if series else symbol
+                symbols.append(combined)
+        return list(dict.fromkeys(symbols))
 
 
 settings = Settings()

@@ -7,6 +7,7 @@ from .recommendation_service import RecommendationService
 from .screener_service import ScreenerService
 from .sentiment_service import SentimentService
 from .technical_analysis_service import TechnicalAnalysisService
+from . import token_service
 
 __all__ = [
     "BacktestService",
@@ -18,4 +19,5 @@ __all__ = [
     "ScreenerService",
     "SentimentService",
     "TechnicalAnalysisService",
+    "token_service",
 ]
