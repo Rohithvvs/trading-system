@@ -56,6 +56,12 @@ export type BacktestResult = {
   trade_count: number;
   verdict: string;
   equity_curve: BacktestEquityPoint[];
+  // Extended
+  trades?: { entry_date: string; exit_date: string; entry_price: number; exit_price: number; pnl_percent: number }[];
+  monthly_returns?: { month: string; return: number }[];
+  sharpe_ratio?: number;
+  best_trade?: { entry_date: string; exit_date: string; entry_price: number; exit_price: number; pnl_percent: number } | null;
+  worst_trade?: { entry_date: string; exit_date: string; entry_price: number; exit_price: number; pnl_percent: number } | null;
 };
 
 export type RecommendationReasoning = {
@@ -78,6 +84,9 @@ export type TradePlan = {
   target_3?: number | null;
   risk_reward_ratio: number;
   notes: string;
+  partial_exit?: string | null;
+  suggested_holding_days?: number | null;
+  trailing_stop_atr_multiplier?: number | null;
 };
 
 export type FinalRecommendation = {
@@ -104,6 +113,13 @@ export type StockAnalysisResult = {
   data_quality?: Record<string, string | number | boolean>;
   trade_readiness?: string;
   confidence_breakdown?: Record<string, string | number>;
+  year52_high?: number | null;
+  year52_low?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  market_cap?: number | null;
+  corporate_events?: Record<string, string> | null;
+  social_sentiment_score?: number | null;
 };
 
 export type RankingItem = {

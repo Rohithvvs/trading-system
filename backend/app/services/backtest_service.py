@@ -37,7 +37,8 @@ class BacktestService:
         peak_equity = equity
         max_drawdown = 0.0
         position_entry: float | None = None
-        trade_returns: list[float] = []
+        position_entry_date = None
+        trades: list[dict] = []
         equity_curve: list[dict[str, float | str]] = []
 
         for index, row in frame.iterrows():
@@ -59,11 +60,20 @@ class BacktestService:
 
             if position_entry is None and bullish_entry:
                 position_entry = float(row["close"])
+                position_entry_date = row["timestamp"]
             elif position_entry is not None and exit_signal:
-                trade_return = ((float(row["close"]) - position_entry) / position_entry) * 100
-                trade_returns.append(trade_return)
+                exit_price = float(row["close"])
+                trade_return = ((exit_price - position_entry) / position_entry) * 100
+                trades.append({
+                    "entry_date": str(position_entry_date.date()) if position_entry_date is not None else str(row["timestamp"].date()),
+                    "exit_date": str(row["timestamp"].date()),
+                    "entry_price": round(position_entry, 2),
+                    "exit_price": round(exit_price, 2),
+                    "pnl_percent": round(trade_return, 2),
+                })
                 equity *= 1 + (trade_return / 100)
                 position_entry = None
+                position_entry_date = None
                 peak_equity = max(peak_equity, equity)
                 if peak_equity:
                     max_drawdown = max(max_drawdown, ((peak_equity - equity) / peak_equity) * 100)
@@ -71,20 +81,53 @@ class BacktestService:
 
         if position_entry is not None:
             final_close = float(frame["close"].iloc[-1])
+            exit_date = frame["timestamp"].iloc[-1]
             trade_return = ((final_close - position_entry) / position_entry) * 100
-            trade_returns.append(trade_return)
+            trades.append({
+                "entry_date": str(position_entry_date.date()) if position_entry_date is not None else str(frame["timestamp"].iloc[-1].date()),
+                "exit_date": str(exit_date.date()),
+                "entry_price": round(position_entry, 2),
+                "exit_price": round(final_close, 2),
+                "pnl_percent": round(trade_return, 2),
+            })
             equity *= 1 + (trade_return / 100)
             equity_curve.append({"label": str(frame["timestamp"].iloc[-1].date()), "equity": round(equity, 2)})
 
         total_return = round(((equity - 100000.0) / 100000.0) * 100, 2)
-        trade_count = len(trade_returns)
-        wins = [item for item in trade_returns if item > 0]
-        losses = [abs(item) for item in trade_returns if item < 0]
+        trade_count = len(trades)
+        wins = [t["pnl_percent"] for t in trades if t["pnl_percent"] > 0]
+        losses = [abs(t["pnl_percent"]) for t in trades if t["pnl_percent"] < 0]
         win_rate = round((len(wins) / trade_count) * 100, 2) if trade_count else 0.0
         profit_factor = round((sum(wins) / sum(losses)), 2) if losses else round(sum(wins), 2) if wins else 0.0
         cagr = round(total_return * (252 / max(len(frame), 1)), 2)
         verdict = "favorable" if total_return > 0 and win_rate >= 45 and profit_factor >= 1 else "mixed" if trade_count else "insufficient"
-        curve = equity_curve[-10:] or [{"label": "Start", "equity": 100000.0}, {"label": "End", "equity": round(equity, 2)}]
+
+        # compute monthly returns heatmap (sum of pnl_percent by month)
+        monthly_returns: dict[str, float] = {}
+        for t in trades:
+            m = t["exit_date"][:7]  # YYYY-MM
+            monthly_returns[m] = monthly_returns.get(m, 0.0) + t["pnl_percent"]
+        monthly_list = [{"month": k, "return": round(v, 2)} for k, v in sorted(monthly_returns.items())]
+
+        # best and worst trade
+        best_trade = max(trades, key=lambda t: t["pnl_percent"]) if trades else None
+        worst_trade = min(trades, key=lambda t: t["pnl_percent"]) if trades else None
+
+        # Sharpe ratio approximate on trade returns (sample-based)
+        sharpe = 0.0
+        try:
+            import math
+            import statistics
+
+            if trade_count > 1:
+                mean_ret = statistics.mean([t["pnl_percent"] for t in trades])
+                stdev = statistics.stdev([t["pnl_percent"] for t in trades])
+                if stdev > 0:
+                    sharpe = round((mean_ret / stdev) * math.sqrt(max(1, trade_count)), 3)
+        except Exception:
+            sharpe = 0.0
+
+        curve = equity_curve[-50:] or [{"label": "Start", "equity": 100000.0}, {"label": "End", "equity": round(equity, 2)}]
 
         return BacktestResult(
             mode=mode,
@@ -97,6 +140,11 @@ class BacktestService:
             trade_count=trade_count,
             verdict=verdict,
             equity_curve=curve,
+            trades=trades,
+            monthly_returns=monthly_list,
+            sharpe_ratio=round(sharpe, 3) if isinstance(sharpe, float) else 0.0,
+            best_trade=best_trade,
+            worst_trade=worst_trade,
         )
 
     def _empty_result(self, mode: AnalysisMode, strategy_name: str) -> BacktestResult:

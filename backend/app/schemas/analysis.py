@@ -90,6 +90,12 @@ class BacktestResult(BaseModel):
     trade_count: int
     verdict: str
     equity_curve: list[dict[str, float | str]]
+    # Extended metrics
+    trades: list[dict] = Field(default_factory=list)
+    monthly_returns: list[dict] = Field(default_factory=list)
+    sharpe_ratio: float = 0.0
+    best_trade: dict | None = None
+    worst_trade: dict | None = None
 
 
 class RecommendationReasoning(BaseModel):
@@ -112,6 +118,10 @@ class TradePlan(BaseModel):
     target_3: float | None = None
     risk_reward_ratio: float
     notes: str
+    # Execution guidance
+    partial_exit: str | None = None
+    suggested_holding_days: int | None = None
+    trailing_stop_atr_multiplier: float | None = None
 
 
 class FinalRecommendation(BaseModel):
@@ -138,6 +148,14 @@ class StockAnalysisResult(BaseModel):
     data_quality: dict[str, str | int | bool | float] = Field(default_factory=dict)
     trade_readiness: str = "Review manually"
     confidence_breakdown: dict[str, float | str] = Field(default_factory=dict)
+    # Overview/company metadata (optional)
+    year52_high: float | None = None
+    year52_low: float | None = None
+    sector: str | None = None
+    industry: str | None = None
+    market_cap: float | None = None
+    corporate_events: dict | None = None
+    social_sentiment_score: float | None = None
 
 
 class RankingItem(BaseModel):
