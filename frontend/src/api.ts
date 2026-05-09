@@ -12,9 +12,8 @@ import type {
   TimeframeConfig,
 } from "./types";
 
-const PRIMARY_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-const API_BASE_URLS = Array.from(new Set([PRIMARY_API_BASE_URL, "http://127.0.0.1:8000", "/api"]));
-
+const PRIMARY_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://trading-system-1efs.onrender.com";
+const API_BASE_URLS = Array.from(new Set([PRIMARY_API_BASE_URL, "https://trading-system-1efs.onrender.com"]));
 async function fetchWithDiagnostics(
   path: string,
   init: RequestInit | undefined,
