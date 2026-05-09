@@ -1,15 +1,39 @@
+# Python virtual environments
 .venv/
+venv/
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .pytest_cache/
 .mypy_cache/
+
+# Environment files
+.env
+backend/.env
+frontend/.env
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Log files
+*.log
+logs/
+backend/logs/
+
+# Frontend build
 node_modules/
 dist/
 build/
+
+# OS files
 .DS_Store
-backend/.env
-frontend/.env
-logs/
-backend/logs/
+
+# Local state files
+server_state.json
+backend/server_state.json
