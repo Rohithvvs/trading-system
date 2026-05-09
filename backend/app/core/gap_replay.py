@@ -12,17 +12,17 @@ from typing import Dict
 
 from sqlalchemy.orm import Session
 
-from app.core.server_state import read_last_shutdown, write_startup_time
-from app.models.paper_trading import (
+from backend.app.core.server_state import read_last_shutdown, write_startup_time
+from backend.app.models.paper_trading import (
     PaperOrder,
     PaperPosition,
     PaperTradingAccount,
     PaperTradeHistory,
     PaperTransaction,
 )
-from app.services.fyers_service import FyersService
-from app.schemas import AnalysisMode
-from app.core.log_manager import trading_logger as logger
+from backend.app.services.fyers_service import FyersService
+from backend.app.schemas import AnalysisMode
+from backend.app.core.log_manager import trading_logger as logger
 
 
 MARKET_OPEN_HOUR = 9

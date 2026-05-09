@@ -485,7 +485,7 @@ class FyersService:
         # Only cache daily candles in this simple strategy
         if mapped_resolution == "1D":
             try:
-                from app.services import candle_store
+                from backend.app.services import candle_store
             except Exception:
                 # If the cache module is not available, fall back to live fetch
                 self.logger.warning("CANDLE STORE not available, falling back to live fetch | symbol=%s", symbol)

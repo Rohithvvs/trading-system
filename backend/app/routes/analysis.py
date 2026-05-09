@@ -16,10 +16,10 @@ from ..schemas import (
 import logging
 
 from ..utils import sanitize_for_json
-from app.services import candle_store
+from backend.backend.app.services import candle_store 
 from ..utils import get_logger
 from fastapi import HTTPException
-from app.services.fyers_service import (
+from backend.app.services.fyers_service import (
     FyersAuthExpiredError,
     FyersAuthInvalidError,
     FyersRateLimitError,
@@ -28,7 +28,7 @@ from app.services.fyers_service import (
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
-logger = get_logger("app.routes.analysis")
+logger = get_logger("backend.app.routes.analysis")
 
 
 @router.post("/technical", response_model=AnalysisResponse)

@@ -2,7 +2,7 @@
 
 import warnings
 
-from app.services.candle_store import (
+from backend.app.services.candle_store import (
     init_db,
     store_candles,
     save_candles,

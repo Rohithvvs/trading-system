@@ -13,17 +13,17 @@ from .routes import api_router
 from .utils import configure_logging, get_logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.services.candle_store import (
+from backend.app.services.candle_store import (
     get_all_cached_symbols,
     is_cache_fresh,
     get_last_stored_date,
 )
-from app.db.session import SessionLocal
-from app.services.paper_trading_service import PaperTradingService
-from app.services.fyers_service import FyersService
+from backend.app.db.session import SessionLocal
+from backend.app.services.paper_trading_service import PaperTradingService
+from backend.app.services.fyers_service import FyersService
 # token_service refresh automation removed — manual access-token workflow only
 import asyncio
-from app.schemas import AnalysisMode
+from backend.app.schemas import AnalysisMode
 
 
 configure_logging()
@@ -107,13 +107,13 @@ app.include_router(api_router)
 
 async def nightly_candle_sync():
     logger.info("NIGHTLY SYNC started")
-    from app.services.fyers_service import FyersService
+    from backend.app.services.fyers_service import FyersService
     fyers = FyersService()
     symbols = get_all_cached_symbols()
     stale = [s for s in symbols if not is_cache_fresh(s)]
     logger.info("NIGHTLY SYNC stale_symbols=%s total=%s", len(stale), len(symbols))
     import asyncio
-    from app.schemas import AnalysisMode
+    from backend.app.schemas import AnalysisMode
     for symbol in stale:
         try:
             # Run the synchronous cache-refresh in a thread so we don't block the event loop
@@ -128,7 +128,7 @@ async def nightly_candle_sync():
 async def startup_event():
     # Ensure the candle cache DB exists before scheduling jobs
     try:
-        from app.services import candle_store
+        from backend.app.services import candle_store
         candle_store.init_db()
     except Exception:
         logger.exception("Failed to init candle_store DB on startup")
@@ -210,7 +210,7 @@ async def startup_event():
 
     # ADD: Run offline gap replay on startup to handle fills/exits while server was down
     try:
-        from app.core.gap_replay import run_gap_replay
+        from backend.app.core.gap_replay import run_gap_replay
 
         db = SessionLocal()
         fyers = FyersService()
@@ -237,7 +237,7 @@ async def startup_event():
 async def shutdown_event():
     scheduler.shutdown()
     try:
-        from app.core.server_state import write_shutdown_time
+        from backend.app.core.server_state import write_shutdown_time
 
         write_shutdown_time()
         print("[server_state] Shutdown time saved.")
