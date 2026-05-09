@@ -63,7 +63,12 @@ if not settings.nifty500_symbols:
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://trading-system-frontend.vercel.app",
+    "https://trading-system01.vercel.app",
+],
  allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app)",    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
