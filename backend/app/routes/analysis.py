@@ -16,7 +16,7 @@ from ..schemas import (
 import logging
 
 from ..utils import sanitize_for_json
-from backend.backend.app.services import candle_store 
+from backend.app.services import candle_store 
 from ..utils import get_logger
 from fastapi import HTTPException
 from backend.app.services.fyers_service import (
