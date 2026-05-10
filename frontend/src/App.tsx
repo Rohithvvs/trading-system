@@ -221,11 +221,11 @@ export default function App() {
             <StockDetailPanel
               row={selectedRow}
               onBack={() => setDetailViewOpen(false)}
-              onSendToPaperTrading={(row) => {
+              onSendToPaperTrading={(row, suggestedEntry) => {
                 const plan = row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ?? row.analysisItem?.recommendation.trade_plans[0];
                 setPaperTradingPrefill({
                   symbol: row.symbol,
-                  suggested_entry: plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow,
+                  suggested_entry: suggestedEntry ?? (plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow),
                   suggested_stop: plan?.stop_loss ?? row.stopLoss ?? null,
                   suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
                   recommendation_meta: {

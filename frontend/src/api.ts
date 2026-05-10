@@ -10,6 +10,7 @@ import type {
   RecommendationPrefillResponse,
   ScreenerResponse,
   TimeframeConfig,
+  SymbolDetail,
 } from "./types";
 
 const PRIMARY_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://trading-system-1efs.onrender.com";
@@ -215,6 +216,15 @@ export async function prefillPaperTrade(payload: RecommendationPrefillRequest): 
     throw new Error(message || "Failed to prefill paper trade");
   }
   return response.json() as Promise<RecommendationPrefillResponse>;
+}
+
+export async function fetchSymbolDetail(symbol: string): Promise<SymbolDetail> {
+  const response = await fetchWithDiagnostics(`/analysis/symbol/${encodeURIComponent(symbol)}/detail`, undefined, `Symbol detail ${symbol}`);
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to fetch symbol detail");
+  }
+  return response.json() as Promise<SymbolDetail>;
 }
 
 export async function updatePaperOrder(orderId: number, payload: Partial<PaperOrderTicketState>): Promise<PaperOrderActionResponse> {

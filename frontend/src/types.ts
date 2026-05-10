@@ -398,6 +398,41 @@ export type PaperWorkspaceSnapshot = {
   source_confidence?: number | null;
 };
 
+export type TechnicalExtras = {
+  atr?: number | null;
+  atr_pct?: number | null;
+  atr_class?: "low" | "medium" | "high" | string | null;
+  bollinger_status?: string | null;
+  multi_timeframe?: { daily?: string | null; weekly?: string | null } | null;
+};
+
+export type BacktestExtras = {
+  total_return?: number;
+  cagr?: number;
+  max_drawdown?: number;
+  win_rate?: number;
+  profit_factor?: number;
+  trade_count?: number;
+  equity_curve?: BacktestEquityPoint[];
+  monthly_returns?: { month: string; return: number }[];
+  sharpe_ratio?: number;
+  best_trade?: { entry_date: string; exit_date: string; entry_price: number; exit_price: number; pnl_percent: number } | null;
+  worst_trade?: { entry_date: string; exit_date: string; entry_price: number; exit_price: number; pnl_percent: number } | null;
+};
+
+export type SymbolDetail = {
+  symbol: string;
+  year52_high?: number | null;
+  year52_low?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  market_cap?: number | null;
+  technical_extras?: TechnicalExtras | null;
+  backtest_extras?: BacktestExtras | null;
+  news_extras?: { corporate_events?: Record<string, unknown> | null; social_sentiment?: number | null } | null;
+  ohlcv?: OHLCVPoint[] | null;
+};
+
 export type PaperQuoteResponse = {
   symbol: string;
   current_price: number;
