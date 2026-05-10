@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import init_db
 from .routes import api_router
+from .routes.fyers import router as fyers_router
 from .utils import configure_logging, get_logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -107,6 +108,7 @@ async def log_http_requests(request, call_next):
 
 
 app.include_router(api_router)
+app.include_router(fyers_router)
 
 
 async def nightly_candle_sync():

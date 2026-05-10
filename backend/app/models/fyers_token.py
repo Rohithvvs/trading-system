@@ -2,25 +2,31 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 
 from ..db.base import Base
 
 
 class FyersToken(Base):
-    """Stores the current manually saved FYERS access token.
+    """Database model for storing FYERS tokens.
 
-    The table intentionally keeps a minimal set of columns. Existing older
-    columns related to refresh tokens (if present in the DB) are ignored by
-    the ORM model — they can be removed via a migration if desired.
+    This model intentionally contains the newer canonical fields used by the
+    UI-driven token endpoints (`fyers_tokens` table) while keeping the older
+    compatibility fields (`status`, `access_token_saved_at`, `last_error`) so
+    existing services remain functional until a migration refactor is done.
     """
 
-    __tablename__ = "fyers_token"
+    __tablename__ = "fyers_tokens"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    access_token_saved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="inactive", index=True)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    # Compatibility columns (legacy service code may reference these)
+    status = Column(String(32), default="active", index=True)
+    access_token_saved_at = Column(DateTime, default=datetime.utcnow)
+    last_error = Column(Text, nullable=True)
 

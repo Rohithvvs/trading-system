@@ -34,6 +34,7 @@ from .paper_trading import (
     RecommendationPrefillRequest,
     RecommendationPrefillResponse,
 )
+from .fyers_token import FyersTokenCreate, FyersTokenResponse
 
 __all__ = [
     "AnalysisMode",
@@ -68,4 +69,6 @@ __all__ = [
     "TechnicalAnalysisResult",
     "TradePlan",
     "TimeframeConfig",
+    "FyersTokenCreate",
+    "FyersTokenResponse",
 ]
