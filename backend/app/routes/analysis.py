@@ -101,41 +101,38 @@ def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)) -> Sc
         payload.timeframe.swing,
         len(payload.symbols),
     )
+    response = RouterAgent(db).screener_full(payload)
+    result = sanitize_for_json(response.model_dump(mode="json"))
+    save_latest_scan(result)
+    logger.info(
+        "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
+        response.scanned_symbols,
+        len(response.data_valid_symbols),
+        len(response.eligible_symbols),
+        len(response.matched_symbols),
+        len(response.shortlisted_symbols),
+        len(response.buy_candidate_symbols),
+        len(response.watch_candidate_symbols),
+        response.data_source,
+        response.stopped_at_stage,
+    )
+    return JSONResponse(content=result)
+
+
+@router.get("/symbol/{symbol}/detail")
+def symbol_detail(symbol: str, db: Session = Depends(get_db)):
+    """Run a single-symbol full analysis and return enriched fields used by the frontend detail page.
+
+    This endpoint runs the same full analysis flow but also computes additional derived
+    metrics (52-week high/low, ATR + volatility class, Bollinger status, weekly alignment,
+    backtest extended metrics, corporate events when available, and supertrend flip points).
+    """
+    from ..schemas import AnalysisRequest, TimeframeConfig, AnalysisMode
+
+    cfg = TimeframeConfig()
+    req = AnalysisRequest(symbols=[symbol.strip().upper()], mode=AnalysisMode.both, timeframe=cfg)
     try:
-        response = RouterAgent(db).screener_full(payload)
-        result = sanitize_for_json(response.model_dump(mode="json"))
-        save_latest_scan(result)
-        logger.info(
-            "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
-            response.scanned_symbols,
-            len(response.data_valid_symbols),
-            len(response.eligible_symbols),
-            len(response.matched_symbols),
-            len(response.shortlisted_symbols),
-            len(response.buy_candidate_symbols),
-            len(response.watch_candidate_symbols),
-            response.data_source,
-            response.stopped_at_stage,
-        )
-        return JSONResponse(content=result)
-
-
-    @router.get("/symbol/{symbol}/detail")
-    def symbol_detail(symbol: str, db: Session = Depends(get_db)):
-        """Run a single-symbol full analysis and return enriched fields used by the frontend detail page.
-
-        This endpoint runs the same full analysis flow but also computes additional derived
-        metrics (52-week high/low, ATR + volatility class, Bollinger status, weekly alignment,
-        backtest extended metrics, corporate events when available, and supertrend flip points).
-        """
-        from ..schemas import AnalysisRequest, TimeframeConfig, AnalysisMode
-
-        cfg = TimeframeConfig()
-        req = AnalysisRequest(symbols=[symbol.strip().upper()], mode=AnalysisMode.both, timeframe=cfg)
-        try:
-            response = RouterAgent(db).full_analysis(req)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        response = RouterAgent(db).full_analysis(req)
 
         if not response.items:
             return JSONResponse(content={"error": "no_data"})
@@ -290,6 +287,7 @@ def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)) -> Sc
         })
 
     except Exception as e:
+        logger.exception("Error in /symbol/%s/detail: %s", symbol, str(e))
         raise HTTPException(status_code=500, detail={
             "error_type": "SCANNER_ERROR",
             "message": str(e),
