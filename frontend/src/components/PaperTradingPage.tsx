@@ -93,7 +93,7 @@ export function PaperTradingPage({
   const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol);
   const [ticket, setTicket] = useState<PaperOrderTicketState>({ ...DEFAULT_TICKET, symbol: initialSymbol });
   const [listTab, setListTab] = useState<PaperPanelTab>("positions");
-  const [resetBalance, setResetBalance] = useState(100000);
+  const [resetBalance, setResetBalance] = useState(1000000);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -1457,6 +1457,8 @@ function AnalyticsPanel() {
         <div className="metric-card"><span>Average loss</span><strong>{data.average_loss ?? '--'}</strong><p>Avg losing trade P&L</p></div>
         <div className="metric-card"><span>Best trade</span><strong>{data.best_trade_symbol ?? '--'} {data.best_trade_amount ? `₹${data.best_trade_amount}` : ''}</strong><p>Highest single trade</p></div>
         <div className="metric-card"><span>Worst trade</span><strong>{data.worst_trade_symbol ?? '--'} {data.worst_trade_amount ? `₹${data.worst_trade_amount}` : ''}</strong><p>Lowest single trade</p></div>
+        <div className="metric-card"><span>Max drawdown</span><strong>₹{data.max_drawdown ?? 0}</strong><p>{data.max_drawdown_pct ?? 0}% peak-to-trough</p></div>
+        <div className="metric-card"><span>Current streak</span><strong>{data.current_streak_type ?? 'none'} {data.current_streak_count ?? 0}</strong><p>Consecutive outcomes</p></div>
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1598,7 +1600,7 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
   const [account, setAccount] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [starting, setStarting] = useState<number>(100000);
+  const [starting, setStarting] = useState<number>(1000000);
   const [page, setPage] = useState<number>(1);
   const [transactions, setTransactions] = useState<any | null>(null);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
@@ -1614,7 +1616,7 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
         const acct = await fetchPaperAccountSummary();
         if (!mounted) return;
         setAccount(acct);
-        setStarting(acct.starting_balance ?? 100000);
+        setStarting(acct.starting_balance ?? 1000000);
       } catch (e) {
         console.warn("Failed to load account summary", e);
       } finally {

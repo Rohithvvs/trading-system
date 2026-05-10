@@ -30,6 +30,7 @@ from ..services.technical_analysis_service import TechnicalAnalysisService
 from ..services.market_info_service import MarketInfoService
 from ..services.news_service import NewsService
 from ..services.backtest_service import BacktestService
+from ..services.workstation_service import WorkstationService
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -104,6 +105,19 @@ def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)) -> Sc
     response = RouterAgent(db).screener_full(payload)
     result = sanitize_for_json(response.model_dump(mode="json"))
     save_latest_scan(result)
+    try:
+        universe = "CUSTOM" if payload.symbols else "NIFTY500"
+        WorkstationService(db).record_scan_history(
+            result,
+            scan_name="Manual Scan",
+            mode=payload.mode.value,
+            timeframe=payload.timeframe.swing,
+            lookback_window=payload.timeframe.lookback_window,
+            top_n=payload.top_n,
+            universe=universe,
+        )
+    except Exception:
+        logger.exception("Failed to persist scan history snapshot")
     logger.info(
         "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
         response.scanned_symbols,
@@ -205,7 +219,8 @@ def symbol_detail(symbol: str, db: Session = Depends(get_db)):
                     "bollinger_status": bb_status,
                     "multi_timeframe": {"daily": daily_signal, "weekly": weekly_signal},
                 }
-        except Exception:
+        except Exception as e:
+            logger.warning("tech_extra failed for symbol=%s error=%s", symbol, str(e))
             tech_extra = {}
 
         # Backtest extras: the backtest result already includes extended metrics from service

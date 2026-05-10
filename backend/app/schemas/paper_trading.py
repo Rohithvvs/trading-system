@@ -114,11 +114,11 @@ class PaperTradingDashboardResponse(BaseModel):
 
 
 class PaperTradingAccountResetRequest(BaseModel):
-    starting_balance: float = Field(default=100000.0, ge=1000.0)
+    starting_balance: float = Field(default=1000000.0, ge=1000.0)
 
 
 class PaperAccountCapitalUpdateRequest(BaseModel):
-    amount: float = Field(default=100000.0, ge=1000.0)
+    amount: float = Field(default=1000000.0, ge=1000.0)
 
 
 class TransactionItem(BaseModel):
@@ -263,3 +263,7 @@ class AnalyticsResponse(BaseModel):
     wins: int
     losses: int
     holding_periods: list[HoldingPeriodItem]
+    max_drawdown: float = 0.0
+    max_drawdown_pct: float = 0.0
+    current_streak_type: str = "none"
+    current_streak_count: int = 0

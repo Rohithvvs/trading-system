@@ -230,7 +230,7 @@ export type DashboardFilters = {
   onlyHighConfidence: boolean;
 };
 
-export type MainAppView = "scanner" | "paper-trading";
+export type MainAppView = "home" | "scanner" | "paper-trading";
 
 export type ScanHistoryItem = {
   id: string;

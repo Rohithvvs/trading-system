@@ -53,6 +53,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
     void fetchSymbolDetail(row.symbol)
       .then((d) => {
         if (!mounted) return;
+        console.info("[detail] symbol_detail normalized", { symbol: row.symbol, detail: d });
         setSymbolDetail(d);
       })
       .catch((err) => {
@@ -762,17 +763,26 @@ function NewsTab({ analysis, row, symbolDetail }: { analysis?: StockAnalysisResu
                 Google search
               </a>
             </p>
+            <p className="muted-copy" style={{ marginTop: 8 }}>
+              Primary news source returned no results. Use the search link above.
+            </p>
           </div>
         )}
       </section>
 
       <section className="subpanel">
         <h3>Corporate Events</h3>
-        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-          <div className="corporate-row"><strong>Earnings Date:</strong> <span className="muted-copy">{earnings ?? 'Not Available'}</span></div>
-          <div className="corporate-row"><strong>Ex-Dividend Date:</strong> <span className="muted-copy">{exDividend ?? 'Not Available'}</span></div>
-          <div className="corporate-row"><strong>AGM Date:</strong> <span className="muted-copy">{agm ?? 'Not Available'}</span></div>
-        </div>
+        {earnings || exDividend || agm ? (
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            <div className="corporate-row"><strong>Earnings Date:</strong> <span className="muted-copy">{earnings ?? 'Not Available'}</span></div>
+            <div className="corporate-row"><strong>Ex-Dividend Date:</strong> <span className="muted-copy">{exDividend ?? 'Not Available'}</span></div>
+            <div className="corporate-row"><strong>AGM Date:</strong> <span className="muted-copy">{agm ?? 'Not Available'}</span></div>
+          </div>
+        ) : (
+          <p className="muted-copy" style={{ marginTop: 8 }}>
+            Corporate events data will be available when a data provider is connected.
+          </p>
+        )}
       </section>
     </div>
   );

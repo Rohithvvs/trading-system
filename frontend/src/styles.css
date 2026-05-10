@@ -1141,6 +1141,27 @@ abbr {
   justify-content: flex-end;
 }
 
+.scanner-actions,
+.workstation-two-col,
+.workstation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.scanner-actions {
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  align-items: end;
+}
+
+.workstation-two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.workstation-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 @media (max-width: 760px) {
   .scan-history-item {
     align-items: flex-start;
@@ -1149,5 +1170,11 @@ abbr {
 
   .scan-history-symbols {
     justify-content: flex-start;
+  }
+
+  .scanner-actions,
+  .workstation-two-col,
+  .workstation-summary {
+    grid-template-columns: 1fr;
   }
 }

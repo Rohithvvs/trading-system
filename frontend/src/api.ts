@@ -224,7 +224,40 @@ export async function fetchSymbolDetail(symbol: string): Promise<SymbolDetail> {
     const message = await response.text();
     throw new Error(message || "Failed to fetch symbol detail");
   }
-  return response.json() as Promise<SymbolDetail>;
+  const raw = await response.json();
+  console.info("[api] symbol_detail raw response", { symbol, raw });
+  return normalizeSymbolDetail(raw) as SymbolDetail;
+}
+
+function normalizeSymbolDetail(raw: any): any {
+  if (!raw || typeof raw !== "object") return raw;
+  const pick = (key: string, altKeys: string[]) => {
+    if (raw[key] !== undefined) return raw[key];
+    for (const alt of altKeys) {
+      if (raw[alt] !== undefined) return raw[alt];
+    }
+    return undefined;
+  };
+
+  const year52_high = pick("year52_high", ["year52High", "year_52_high", "year_52_high"]);
+  const year52_low = pick("year52_low", ["year52Low", "year_52_low", "year_52_low"]);
+
+  const technical_extras = pick("technical_extras", ["technicalExtras"]) ?? null;
+  const backtest_extras = pick("backtest_extras", ["backtestExtras"]) ?? null;
+  const news_extras = pick("news_extras", ["newsExtras"]) ?? null;
+
+  return {
+    symbol: pick("symbol", ["Symbol"]) ?? raw.symbol,
+    year52_high: year52_high ?? null,
+    year52_low: year52_low ?? null,
+    sector: pick("sector", ["Sector"]) ?? null,
+    industry: pick("industry", ["Industry"]) ?? null,
+    market_cap: pick("market_cap", ["marketCap", "marketCapCr", "market_capitalization"]) ?? null,
+    technical_extras,
+    backtest_extras,
+    news_extras,
+    ohlcv: pick("ohlcv", ["candles", "ohlc"]) ?? null,
+  };
 }
 
 export async function updatePaperOrder(orderId: number, payload: Partial<PaperOrderTicketState>): Promise<PaperOrderActionResponse> {
@@ -426,5 +459,95 @@ export async function getTokenHistory(limit = 50) {
     const message = await response.text();
     throw new Error(message || 'Failed to get token history');
   }
+  return response.json();
+}
+
+export async function fetchUniverses(): Promise<{ name: string; symbols: string[]; count: number }[]> {
+  const response = await fetchWithDiagnostics("/workstation/universes", undefined, "Universes");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load universes");
+  return response.json();
+}
+
+export async function fetchMarketOverview(): Promise<any> {
+  const response = await fetchWithDiagnostics("/workstation/market-overview", undefined, "Market overview");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load market overview");
+  return response.json();
+}
+
+export async function fetchSavedScans(): Promise<any[]> {
+  const response = await fetchWithDiagnostics("/workstation/saved-scans", undefined, "Saved scans");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load saved scans");
+  return response.json();
+}
+
+export async function saveScannerPreset(payload: any): Promise<any> {
+  const response = await fetchWithDiagnostics("/workstation/saved-scans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }, "Save scan");
+  if (!response.ok) throw new Error(await response.text() || "Failed to save scan");
+  return response.json();
+}
+
+export async function deleteScannerPreset(scanId: number): Promise<any> {
+  const response = await fetchWithDiagnostics(`/workstation/saved-scans/${scanId}`, { method: "DELETE" }, "Delete scan");
+  if (!response.ok) throw new Error(await response.text() || "Failed to delete scan");
+  return response.json();
+}
+
+export async function fetchScanHistory(limit = 20): Promise<any[]> {
+  const response = await fetchWithDiagnostics(`/workstation/scan-history?limit=${limit}`, undefined, "Scan history");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load scan history");
+  return response.json();
+}
+
+export async function compareScan(scanId: number): Promise<any> {
+  const response = await fetchWithDiagnostics(`/workstation/scan-history/${scanId}/compare`, undefined, "Compare scan");
+  if (!response.ok) throw new Error(await response.text() || "Failed to compare scan");
+  return response.json();
+}
+
+export async function fetchWorkstationAlerts(): Promise<any[]> {
+  const response = await fetchWithDiagnostics("/workstation/alerts", undefined, "Workstation alerts");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load alerts");
+  return response.json();
+}
+
+export async function createWorkstationAlert(payload: any): Promise<any> {
+  const response = await fetchWithDiagnostics("/workstation/alerts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }, "Create workstation alert");
+  if (!response.ok) throw new Error(await response.text() || "Failed to create alert");
+  return response.json();
+}
+
+export async function deleteWorkstationAlert(alertId: number): Promise<any> {
+  const response = await fetchWithDiagnostics(`/workstation/alerts/${alertId}`, { method: "DELETE" }, "Delete workstation alert");
+  if (!response.ok) throw new Error(await response.text() || "Failed to delete alert");
+  return response.json();
+}
+
+export async function fetchRiskSettings(): Promise<any> {
+  const response = await fetchWithDiagnostics("/workstation/risk-settings", undefined, "Risk settings");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load risk settings");
+  return response.json();
+}
+
+export async function updateRiskSettings(payload: any): Promise<any> {
+  const response = await fetchWithDiagnostics("/workstation/risk-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }, "Update risk settings");
+  if (!response.ok) throw new Error(await response.text() || "Failed to update risk settings");
+  return response.json();
+}
+
+export async function fetchApiHealth(): Promise<any> {
+  const response = await fetchWithDiagnostics("/workstation/api-health", undefined, "API health");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
   return response.json();
 }

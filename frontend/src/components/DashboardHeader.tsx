@@ -16,9 +16,12 @@ type DashboardHeaderProps = {
   topN: number;
   lookback: number;
   timeframe: string;
+  universe: string;
+  universes: { name: string; count: number }[];
   onTopNChange: (value: number) => void;
   onLookbackChange: (value: number) => void;
   onTimeframeChange: (value: string) => void;
+  onUniverseChange: (value: string) => void;
   theme: ThemeMode;
   onThemeToggle: () => void;
 };
@@ -34,9 +37,12 @@ export function DashboardHeader({
   topN,
   lookback,
   timeframe,
+  universe,
+  universes,
   onTopNChange,
   onLookbackChange,
   onTimeframeChange,
+  onUniverseChange,
   theme,
   onThemeToggle,
 }: DashboardHeaderProps) {
@@ -64,6 +70,13 @@ export function DashboardHeader({
               <option value="1h">1h</option>
               <option value="4h">4h</option>
               <option value="1d">1d</option>
+            </select>
+          </InlineField>
+          <InlineField label="Universe">
+            <select value={universe} onChange={(event) => onUniverseChange(event.target.value)}>
+              {universes.map((item) => (
+                <option key={item.name} value={item.name}>{item.name} ({item.count})</option>
+              ))}
             </select>
           </InlineField>
           <InlineField label="Lookback" tooltip={TOOLTIPS.SCANNER.LOOKBACK}>

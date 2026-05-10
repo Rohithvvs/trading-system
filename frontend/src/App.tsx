@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { loadLatestScan, runPresetScreener } from "./api";
+import { fetchSavedScans, fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
@@ -8,6 +8,7 @@ import { FilterBar } from "./components/FilterBar";
 import { PaperTradingPage } from "./components/PaperTradingPage";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
+import { WorkstationPage } from "./components/WorkstationPage";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -31,11 +32,14 @@ const DEFAULT_FILTERS: DashboardFilters = {
 };
 
 export default function App() {
-  const [mainView, setMainView] = useState<MainAppView>("scanner");
+  const [mainView, setMainView] = useState<MainAppView>("home");
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [timeframe, setTimeframe] = useState("1d");
   const [lookback, setLookback] = useState(180);
   const [topN, setTopN] = useState(20);
+  const [selectedUniverse, setSelectedUniverse] = useState("NIFTY500");
+  const [universes, setUniverses] = useState<{ name: string; symbols: string[]; count: number }[]>([]);
+  const [savedScanName, setSavedScanName] = useState("");
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
   const [screenerResult, setScreenerResult] = useState<ScreenerResponse | null>(null);
   const [scanHistory, setScanHistory] = useState<ScanHistoryItem[]>(() => loadScanHistory());
@@ -58,6 +62,10 @@ export default function App() {
       }
       applyScanResult(saved, "restored");
     });
+  }, []);
+
+  useEffect(() => {
+    void fetchUniverses().then(setUniverses).catch((err) => console.warn("Failed to load universes", err));
   }, []);
 
   const marketStatus = useMemo(() => getMarketStatus(), []);
@@ -125,7 +133,7 @@ export default function App() {
           swing: timeframe,
           lookback_window: lookback,
         },
-        [],
+        selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
         topN,
       );
 
@@ -165,6 +173,43 @@ export default function App() {
     }
   }
 
+  async function handleSaveCurrentScan() {
+    const name = savedScanName.trim() || `${selectedUniverse} ${timeframe} scan`;
+    await saveScannerPreset({
+      name,
+      mode: "swing",
+      timeframe,
+      lookback_window: lookback,
+      top_n: topN,
+      universe: selectedUniverse,
+      symbols: selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
+      filters,
+    });
+    setSavedScanName("");
+  }
+
+  function handleExportCsv() {
+    const rows = screenerResult?.all_analyzed_stocks?.length ? screenerResult.all_analyzed_stocks : screenerResult?.matches ?? [];
+    if (!rows.length) return;
+    const headers = ["symbol", "close", "screener_score", "technical_signal", "matched", "volume"];
+    const csv = [headers.join(","), ...rows.map((row: any) => headers.map((key) => JSON.stringify(row[key] ?? "")).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `scan-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function loadSavedScan(scan: any) {
+    setSelectedUniverse(scan.universe ?? "NIFTY500");
+    setTimeframe(scan.timeframe ?? "1d");
+    setLookback(scan.lookback_window ?? 180);
+    setTopN(scan.top_n ?? 20);
+    setMainView("scanner");
+  }
+
   function applyScanResult(response: ScreenerResponse, source: "fresh" | "restored") {
     setScreenerResult(response);
     setScanHistory((current) => saveScanHistory(response, current));
@@ -179,6 +224,9 @@ export default function App() {
         <div className="main-nav-inner">
           <button type="button" className={`main-nav-tab ${mainView === "scanner" ? "is-active" : ""}`} onClick={() => setMainView("scanner")}>
             Scanner
+          </button>
+          <button type="button" className={`main-nav-tab ${mainView === "home" ? "is-active" : ""}`} onClick={() => setMainView("home")}>
+            Home
           </button>
           <button type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
             Paper Trading
@@ -198,16 +246,21 @@ export default function App() {
           topN={topN}
           lookback={lookback}
           timeframe={timeframe}
+          universe={selectedUniverse}
+          universes={universes.map(({ name, count }) => ({ name, count }))}
           onTopNChange={setTopN}
           onLookbackChange={setLookback}
           onTimeframeChange={setTimeframe}
+          onUniverseChange={setSelectedUniverse}
           theme={theme}
           onThemeToggle={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
         />
       ) : null}
 
       <div className="app-main-scroll">
-        {mainView === "paper-trading" ? (
+        {mainView === "home" ? (
+          <WorkstationPage onLoadSavedScan={loadSavedScan} />
+        ) : mainView === "paper-trading" ? (
           <div className="dashboard-grid">
             <PaperTradingPage
               recommendationPrefill={paperTradingPrefill}
@@ -250,6 +303,15 @@ export default function App() {
             ) : null}
 
             {!showAllAnalyzedStocks ? <FilterBar filters={filters} onChange={setFilters} /> : null}
+
+            <section className="panel scanner-actions">
+              <label className="inline-field">
+                <span>Save scan name</span>
+                <input placeholder="Momentum pullback scan" value={savedScanName} onChange={(event) => setSavedScanName(event.target.value)} />
+              </label>
+              <button type="button" className="button ghost-button" onClick={() => void handleSaveCurrentScan()}>Save Scan</button>
+              <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
+            </section>
 
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
               <button

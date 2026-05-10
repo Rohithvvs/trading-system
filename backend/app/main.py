@@ -202,6 +202,33 @@ async def startup_event():
                                 logger.exception("Error monitoring alert %s", a.symbol)
                     except Exception:
                         logger.exception("Failed to check price alerts")
+                    try:
+                        from sqlalchemy import select
+                        from backend.app.models.workstation import WorkstationAlert
+
+                        app_alerts = list(
+                            db.scalars(
+                                select(WorkstationAlert).where(
+                                    WorkstationAlert.alert_type == "PRICE",
+                                    WorkstationAlert.status == "ACTIVE",
+                                )
+                            )
+                        )
+                        for alert in app_alerts:
+                            if not alert.symbol or not alert.condition or not alert.target_price:
+                                continue
+                            ltp = await asyncio.to_thread(fyers.fetch_ltp, alert.symbol)
+                            if ltp is None:
+                                continue
+                            triggered = (alert.condition == ">=" and ltp >= alert.target_price) or (
+                                alert.condition == "<=" and ltp <= alert.target_price
+                            )
+                            if triggered:
+                                alert.last_triggered_at = datetime.utcnow()
+                                alert.last_message = f"{alert.symbol} {alert.condition} {alert.target_price} hit at {round(ltp, 2)}"
+                        db.commit()
+                    except Exception:
+                        logger.exception("Failed to check workstation price alerts")
                 finally:
                     db.close()
             except Exception:

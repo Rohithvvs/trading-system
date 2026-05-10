@@ -299,8 +299,8 @@ class PaperTradingService:
             return account
         account = PaperTradingAccount(
             name="Primary Paper Account",
-            starting_balance=100000.0,
-            cash_balance=100000.0,
+            starting_balance=1000000.0,
+            cash_balance=1000000.0,
             max_risk_per_trade=0.02,
         )
         self.db.add(account)
@@ -989,8 +989,13 @@ class PaperTradingService:
         ]
         cumulative_pnl = []
         running = 0.0
+        peak_equity = float(account.starting_balance)
+        max_drawdown = 0.0
         for d in sorted_dates:
             running += daily_map[d]
+            equity = float(account.starting_balance) + running
+            peak_equity = max(peak_equity, equity)
+            max_drawdown = max(max_drawdown, peak_equity - equity)
             cumulative_pnl.append({"date": d, "pnl": round(running, 2)})
 
         wins_count = len(wins)
@@ -1020,6 +1025,17 @@ class PaperTradingService:
             })
 
         win_rate_pct = round((wins_count / total_trades * 100), 2) if total_trades else 0.0
+        streak_type = "none"
+        streak_count = 0
+        for trade in sorted(trades, key=lambda t: t.closed_at, reverse=True):
+            trade_type = "win" if trade.pnl > 0 else "loss" if trade.pnl < 0 else "flat"
+            if streak_type == "none":
+                streak_type = trade_type
+                streak_count = 1
+            elif trade_type == streak_type:
+                streak_count += 1
+            else:
+                break
 
         result = {
             "total_trades": total_trades,
@@ -1036,6 +1052,10 @@ class PaperTradingService:
             "wins": wins_count,
             "losses": losses_count,
             "holding_periods": holding_periods,
+            "max_drawdown": round(max_drawdown, 2),
+            "max_drawdown_pct": round((max_drawdown / peak_equity) * 100, 2) if peak_equity else 0.0,
+            "current_streak_type": streak_type,
+            "current_streak_count": streak_count,
         }
 
         return result

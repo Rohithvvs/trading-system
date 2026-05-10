@@ -25,6 +25,7 @@ def init_db() -> None:
     from ..models import paper_trading as paper_trading_models  # noqa: F401
     from ..models import stock as stock_models  # noqa: F401
     from ..models import fyers_token as fyers_token_models  # noqa: F401
+    from ..models import workstation as workstation_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     # Ensure new schema changes are applied for existing SQLite DBs.
