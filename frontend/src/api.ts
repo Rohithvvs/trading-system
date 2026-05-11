@@ -241,15 +241,23 @@ function normalizeSymbolDetail(raw: any): any {
 
   const year52_high = pick("year52_high", ["year52High", "year_52_high", "year_52_high"]);
   const year52_low = pick("year52_low", ["year52Low", "year_52_low", "year_52_low"]);
+  const fiftyTwoWeekHigh = pick("52_week_high", ["fiftyTwoWeekHigh"]);
+  const fiftyTwoWeekLow = pick("52_week_low", ["fiftyTwoWeekLow"]);
 
   const technical_extras = pick("technical_extras", ["technicalExtras"]) ?? null;
+  if (technical_extras && typeof technical_extras === "object") {
+    technical_extras.bollinger_status = technical_extras.bollinger_status ?? technical_extras.bollinger_position ?? null;
+    technical_extras.bollinger_position = technical_extras.bollinger_position ?? technical_extras.bollinger_status ?? null;
+  }
   const backtest_extras = pick("backtest_extras", ["backtestExtras"]) ?? null;
   const news_extras = pick("news_extras", ["newsExtras"]) ?? null;
 
   return {
     symbol: pick("symbol", ["Symbol"]) ?? raw.symbol,
-    year52_high: year52_high ?? null,
-    year52_low: year52_low ?? null,
+    year52_high: year52_high ?? fiftyTwoWeekHigh ?? null,
+    year52_low: year52_low ?? fiftyTwoWeekLow ?? null,
+    company_name: pick("company_name", ["companyName", "short_name", "name"]) ?? null,
+    company_description: pick("company_description", ["companyDescription", "description"]) ?? null,
     sector: pick("sector", ["Sector"]) ?? null,
     industry: pick("industry", ["Industry"]) ?? null,
     market_cap: pick("market_cap", ["marketCap", "marketCapCr", "market_capitalization"]) ?? null,

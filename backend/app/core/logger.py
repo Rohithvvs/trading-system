@@ -2,16 +2,33 @@ import logging
 import logging.handlers
 import os
 from pathlib import Path
+from datetime import datetime
 
-LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
+# Use TEST_ARTIFACT_DIR (set by tests) when present so test runs write logs
+# into the per-run artifacts folder. Otherwise fall back to backend/logs.
+_env_artifacts = os.environ.get("TEST_ARTIFACT_DIR")
+_default_logs = Path(__file__).resolve().parent.parent.parent / "logs"
+if _env_artifacts:
+    LOG_DIR = Path(_env_artifacts) / "logs"
+else:
+    LOG_DIR = _default_logs
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-TOKEN_LOG_FILE = LOG_DIR / "token_operations.log"
-APP_LOG_FILE   = LOG_DIR / "app.log"
-ERROR_LOG_FILE = LOG_DIR / "errors.log"
+# Run id (timestamp) appended to per-run log files. Tests may set RUN_ID.
+RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+
+def _named(fname: str) -> Path:
+    base = Path(fname).stem
+    return LOG_DIR / f"{base}-{RUN_ID}.log"
+
+
+TOKEN_LOG_FILE = _named("token_operations.log")
+APP_LOG_FILE = _named("app.log")
+ERROR_LOG_FILE = _named("errors.log")
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 
 def setup_logging():
     root_logger = logging.getLogger()

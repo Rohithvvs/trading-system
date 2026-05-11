@@ -1,12 +1,11 @@
-from .core.logger import setup_logging
-setup_logging()
-
 from datetime import datetime
 from time import perf_counter
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .core.logger import setup_logging
 from .config import settings
 from .db import init_db
 from .routes import api_router
@@ -14,21 +13,23 @@ from .routes.fyers import router as fyers_router
 from .utils import configure_logging, get_logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from backend.app.services.candle_store import (
+from .services.candle_store import (
     get_all_cached_symbols,
     is_cache_fresh,
     get_last_stored_date,
 )
-from backend.app.db.session import SessionLocal
-from backend.app.services.paper_trading_service import PaperTradingService
-from backend.app.services.fyers_service import FyersService
+from .db.session import SessionLocal
+from .services.paper_trading_service import PaperTradingService
+from .services.fyers_service import FyersService
 # token_service refresh automation removed — manual access-token workflow only
 import asyncio
-from backend.app.schemas import AnalysisMode
+from .schemas import AnalysisMode
 
 
+setup_logging()
 configure_logging()
 init_db()
+from .core import log_manager  # ensure module-level loggers (api/http) are created
 request_logger = get_logger("app.http")
 config_logger = get_logger("app.config")
 logger = get_logger("app.scheduler")
@@ -61,80 +62,26 @@ if not settings.nifty500_symbols:
         "Nifty 500 universe is empty | Check NIFTY500_CSV_PATH, ind_nifty500list.csv, or NIFTY500_SYMBOLS"
     )
 
-app = FastAPI(title=settings.app_name)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://trading-system-frontend.vercel.app",
-    "https://trading-system01.vercel.app",
-],
- allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app)",    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.middleware("http")
-async def log_http_requests(request, call_next):
-    started_at = perf_counter()
-    request_logger.info(
-        "HTTP request start | method=%s | path=%s | client=%s",
-        request.method,
-        request.url.path,
-        request.client.host if request.client else "unknown",
-    )
-    try:
-        response = await call_next(request)
-    except Exception:
-        elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
-        request_logger.exception(
-            "HTTP request failed | method=%s | path=%s | elapsed_ms=%s",
-            request.method,
-            request.url.path,
-            elapsed_ms,
-        )
-        raise
-    elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
-    request_logger.info(
-        "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        elapsed_ms,
-    )
-    return response
-
-
-app.include_router(api_router)
-app.include_router(fyers_router)
-
-
-async def nightly_candle_sync():
-    logger.info("NIGHTLY SYNC started")
-    from backend.app.services.fyers_service import FyersService
-    fyers = FyersService()
-    symbols = get_all_cached_symbols()
-    stale = [s for s in symbols if not is_cache_fresh(s)]
-    logger.info("NIGHTLY SYNC stale_symbols=%s total=%s", len(stale), len(symbols))
-    import asyncio
-    from backend.app.schemas import AnalysisMode
-    for symbol in stale:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if settings.app_env == "test":
+        logger.info("Test environment detected; skipping scheduler and background monitors.")
+        yield
+        # Shutdown for test env: no scheduler running
         try:
-            # Run the synchronous cache-refresh in a thread so we don't block the event loop
-            await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
-            logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
-        except Exception as e:
-            logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)
-    logger.info("NIGHTLY SYNC complete")
+            from .core.server_state import write_shutdown_time
 
+            write_shutdown_time()
+            print("[server_state] Shutdown time saved.")
+        except Exception:
+            logger.exception("Failed to write shutdown time on shutdown")
+        return
 
-@app.on_event("startup")
-async def startup_event():
     # Ensure the candle cache DB exists before scheduling jobs
     try:
-        from backend.app.services import candle_store
+        from .services import candle_store
+
         candle_store.init_db()
     except Exception:
         logger.exception("Failed to init candle_store DB on startup")
@@ -148,6 +95,28 @@ async def startup_event():
     # FYERS refresh automation removed. Manual access-token workflow only.
     scheduler.start()
     logger.info("Scheduler started — nightly sync at 18:30 IST")
+
+    # Log DB path and check for FYERS access token in DB
+    try:
+        import os
+        from .db.session import engine
+        from .services.token_service import get_current_access_token
+
+        config_logger.info("DATABASE FILE PATH: %s", engine.url)
+        config_logger.info("DATABASE FILE EXISTS: %s", os.path.exists(str(engine.url).replace("sqlite:///", "")))
+
+        # Verify token is present
+        try:
+            with SessionLocal() as db:
+                token = get_current_access_token(db)
+                if token:
+                    logger.info("STARTUP: FYERS access token loaded from DB successfully")
+                else:
+                    logger.warning("STARTUP: No FYERS access token found in DB. Please add via UI.")
+        except Exception:
+            logger.exception("Failed to read FYERS access token from DB on startup")
+    except Exception:
+        logger.exception("Failed to log database engine/url on startup")
 
     # Start the positions monitor background task
     async def _monitor_positions_background():
@@ -204,7 +173,7 @@ async def startup_event():
                         logger.exception("Failed to check price alerts")
                     try:
                         from sqlalchemy import select
-                        from backend.app.models.workstation import WorkstationAlert
+                        from .models.workstation import WorkstationAlert
 
                         app_alerts = list(
                             db.scalars(
@@ -243,7 +212,7 @@ async def startup_event():
 
     # ADD: Run offline gap replay on startup to handle fills/exits while server was down
     try:
-        from backend.app.core.gap_replay import run_gap_replay
+        from .core.gap_replay import run_gap_replay
 
         db = SessionLocal()
         fyers = FyersService()
@@ -265,14 +234,89 @@ async def startup_event():
         logger.exception("GAP_REPLAY startup failed: %s", e)
         print(f"[GAP_REPLAY] Startup replay failed: {e}")
 
+    # yield control to the application
+    yield
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    scheduler.shutdown()
+    # Shutdown
+    if settings.app_env != "test" and scheduler.running:
+        scheduler.shutdown()
     try:
-        from backend.app.core.server_state import write_shutdown_time
+        from .core.server_state import write_shutdown_time
 
         write_shutdown_time()
         print("[server_state] Shutdown time saved.")
     except Exception:
         logger.exception("Failed to write shutdown time on shutdown")
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://trading-system-frontend.vercel.app",
+        "https://trading-system01.vercel.app",
+    ],
+    allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app)",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def log_http_requests(request, call_next):
+    started_at = perf_counter()
+    request_logger.info(
+        "HTTP request start | method=%s | path=%s | client=%s",
+        request.method,
+        request.url.path,
+        request.client.host if request.client else "unknown",
+    )
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
+        request_logger.exception(
+            "HTTP request failed | method=%s | path=%s | elapsed_ms=%s",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+        raise
+    elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
+    request_logger.info(
+        "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
+
+
+app.include_router(api_router)
+app.include_router(fyers_router)
+
+
+async def nightly_candle_sync():
+    logger.info("NIGHTLY SYNC started")
+    from .services.fyers_service import FyersService
+    fyers = FyersService()
+    symbols = get_all_cached_symbols()
+    stale = [s for s in symbols if not is_cache_fresh(s)]
+    logger.info("NIGHTLY SYNC stale_symbols=%s total=%s", len(stale), len(symbols))
+    import asyncio
+    from .schemas import AnalysisMode
+    for symbol in stale:
+        try:
+            # Run the synchronous cache-refresh in a thread so we don't block the event loop
+            await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
+            logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
+        except Exception as e:
+            logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)
+    logger.info("NIGHTLY SYNC complete")
+
+
+# Lifespan managed startup/shutdown is handled by the `lifespan` context manager above.

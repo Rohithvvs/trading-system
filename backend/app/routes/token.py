@@ -54,3 +54,22 @@ def token_history(limit: int = Query(50, ge=1, le=500), db: Session = Depends(ge
         logger.exception("Failed to load token history: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
     return JSONResponse(content={"history": history})
+
+
+@router.get("/diagnostic")
+def token_diagnostic(db: Session = Depends(get_db)):
+    from ..db.session import engine
+    import os
+    from ..models import FyersToken
+
+    db_path = str(engine.url).replace("sqlite:///", "")
+    row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+    return {
+        "db_file_path": db_path,
+        "db_file_exists": os.path.exists(db_path),
+        "token_row_exists": row is not None,
+        "token_is_set": bool(row and row.access_token),
+        "token_preview": ("..." + row.access_token[-8:]) if (row and row.access_token and len(row.access_token) >= 8) else None,
+        "token_status": row.status if row else "no_row",
+        "token_saved_at": str(row.access_token_saved_at) if (row and row.access_token_saved_at) else None,
+    }

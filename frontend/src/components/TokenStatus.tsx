@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getTokenStatus, saveAccessToken, getTokenHistory } from "../api";
+import { getTokenHistory, getTokenStatus, saveAccessToken } from "../api";
 
 type Status = {
   access_token_active: boolean;
@@ -28,8 +28,8 @@ export default function TokenStatus() {
     try {
       const res = await getTokenHistory();
       setHistory(res.history || []);
-    } catch (e: any) {
-      // non-fatal
+    } catch {
+      // History is useful diagnostics, but token status is the critical UI.
     }
   }
 
@@ -41,10 +41,16 @@ export default function TokenStatus() {
   }, []);
 
   function badge() {
-    if (!status || status.status === "no_token") return <span className="badge neutral">No token</span>;
-    if (status.status === "active") return <span className="badge green">Token Active ✅</span>;
-    if (status.status === "inactive") return <span className="badge yellow">Token Inactive</span>;
-    return <span className="badge neutral">{status.status}</span>;
+    if (!status || status.status === "no_token") {
+      return <span data-testid="token-status-badge" className="badge neutral">No token</span>;
+    }
+    if (status.status === "active") {
+      return <span data-testid="token-status-badge" className="badge green">Token Active</span>;
+    }
+    if (status.status === "inactive") {
+      return <span data-testid="token-status-badge" className="badge yellow">Token Inactive</span>;
+    }
+    return <span data-testid="token-status-badge" className="badge neutral">{status.status}</span>;
   }
 
   async function handleSave() {
@@ -64,7 +70,7 @@ export default function TokenStatus() {
   }
 
   return (
-    <section className="panel token-management">
+    <section className="panel token-management" data-testid="token-management-panel">
       <h3>FYERS Access Token</h3>
       <div style={{ marginBottom: 8 }}>{badge()}</div>
 
@@ -77,15 +83,15 @@ export default function TokenStatus() {
           <tbody>
             <tr>
               <td>Last Saved</td>
-              <td>{status?.access_token_saved_at ? new Date(status.access_token_saved_at).toLocaleString() : '—'}</td>
+              <td>{status?.access_token_saved_at ? new Date(status.access_token_saved_at).toLocaleString() : "-"}</td>
             </tr>
             <tr>
               <td>Last Error</td>
-              <td>{status?.last_error ?? '—'}</td>
+              <td>{status?.last_error ?? "-"}</td>
             </tr>
             <tr>
               <td>Status</td>
-              <td>{status?.status ?? 'no_token'}</td>
+              <td>{status?.status ?? "no_token"}</td>
             </tr>
           </tbody>
         </table>
@@ -93,9 +99,17 @@ export default function TokenStatus() {
 
       <div style={{ marginBottom: 12 }}>
         <strong>Update access token</strong>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input placeholder="Access token" type="password" value={accessInput} onChange={(e) => setAccessInput(e.target.value)} />
-          <button className="button" onClick={handleSave} disabled={saving || !accessInput.trim()}>Save Token</button>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <input
+            data-testid="access-token-input"
+            placeholder="Access token"
+            type="password"
+            value={accessInput}
+            onChange={(e) => setAccessInput(e.target.value)}
+          />
+          <button data-testid="save-access-token-button" className="button" onClick={handleSave} disabled={saving || !accessInput.trim()}>
+            Save Token
+          </button>
         </div>
       </div>
 
@@ -109,9 +123,9 @@ export default function TokenStatus() {
             {history.map((h) => (
               <tr key={h.id}>
                 <td>{new Date(h.saved_at).toLocaleString()}</td>
-                <td>{h.access_token_masked ?? '—'}</td>
-                <td>{h.status ?? '—'}</td>
-                <td>{h.note ?? '—'}</td>
+                <td>{h.access_token_masked ?? "-"}</td>
+                <td>{h.status ?? "-"}</td>
+                <td>{h.note ?? "-"}</td>
               </tr>
             ))}
           </tbody>

@@ -220,6 +220,34 @@ def get_last_trading_day() -> str:
         return str(today)
 
 
+def get_latest_completed_market_session_date(reference_date: date | None = None) -> str:
+    """
+    Return the latest completed weekday session using the current lightweight
+    calendar rule. TODO: replace with an exchange calendar so weekday market
+    holidays are handled without a provider refresh.
+    """
+    today = reference_date or date.today()
+    weekday = today.weekday()
+    if weekday == 5:
+        return str(today - timedelta(days=1))
+    if weekday == 6:
+        return str(today - timedelta(days=2))
+    return str(today)
+
+
+def has_completed_daily_session(symbol: str, reference_date: date | None = None) -> bool:
+    """
+    Return True when cached daily candles already cover the latest completed
+    weekday session. This keeps weekend/same-session reruns on the local cache
+    even when the fetch timestamp itself is old.
+    """
+    latest_cached = get_last_stored_date(symbol)
+    if latest_cached is None:
+        return False
+    latest_completed = get_latest_completed_market_session_date(reference_date)
+    return latest_cached >= latest_completed
+
+
 def is_cache_fresh(symbol: str, max_age_minutes: int = 30) -> bool:
     """
     Returns True only if the cache was fetched within the last

@@ -109,6 +109,49 @@ class FyersService:
         self._ltp_source_cache[cache_key] = "NO_DATA"
         return None
 
+    def fetch_quote_profile(self, symbol: str) -> dict[str, object]:
+        """Return best-effort symbol metadata from the FYERS quotes response.
+
+        FYERS quotes are not a full fundamentals feed, so sector and market-cap may
+        be absent. We still normalize any available name, description, and
+        provider-specific 52-week or market-cap fields so the detail endpoint has
+        one stable payload shape.
+        """
+        if not self._is_fyers_configured():
+            return {}
+        try:
+            client = self._client()
+            response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+            _check_fyers_response(response, symbol)
+        except Exception as exc:  # pragma: no cover - provider/network failure
+            self.logger.warning("FYERS quote profile request failed | symbol=%s | error=%s", symbol, exc)
+            return {}
+
+        if not isinstance(response, dict):
+            return {}
+        quotes = response.get("d") or []
+        if not quotes or not isinstance(quotes[0], dict):
+            return {}
+
+        value = quotes[0].get("v", {}) if isinstance(quotes[0].get("v", {}), dict) else {}
+        raw = {**quotes[0], **value}
+
+        def pick(*keys: str):
+            for key in keys:
+                if raw.get(key) not in (None, ""):
+                    return raw.get(key)
+            return None
+
+        return {
+            "company_name": pick("company_name", "companyName", "short_name", "shortName", "name", "symbol"),
+            "company_description": pick("company_description", "description", "original_name", "originalName", "short_name"),
+            "sector": pick("sector", "industry_sector"),
+            "industry": pick("industry", "industry_group"),
+            "market_cap": self._to_float(pick("market_cap", "marketCap", "marketCapitalization", "mcap")),
+            "year52_high": self._to_float(pick("year52_high", "year52High", "52_week_high", "fiftyTwoWeekHigh")),
+            "year52_low": self._to_float(pick("year52_low", "year52Low", "52_week_low", "fiftyTwoWeekLow")),
+        }
+
     def fetch_ohlcv(
         self,
         symbol: str,
@@ -485,7 +528,7 @@ class FyersService:
         # Only cache daily candles in this simple strategy
         if mapped_resolution == "1D":
             try:
-                from backend.app.services import candle_store
+                from . import candle_store
             except Exception:
                 # If the cache module is not available, fall back to live fetch
                 self.logger.warning("CANDLE STORE not available, falling back to live fetch | symbol=%s", symbol)
@@ -494,22 +537,43 @@ class FyersService:
             candle_store.init_db()
             clean_symbol = self._cache_symbol(symbol)
 
-            if candle_store.is_cache_fresh(clean_symbol, max_age_minutes=30):
-                df = candle_store.load_candles(clean_symbol)
-                parsed: list[OHLCVPoint] = []
-                for _, row in df.iterrows():
-                    parsed.append(
-                        OHLCVPoint(
-                            timestamp=self._parse_timestamp(row["date"]),
-                            open=float(row["open"]),
-                            high=float(row["high"]),
-                            low=float(row["low"]),
-                            close=float(row["close"]),
-                            volume=int(row["volume"]),
+            cache_key = (clean_symbol, mode.value, resolution.lower())
+            cache_reusable = candle_store.is_cache_fresh(
+                clean_symbol,
+                max_age_minutes=30,
+            ) or candle_store.has_completed_daily_session(clean_symbol)
+            if cache_reusable:
+                # Ensure cached DB has sufficient rows for the requested `points`.
+                try:
+                    cached_count = candle_store.get_candle_count(clean_symbol)
+                except Exception:
+                    cached_count = 0
+
+                if cached_count >= points:
+                    df = candle_store.load_candles(clean_symbol)
+                    parsed: list[OHLCVPoint] = []
+                    for _, row in df.iterrows():
+                        parsed.append(
+                            OHLCVPoint(
+                                timestamp=self._parse_timestamp(row["date"]),
+                                open=float(row["open"]),
+                                high=float(row["high"]),
+                                low=float(row["low"]),
+                                close=float(row["close"]),
+                                volume=int(row["volume"]),
+                            )
                         )
-                    )
-                self.logger.info("CACHE HIT | symbol=%s | source=DB | candles=%s", symbol, len(parsed))
-                return parsed[-points:]
+                    self._ohlcv_source_cache[cache_key] = "CANDLE_CACHE_DB"
+                    self.logger.info("CACHE HIT | symbol=%s | source=DB | candles=%s", symbol, len(parsed))
+                    return parsed[-points:]
+
+                # Cached data is incomplete for the requested horizon -> treat as a miss
+                self.logger.info(
+                    "CACHE INCOMPLETE | symbol=%s | cached_rows=%s | required=%s | falling back to FYERS",
+                    symbol,
+                    cached_count,
+                    points,
+                )
 
             last_stored = candle_store.get_last_stored_date(clean_symbol)
             self.logger.info(
@@ -522,6 +586,7 @@ class FyersService:
             fetched = self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
 
             if fetched:
+                self._ohlcv_source_cache[cache_key] = "FYERS_PRIMARY"
                 try:
                     import pandas as pd
 
@@ -578,16 +643,16 @@ class FyersService:
         # the raw access token only.
         client_id = (settings.fyers_app_id or "").strip().strip('"').strip("'")
 
-        # Read token from DB (manual access token). Do NOT fall back to env.
+        # Read token from DB (manual access token) via token_service helper.
         token = None
         from ..db.session import SessionLocal
-        from ..models import FyersToken
+        from .token_service import get_current_access_token
 
         db = SessionLocal()
         try:
-            row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
-            if row and row.access_token:
-                token = str(row.access_token).strip().strip('"').strip("'")
+            token = get_current_access_token(db)
+            if token:
+                token = str(token).strip().strip('"').strip("'")
         finally:
             db.close()
 
@@ -624,3 +689,9 @@ class FyersService:
         if isinstance(raw_value, (int, float)):
             return datetime.fromtimestamp(raw_value, tz=timezone.utc)
         return datetime.fromisoformat(str(raw_value))
+
+    def _to_float(self, value: object) -> float | None:
+        try:
+            return float(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None

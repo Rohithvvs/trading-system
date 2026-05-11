@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import os
 from typing import Any
 
 from sqlalchemy import select
@@ -194,7 +196,21 @@ class OrchestratorAgent:
         ]
         eligible_results = [item for item in screener_results if item.conditions.get("broad_trend_eligibility", False)]
         matched_results = [item for item in screener_results if item.matched]
-        matched_results.sort(key=lambda item: item.screener_score, reverse=True)
+        matched_results.sort(key=lambda item: (-item.screener_score, item.symbol))
+        self._log_determinism_debug(
+            {
+                "event": "matched_results_sorted",
+                "stage": stage_name,
+                "items": [
+                    {
+                        "symbol": item.symbol,
+                        "screener_score": item.screener_score,
+                        "sort_tuple": [-item.screener_score, item.symbol],
+                    }
+                    for item in matched_results
+                ],
+            }
+        )
         matched_symbols = [item.symbol for item in matched_results]
         eligible_symbols = [item.symbol for item in eligible_results]
 
@@ -369,6 +385,11 @@ class OrchestratorAgent:
             data_warning=self._data_warning(),
             market_context=self._market_context(),
         )
+
+    def _log_determinism_debug(self, payload: dict[str, object]) -> None:
+        if os.getenv("SCANNER_DETERMINISM_DEBUG", "").strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+        self.logger.info("SCANNER_DETERMINISM %s", json.dumps(payload, sort_keys=True, default=str))
 
     def _analyze_symbol(self, symbol: str, request: AnalysisRequest) -> StockAnalysisResult:
         self.logger.info("Analyzing symbol | symbol=%s | mode=%s", symbol, request.mode.value)

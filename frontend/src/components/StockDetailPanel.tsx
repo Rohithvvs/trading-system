@@ -203,18 +203,23 @@ function OverviewTab({
         </div>
         <div className="info-cards" style={{ display: "flex", gap: 12, marginTop: 12 }}>
           <div className="metric-card" style={{ flex: 1 }}>
+            <span className="section-label">Company</span>
+            <h4 style={{ margin: 6 }}>{symbolDetail?.company_name ?? analysis?.company_name ?? row.symbol}</h4>
+            <p className="muted-copy">{symbolDetail?.company_description ?? analysis?.company_description ?? "Company description unavailable"}</p>
+          </div>
+          <div className="metric-card" style={{ flex: 1 }}>
             <span className="section-label">Sector</span>
-            <h4 style={{ margin: 6 }}>{symbolDetail?.sector ?? "-"}</h4>
+            <h4 style={{ margin: 6 }}>{symbolDetail?.sector ?? analysis?.sector ?? "-"}</h4>
             <p className="muted-copy">Primary business sector</p>
           </div>
           <div className="metric-card" style={{ flex: 1 }}>
             <span className="section-label">Industry</span>
-            <h4 style={{ margin: 6 }}>{symbolDetail?.industry ?? "-"}</h4>
+            <h4 style={{ margin: 6 }}>{symbolDetail?.industry ?? analysis?.industry ?? "-"}</h4>
             <p className="muted-copy">Industry classification</p>
           </div>
           <div className="metric-card" style={{ flex: 1 }}>
             <span className="section-label">Market cap</span>
-            <h4 style={{ margin: 6 }}>{formatMarketCap(symbolDetail?.market_cap ?? null)}</h4>
+            <h4 style={{ margin: 6 }}>{formatMarketCap(symbolDetail?.market_cap ?? analysis?.market_cap ?? null)}</h4>
             <p className="muted-copy">Reported market capitalization</p>
           </div>
         </div>
@@ -249,12 +254,12 @@ function OverviewTab({
             <div className="metric-card w-full" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
               <div>
                 <span className="section-label">Company</span>
-                <h4 style={{ margin: 6 }}>{symbolDetail?.sector ?? "-"}</h4>
-                <p className="muted-copy">{symbolDetail?.industry ?? "-"}</p>
+                <h4 style={{ margin: 6 }}>{symbolDetail?.company_name ?? analysis?.company_name ?? row.symbol}</h4>
+                <p className="muted-copy">{symbolDetail?.industry ?? analysis?.industry ?? "-"}</p>
               </div>
               <div>
                 <span className="section-label">Market cap</span>
-                <h4 style={{ margin: 6 }}>{symbolDetail?.market_cap != null ? new Intl.NumberFormat().format(symbolDetail.market_cap) : "-"}</h4>
+                <h4 style={{ margin: 6 }}>{symbolDetail?.market_cap != null || analysis?.market_cap != null ? new Intl.NumberFormat().format(symbolDetail?.market_cap ?? analysis?.market_cap ?? 0) : "-"}</h4>
               </div>
             </div>
           </div>
@@ -420,7 +425,7 @@ function TechnicalsTab({
               <div className="metric-card">
                 <span className="section-label">Bollinger</span>
                 <div className="mt-2">
-                  <strong>{techExtra.bollinger_status ?? "--"}</strong>
+                  <strong>{techExtra.bollinger_status ?? techExtra.bollinger_position ?? "--"}</strong>
                   <p className="muted-copy">Position relative to bands</p>
                 </div>
               </div>
@@ -508,7 +513,7 @@ function TechnicalsTab({
           <div className="metric-card" style={{ flex: 1 }}>
             <span className="section-label">Bollinger</span>
             <div className="mt-2">
-              <strong>{bollingerDisplay(techExtra?.bollinger_status)}</strong>
+            <strong>{bollingerDisplay(techExtra?.bollinger_status ?? techExtra?.bollinger_position)}</strong>
               <p className="muted-copy">Position relative to Bollinger Bands</p>
             </div>
           </div>

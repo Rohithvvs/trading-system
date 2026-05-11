@@ -115,6 +115,8 @@ export type StockAnalysisResult = {
   confidence_breakdown?: Record<string, string | number>;
   year52_high?: number | null;
   year52_low?: number | null;
+  company_name?: string | null;
+  company_description?: string | null;
   sector?: string | null;
   industry?: string | null;
   market_cap?: number | null;
@@ -403,6 +405,7 @@ export type TechnicalExtras = {
   atr_pct?: number | null;
   atr_class?: "low" | "medium" | "high" | string | null;
   bollinger_status?: string | null;
+  bollinger_position?: string | null;
   multi_timeframe?: { daily?: string | null; weekly?: string | null } | null;
 };
 
@@ -424,6 +427,8 @@ export type SymbolDetail = {
   symbol: string;
   year52_high?: number | null;
   year52_low?: number | null;
+  company_name?: string | null;
+  company_description?: string | null;
   sector?: string | null;
   industry?: string | null;
   market_cap?: number | null;

@@ -222,13 +222,13 @@ export default function App() {
     <div className="app-shell">
       <div className="main-nav-bar">
         <div className="main-nav-inner">
-          <button type="button" className={`main-nav-tab ${mainView === "scanner" ? "is-active" : ""}`} onClick={() => setMainView("scanner")}>
+          <button data-testid="nav-scanner" type="button" className={`main-nav-tab ${mainView === "scanner" ? "is-active" : ""}`} onClick={() => setMainView("scanner")}>
             Scanner
           </button>
-          <button type="button" className={`main-nav-tab ${mainView === "home" ? "is-active" : ""}`} onClick={() => setMainView("home")}>
+          <button data-testid="nav-home" type="button" className={`main-nav-tab ${mainView === "home" ? "is-active" : ""}`} onClick={() => setMainView("home")}>
             Home
           </button>
-          <button type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
+          <button data-testid="nav-paper-trading" type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
             Paper Trading
           </button>
         </div>

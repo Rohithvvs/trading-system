@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
-from app.models.paper_trading import PaperTradingAccount, PaperPosition, PaperTradeHistory
-from app.core.gap_replay import run_gap_replay
-import app.core.server_state as server_state
-import app.core.gap_replay as gr
+from backend.app.db.base import Base
+from backend.app.models.paper_trading import PaperTradingAccount, PaperPosition, PaperTradeHistory
+from backend.app.core.gap_replay import run_gap_replay
+import backend.app.core.server_state as server_state
+import backend.app.core.gap_replay as gr
 
 
 class Candle:

@@ -4,6 +4,7 @@ from datetime import datetime
 import hashlib
 import logging
 from typing import Any, List
+import os
 
 from sqlalchemy.orm import Session
 
@@ -73,9 +74,37 @@ def save_access_token(access_token: str, db: Session) -> dict:
         logger.info("STEP 3 RESULT: History entry added")
 
         logger.info("STEP 4: Committing DB transaction...")
+        # PRE-COMMIT diagnostic
+        logger.info("PRE-COMMIT: token_length=%s", len(access_token) if access_token else 0)
+
+        # Log DB engine/url and file path when using SQLite
+        try:
+            from ..db.session import engine
+            db_url = str(engine.url)
+            logger.info("DB ENGINE URL: %s", db_url)
+            if db_url.startswith("sqlite:///"):
+                db_path = db_url.replace("sqlite:///", "")
+                logger.info("DB FILE PATH: %s | exists=%s", db_path, os.path.exists(db_path))
+        except Exception:
+            pass
+
         db.commit()
         db.refresh(row)
         logger.info("STEP 4 RESULT: Commit successful. Final status=%s saved_at=%s", row.status, row.access_token_saved_at)
+
+        # POST-COMMIT diagnostics
+        logger.info("POST-COMMIT: row_id=%s access_token_saved_at=%s", getattr(row, 'id', None), getattr(row, 'access_token_saved_at', None))
+
+        # Verification read
+        try:
+            verify_row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+            logger.info(
+                "VERIFY: token_in_db=%s, status=%s",
+                bool(verify_row and verify_row.access_token),
+                verify_row.status if verify_row else "missing",
+            )
+        except Exception:
+            logger.exception("VERIFY: failed to re-read token row from DB")
 
         logger.info("%s", "=" * 60)
         logger.info("SAVE ACCESS TOKEN COMPLETED SUCCESSFULLY")
@@ -115,3 +144,16 @@ def get_token_history(db: Session, limit: int = 50) -> List[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+def get_current_access_token(db: Session) -> str | None:
+    logger.info("Reading access token from database...")
+    row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+    if row is None:
+        logger.warning("No FyersToken row found in database")
+        return None
+    if not row.access_token:
+        logger.warning("FyersToken row exists but access_token is empty")
+        return None
+    logger.info("Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
+    return row.access_token

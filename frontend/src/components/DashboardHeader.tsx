@@ -106,7 +106,7 @@ export function DashboardHeader({
           <button type="button" className="button ghost-button" onClick={onThemeToggle}>
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
-          <button type="button" className="button primary-button" onClick={onRunScanner} disabled={isLoading}>
+          <button data-testid="run-scanner-button" type="button" className="button primary-button" onClick={onRunScanner} disabled={isLoading}>
             {isLoading ? "Scanning..." : "Run Nifty 500 Swing Scanner"}
           </button>
         </div>

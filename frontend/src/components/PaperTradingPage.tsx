@@ -24,10 +24,7 @@ import {
   fetchAlerts,
   createAlert,
   deleteAlert,
-  // token APIs
   getTokenStatus,
-  setRefreshToken,
-  manualRefreshToken,
 } from "../api";
 import TokenStatus from "./TokenStatus";
 import type {
@@ -121,38 +118,37 @@ export function PaperTradingPage({
     };
   }, []);
 
-  // Check for offline gap replay summary on mount and show banner if applicable
-  useEffect(() => {
-    async function checkGapReplay() {
-      try {
-        const resp = await fetch("/api/paper-trading/gap-replay-summary");
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (data.orders_filled?.length > 0 || data.positions_exited?.length > 0) {
-          const msg = [
-            data.orders_filled?.length > 0
-              ? `${data.orders_filled.length} order(s) filled while offline`
-              : null,
-            data.positions_exited?.length > 0
-              ? `${data.positions_exited.length} position(s) exited while offline`
-              : null,
-            data.warnings?.length > 0
-              ? `${data.warnings.length} warning(s) — check manually`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" | ");
-          setStatusMessage(`⚡ Offline Gap Replay: ${msg}`);
-        }
-        if (data.warnings?.length > 0) {
-          console.warn("[GAP_REPLAY] Warnings:", data.warnings);
-        }
-      } catch {
-        /* ignore */
+  // Check for offline gap replay after initial dashboard load. Running this
+  // only once after the dashboard succeeds avoids noisy dev-server proxy
+  // ECONNREFUSED logs when the backend is still starting.
+  async function checkGapReplay() {
+    try {
+      const resp = await fetch("/api/paper-trading/gap-replay-summary");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.orders_filled?.length > 0 || data.positions_exited?.length > 0) {
+        const msg = [
+          data.orders_filled?.length > 0
+            ? `${data.orders_filled.length} order(s) filled while offline`
+            : null,
+          data.positions_exited?.length > 0
+            ? `${data.positions_exited.length} position(s) exited while offline`
+            : null,
+          data.warnings?.length > 0
+            ? `${data.warnings.length} warning(s) — check manually`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+        setStatusMessage(`⚡ Offline Gap Replay: ${msg}`);
       }
+      if (data.warnings?.length > 0) {
+        console.warn("[GAP_REPLAY] Warnings:", data.warnings);
+      }
+    } catch {
+      /* ignore network errors — backend may not be ready yet */
     }
-    void checkGapReplay();
-  }, []);
+  }
 
   // Initial dashboard load with retry (handles backend startup/gap-replay)
   useEffect(() => {
@@ -164,6 +160,10 @@ export function PaperTradingPage({
         setError(null);
         const data = await fetchPaperTradingDashboard(selectedSymbol);
         if (mounted) setDashboard(data);
+        // After the dashboard is successfully loaded, check for gap-replay
+        // notifications. Doing this here reduces the chance of proxy errors
+        // if the backend was still coming up when the page first mounted.
+        void checkGapReplay();
       } catch (err) {
         // Retry a few times in case backend is still starting
         // eslint-disable-next-line no-console
@@ -667,6 +667,7 @@ export function PaperTradingPage({
               ].map(([id, label]) => (
                 <button
                   key={id}
+                  data-testid={`paper-tab-${id}`}
                   type="button"
                   className={`detail-tab ${listTab === id ? "is-active" : ""}`}
                   onClick={() => setListTab(id as PaperPanelTab)}
@@ -845,7 +846,7 @@ function PaperAccountWidgets({
   const pnlClass = (v: number | undefined | null) => (v && v > 0 ? "metric-card-positive" : v && v < 0 ? "metric-card-negative" : "");
 
   return (
-    <section className="panel">
+    <section className="panel" data-testid="paper-order-ticket">
       <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 12, alignItems: "stretch", flexWrap: "wrap", flex: "1 1 auto" }}>
           <div className="metric-card">
@@ -1013,7 +1014,7 @@ function OrderTicketCard({
             Symbol
             <InfoTooltip content={"Select the stock to trade"} />
           </span>
-          <select value={ticket.symbol} onChange={(event) => onSymbolSelect(event.target.value)}>
+          <select data-testid="paper-symbol-select" value={ticket.symbol} onChange={(event) => onSymbolSelect(event.target.value)}>
             {symbols.map((symbol) => (
               <option key={symbol} value={symbol}>
                 {scannerSet.has(symbol) ? `${symbol} - latest scan` : symbol}
@@ -1027,7 +1028,7 @@ function OrderTicketCard({
             Side
             <InfoTooltip content={"BUY opens a position, SELL closes an existing position"} />
           </span>
-          <select value={ticket.side} onChange={(event) => onChange({ ...ticket, side: event.target.value as "BUY" | "SELL" })}>
+          <select data-testid="paper-side-select" value={ticket.side} onChange={(event) => onChange({ ...ticket, side: event.target.value as "BUY" | "SELL" })}>
             <option value="BUY">Buy</option>
             <option value="SELL">Sell</option>
           </select>
@@ -1038,7 +1039,7 @@ function OrderTicketCard({
             Order type
             <InfoTooltip content={TOOLTIPS.PAPER_TRADING.ORDER_TYPE} />
           </span>
-          <select value={ticket.type} onChange={(event) => onChange({ ...ticket, type: event.target.value as any })}>
+          <select data-testid="paper-order-type-select" value={ticket.type} onChange={(event) => onChange({ ...ticket, type: event.target.value as any })}>
             <option value="MARKET">Market</option>
             <option value="LIMIT">Limit</option>
             <option value="STOP">Stop-Loss (market on trigger)</option>
@@ -1064,7 +1065,7 @@ function OrderTicketCard({
             Quantity
             <InfoTooltip content={TOOLTIPS.PAPER_TRADING.QUANTITY} />
           </span>
-          <input type="number" min={1} placeholder="1" value={ticket.qty} onChange={(event) => onChange({ ...ticket, qty: Number(event.target.value) })} />
+          <input data-testid="paper-qty-input" type="number" min={1} placeholder="1" value={ticket.qty} onChange={(event) => onChange({ ...ticket, qty: Number(event.target.value) })} />
         </label>
 
         {ticket.type !== "MARKET" ? (
@@ -1154,7 +1155,7 @@ function OrderTicketCard({
         <span className="helper-chip">Risk {riskMetrics.riskPercent.toFixed(2)}% of account</span>
         <div>
           {qtyError ? <div className="error-state" style={{ display: 'inline-block', padding: 8, marginRight: 8 }}>{qtyError}</div> : null}
-          <button type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError}>
+          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError}>
             {isBusy ? "Working..." : "Place paper order"}
           </button>
         </div>
@@ -1183,7 +1184,7 @@ function OrderTicketCard({
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="button" className="button ghost-button" onClick={() => setPreviewOpen(false)}>Cancel</button>
-              <button type="button" className="button primary-button" onClick={async () => { setPreviewOpen(false); await onPlace(); }}>
+              <button data-testid="paper-confirm-order-button" type="button" className="button primary-button" onClick={async () => { setPreviewOpen(false); await onPlace(); }}>
                 Confirm
               </button>
             </div>

@@ -6,7 +6,7 @@ from ..utils import advisory_payload
 
 class RankingService:
     def rank(self, items: list[StockAnalysisResult]) -> RankingsResponse:
-        scored = sorted(items, key=lambda item: item.recommendation.score, reverse=True)
+        scored = sorted(items, key=lambda item: (-item.recommendation.score, item.symbol))
         rankings: list[RankingItem] = []
 
         for index, item in enumerate(scored, start=1):
@@ -66,4 +66,4 @@ class RankingService:
         filtered = [item for item in items if any(result.mode.value == mode_name for result in item.technical)]
         if not filtered:
             return None
-        return max(filtered, key=lambda item: item.recommendation.score).symbol
+        return min(filtered, key=lambda item: (-item.recommendation.score, item.symbol)).symbol

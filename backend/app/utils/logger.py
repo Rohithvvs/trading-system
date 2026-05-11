@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
+from datetime import datetime
 
 
-LOG_DIR = Path(__file__).resolve().parents[3] / "logs"
-LOG_FILE = LOG_DIR / "trading_system.log"
+# Allow tests to override where logs are written by setting TEST_ARTIFACT_DIR.
+_env = os.environ.get("TEST_ARTIFACT_DIR")
+if _env:
+    LOG_DIR = Path(_env) / "logs"
+else:
+    LOG_DIR = Path(__file__).resolve().parents[3] / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+LOG_FILE = LOG_DIR / f"trading_system-{RUN_ID}.log"
 
 
 def configure_logging() -> None:

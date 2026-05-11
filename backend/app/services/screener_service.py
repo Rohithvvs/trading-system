@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from statistics import mean
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+import os
 import threading
 import time
 
@@ -212,6 +214,17 @@ class ScreenerService:
             conditions=conditions,
             matched=matched,
         )
+        self._log_determinism_debug(
+            {
+                "event": "symbol_scored",
+                "symbol": symbol,
+                "provider": candle_source,
+                "latest_candle_timestamp": latest.timestamp.isoformat(),
+                "candle_count": len(candles),
+                "screener_score": result.screener_score,
+                "data_origin": "cache" if candle_source == "CANDLE_CACHE_DB" else "fyers",
+            }
+        )
 
         # mirror pass/fail to scan log
         if scan_log is not None:
@@ -415,7 +428,13 @@ class ScreenerService:
                 "STEP 4/8 | Condition failure summary | %s",
                 ", ".join(f"%s=%s" % item for item in condition_failure_counts.items()),
             )
+        results.sort(key=lambda item: (-item.screener_score, item.symbol))
         return results
+
+    def _log_determinism_debug(self, payload: dict[str, object]) -> None:
+        if os.getenv("SCANNER_DETERMINISM_DEBUG", "").strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+        self.logger.info("SCANNER_DETERMINISM %s", json.dumps(payload, sort_keys=True, default=str))
 
     def _passes_data_quality(self, candles: list[OHLCVPoint]) -> bool:
         if len(candles) < MINIMUM_SWING_CANDLES:
