@@ -37,6 +37,9 @@ class PaperPositionResponse(BaseModel):
     invested_value: float
     stop_loss: float | None = None
     target: float | None = None
+    lifecycle_state: str = "OPEN_POSITION"
+    monitor_enabled: bool = True
+    paused_reason: str | None = None
     risk_reward_ratio: float | None = None
     source_signal: str | None = None
     source_score: float | None = None
@@ -56,6 +59,19 @@ class PaperOrderResponse(BaseModel):
     stop_loss: float | None = None
     target: float | None = None
     status: Literal["PENDING", "FILLED", "CANCELLED", "REJECTED"]
+    lifecycle_state: Literal[
+        "PENDING_ENTRY",
+        "ENTRY_FILLED",
+        "OPEN_POSITION",
+        "EXIT_FILLED",
+        "CANCELLED",
+        "TOKEN_EXPIRED_PAUSED",
+        "MARKET_CLOSED_WAITING",
+        "ERROR_RETRYING",
+    ] = "PENDING_ENTRY"
+    requested_entry_price: float | None = None
+    monitor_enabled: bool = True
+    paused_reason: str | None = None
     notes: str | None = None
     source_signal: str | None = None
     source_score: float | None = None
@@ -99,7 +115,7 @@ class PaperWorkspaceSnapshot(BaseModel):
 class PaperQuoteResponse(BaseModel):
     symbol: str
     current_price: float
-    source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK"]
+    source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"]
     updated_at: datetime
 
 
@@ -111,6 +127,19 @@ class PaperTradingDashboardResponse(BaseModel):
     trades: list[PaperTradeHistoryItem]
     symbols: list[str]
     selected_workspace: PaperWorkspaceSnapshot | None = None
+
+
+class MarketEngineStatusResponse(BaseModel):
+    status: str
+    market_hours_active: bool
+    websocket_connected: bool
+    token_status: str
+    paused_reason: str | None = None
+    last_heartbeat_at: datetime | None = None
+    last_tick_at: datetime | None = None
+    active_monitored_symbols_count: int = 0
+    active_symbols: list[str] = Field(default_factory=list)
+    trading_date: str | None = None
 
 
 class PaperTradingAccountResetRequest(BaseModel):

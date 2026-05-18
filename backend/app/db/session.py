@@ -49,6 +49,12 @@ def init_db() -> None:
                     'stop_loss': "REAL",
                     'target': "REAL",
                     'status': "TEXT DEFAULT 'PENDING'",
+                    'lifecycle_state': "TEXT DEFAULT 'PENDING_ENTRY'",
+                    'requested_entry_price': "REAL",
+                    'monitor_enabled': "INTEGER DEFAULT 1",
+                    'paused_reason': "TEXT",
+                    'last_evaluated_at': "TEXT",
+                    'last_seen_ltp': "REAL",
                     'filled_price': "REAL",
                     'filled_at': "TEXT",
                     'cancelled_at': "TEXT",
@@ -64,8 +70,42 @@ def init_db() -> None:
                 try:
                     if 'product_type' in expected_cols and 'product_type' in cols2:
                         conn.exec_driver_sql("UPDATE paper_trading_orders SET product_type = 'CNC' WHERE product_type IS NULL")
+                    conn.exec_driver_sql("UPDATE paper_trading_orders SET lifecycle_state = CASE WHEN status = 'FILLED' THEN 'ENTRY_FILLED' WHEN status = 'CANCELLED' THEN 'CANCELLED' ELSE 'PENDING_ENTRY' END WHERE lifecycle_state IS NULL")
+                    conn.exec_driver_sql("UPDATE paper_trading_orders SET requested_entry_price = order_price WHERE requested_entry_price IS NULL")
+                    conn.exec_driver_sql("UPDATE paper_trading_orders SET monitor_enabled = 1 WHERE monitor_enabled IS NULL")
                 except Exception:
                     pass
+                res_pos = conn.exec_driver_sql("PRAGMA table_info('paper_trading_positions')").mappings().all()
+                pos_cols = [r.get('name') for r in res_pos] if res_pos else []
+                pos_expected = {
+                    'lifecycle_state': "TEXT DEFAULT 'OPEN_POSITION'",
+                    'monitor_enabled': "INTEGER DEFAULT 1",
+                    'paused_reason': "TEXT",
+                }
+                for col, col_def in pos_expected.items():
+                    if col not in pos_cols:
+                        try:
+                            conn.exec_driver_sql(f"ALTER TABLE paper_trading_positions ADD COLUMN {col} {col_def}")
+                        except Exception:
+                            pass
+                try:
+                    conn.exec_driver_sql("UPDATE paper_trading_positions SET lifecycle_state = 'OPEN_POSITION' WHERE lifecycle_state IS NULL")
+                    conn.exec_driver_sql("UPDATE paper_trading_positions SET monitor_enabled = 1 WHERE monitor_enabled IS NULL")
+                except Exception:
+                    pass
+                res_notif = conn.exec_driver_sql("PRAGMA table_info('paper_trading_notifications')").mappings().all()
+                notif_cols = [r.get('name') for r in res_notif] if res_notif else []
+                for col, col_def in {
+                    'event_type': "TEXT",
+                    'entity_type': "TEXT",
+                    'entity_id': "INTEGER",
+                    'dedupe_key': "TEXT",
+                }.items():
+                    if col not in notif_cols:
+                        try:
+                            conn.exec_driver_sql(f"ALTER TABLE paper_trading_notifications ADD COLUMN {col} {col_def}")
+                        except Exception:
+                            pass
                 # Add missing columns to `paper_trading_trade_history` if necessary
                 res3 = conn.exec_driver_sql("PRAGMA table_info('paper_trading_trade_history')").mappings().all()
                 cols3 = [r.get('name') for r in res3] if res3 else []

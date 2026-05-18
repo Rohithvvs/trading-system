@@ -275,6 +275,9 @@ export type PaperPosition = {
   invested_value: number;
   stop_loss?: number | null;
   target?: number | null;
+  lifecycle_state?: string;
+  monitor_enabled?: boolean;
+  paused_reason?: string | null;
   risk_reward_ratio?: number | null;
   source_signal?: string | null;
   source_score?: number | null;
@@ -295,6 +298,18 @@ export type PaperOrder = {
   stop_loss?: number | null;
   target?: number | null;
   status: "PENDING" | "FILLED" | "CANCELLED" | "REJECTED";
+  lifecycle_state?:
+    | "PENDING_ENTRY"
+    | "ENTRY_FILLED"
+    | "OPEN_POSITION"
+    | "EXIT_FILLED"
+    | "CANCELLED"
+    | "TOKEN_EXPIRED_PAUSED"
+    | "MARKET_CLOSED_WAITING"
+    | "ERROR_RETRYING";
+  requested_entry_price?: number | null;
+  monitor_enabled?: boolean;
+  paused_reason?: string | null;
   notes?: string | null;
   source_signal?: string | null;
   source_score?: number | null;
@@ -496,4 +511,17 @@ export type PaperOrderActionResponse = {
   position?: PaperPosition | null;
   trade?: PaperTradeHistoryItem | null;
   message: string;
+};
+
+export type MarketEngineStatus = {
+  status: string;
+  market_hours_active: boolean;
+  websocket_connected: boolean;
+  token_status: string;
+  paused_reason?: string | null;
+  last_heartbeat_at?: string | null;
+  last_tick_at?: string | null;
+  active_monitored_symbols_count: number;
+  active_symbols: string[];
+  trading_date?: string | null;
 };

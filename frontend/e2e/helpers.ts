@@ -78,3 +78,38 @@ export async function mockScannerResponse(page: Page) {
     });
   });
 }
+
+export async function mockEngineStatus(page: Page, overrides: Record<string, unknown> = {}) {
+  const payload = {
+    status: "RUNNING",
+    market_hours_active: true,
+    websocket_connected: true,
+    token_status: "VALID",
+    paused_reason: null,
+    last_heartbeat_at: new Date().toISOString(),
+    last_tick_at: new Date().toISOString(),
+    active_monitored_symbols_count: 1,
+    active_symbols: ["INFY-EQ"],
+    trading_date: "2026-05-18",
+    ...overrides,
+  };
+  await page.route(`${apiBaseURL}/paper-trading/engine/status`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) }),
+  );
+  await page.route(`${apiBaseURL}/paper-trading/engine/start`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) }),
+  );
+}
+
+export async function mockUnreadNotification(page: Page, message: string) {
+  await page.route(`${apiBaseURL}/paper-trading/notifications/unread`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ id: 9001, message, level: "success", is_read: false, created_at: new Date().toISOString() }]),
+    }),
+  );
+  await page.route(`${apiBaseURL}/paper-trading/notifications/mark-read`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ marked: 1 }) }),
+  );
+}

@@ -218,6 +218,15 @@ export default function App() {
     setLastScanLabel(source === "restored" ? "Restored from saved" : null);
   }
 
+  function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null) {
+    const prefill = buildPaperTradingPrefill(row);
+    setPaperTradingPrefill({
+      ...prefill,
+      suggested_entry: suggestedEntry ?? prefill.suggested_entry,
+    });
+    setMainView("paper-trading");
+  }
+
   return (
     <div className="app-shell">
       <div className="main-nav-bar">
@@ -275,19 +284,7 @@ export default function App() {
               row={selectedRow}
               onBack={() => setDetailViewOpen(false)}
               onSendToPaperTrading={(row, suggestedEntry) => {
-                const plan = row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ?? row.analysisItem?.recommendation.trade_plans[0];
-                setPaperTradingPrefill({
-                  symbol: row.symbol,
-                  suggested_entry: suggestedEntry ?? (plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow),
-                  suggested_stop: plan?.stop_loss ?? row.stopLoss ?? null,
-                  suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
-                  recommendation_meta: {
-                    signal: row.signal,
-                    score: row.score,
-                    confidence: Math.round((row.confidence ?? 0) * 100) / 100,
-                  },
-                });
-                setMainView("paper-trading");
+                sendRowToPaperTrading(row, suggestedEntry);
               }}
             />
           </main>
@@ -372,6 +369,7 @@ export default function App() {
                     setSelectedSymbol(symbol);
                     setDetailViewOpen(true);
                   }}
+                  onBuy={(row) => sendRowToPaperTrading(row)}
                 />
               )
             ) : null}
@@ -416,6 +414,21 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillRequest {
+  const plan = row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ?? row.analysisItem?.recommendation.trade_plans[0];
+  return {
+    symbol: row.symbol,
+    suggested_entry: plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow,
+    suggested_stop: plan?.stop_loss ?? row.stopLoss ?? null,
+    suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
+    recommendation_meta: {
+      signal: row.signal,
+      score: row.score,
+      confidence: Math.round((row.confidence ?? 0) * 100) / 100,
+    },
+  };
 }
 
 function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateRow[] {

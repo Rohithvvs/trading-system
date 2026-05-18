@@ -3,6 +3,7 @@ import type {
   FullAnalysisResponse,
   PaperOrderActionResponse,
   PaperOrderTicketState,
+  MarketEngineStatus,
   PaperPosition,
   PaperQuoteResponse,
   PaperTradingDashboardResponse,
@@ -161,6 +162,24 @@ export async function placePaperOrder(ticket: PaperOrderTicketState): Promise<Pa
     throw new Error(message || "Failed to place paper order");
   }
   return response.json() as Promise<PaperOrderActionResponse>;
+}
+
+export async function startMarketEngine(): Promise<MarketEngineStatus> {
+  const response = await fetchWithDiagnostics("/paper-trading/engine/start", { method: "POST" }, "Start market engine");
+  if (!response.ok) throw new Error(await response.text() || "Failed to start market engine");
+  return response.json() as Promise<MarketEngineStatus>;
+}
+
+export async function stopMarketEngine(): Promise<MarketEngineStatus> {
+  const response = await fetchWithDiagnostics("/paper-trading/engine/stop", { method: "POST" }, "Stop market engine");
+  if (!response.ok) throw new Error(await response.text() || "Failed to stop market engine");
+  return response.json() as Promise<MarketEngineStatus>;
+}
+
+export async function fetchMarketEngineStatus(): Promise<MarketEngineStatus> {
+  const response = await fetchWithDiagnostics("/paper-trading/engine/status", undefined, "Market engine status");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load market engine status");
+  return response.json() as Promise<MarketEngineStatus>;
 }
 
 export async function cancelPaperOrder(orderId: number): Promise<PaperOrderActionResponse> {

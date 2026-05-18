@@ -25,6 +25,9 @@ import {
   createAlert,
   deleteAlert,
   getTokenStatus,
+  fetchMarketEngineStatus,
+  startMarketEngine,
+  stopMarketEngine,
 } from "../api";
 import TokenStatus from "./TokenStatus";
 import type {
@@ -35,6 +38,7 @@ import type {
   PaperTradeHistoryItem,
   PaperTradingDashboardResponse,
   RecommendationPrefillRequest,
+  MarketEngineStatus,
 } from "../types";
 
 type PaperTradingPageProps = {
@@ -98,6 +102,7 @@ export function PaperTradingPage({
   const [accountSummary, setAccountSummary] = useState<any | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; level: string }>>([]);
+  const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(null);
   const seenNotifications = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -112,6 +117,24 @@ export function PaperTradingPage({
     }
     void loadSummary();
     const id = window.setInterval(() => void loadSummary(), 10000);
+    return () => {
+      mounted = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadEngineStatus() {
+      try {
+        const status = await fetchMarketEngineStatus();
+        if (mounted) setEngineStatus(status);
+      } catch (err) {
+        console.warn("Failed to load market engine status", err);
+      }
+    }
+    void loadEngineStatus();
+    const id = window.setInterval(() => void loadEngineStatus(), 10000);
     return () => {
       mounted = false;
       window.clearInterval(id);
@@ -559,6 +582,32 @@ export function PaperTradingPage({
     }
   }
 
+  async function handleStartEngine() {
+    setIsBusy(true);
+    try {
+      const status = await startMarketEngine();
+      setEngineStatus(status);
+      setStatusMessage("Market engine start requested.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to start market engine.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleStopEngine() {
+    setIsBusy(true);
+    try {
+      const status = await stopMarketEngine();
+      setEngineStatus(status);
+      setStatusMessage("Market engine stopped.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to stop market engine.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   // Poll unread notifications every 5s and show toasts
   useEffect(() => {
     let mounted = true;
@@ -617,6 +666,13 @@ export function PaperTradingPage({
           </p>
         </div>
         <div className="paper-header-actions">
+          <EngineStatusBadge status={engineStatus} />
+          <button data-testid="start-market-engine-button" type="button" className="button primary-button" onClick={() => void handleStartEngine()} disabled={isBusy}>
+            Start Market Engine
+          </button>
+          <button data-testid="stop-market-engine-button" type="button" className="button ghost-button" onClick={() => void handleStopEngine()} disabled={isBusy}>
+            Stop Engine
+          </button>
           <label className="inline-field">
             <span>Reset balance</span>
             <input type="number" min={1000} step={1000} value={resetBalance} onChange={(event) => setResetBalance(Number(event.target.value))} />
@@ -788,6 +844,17 @@ export function PaperTradingPage({
         </section>
       </section>
     </main>
+  );
+}
+
+function EngineStatusBadge({ status }: { status: MarketEngineStatus | null }) {
+  const label = status?.paused_reason
+    ? `${status.status} (${status.paused_reason})`
+    : status?.status ?? "UNKNOWN";
+  return (
+    <div className="helper-chip" title={status?.active_symbols.join(", ") || "No active symbols"}>
+      Engine: {label} | Feed: {status?.websocket_connected ? "connected" : "disconnected"} | Symbols: {status?.active_monitored_symbols_count ?? 0}
+    </div>
   );
 }
 
@@ -1226,6 +1293,7 @@ function PositionsTable({
             <th>Stop <InfoTooltip content={TOOLTIPS.PAPER_TRADING.STOP_COL} /></th>
             <th>Target <InfoTooltip content={TOOLTIPS.PAPER_TRADING.TARGET_COL} /></th>
             <th>R:R <InfoTooltip content={TOOLTIPS.PAPER_TRADING.RR_COL} /></th>
+            <th>Monitoring</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -1241,6 +1309,7 @@ function PositionsTable({
               <td className="number-cell">{position.stop_loss?.toFixed(2) ?? "--"}</td>
               <td className="number-cell">{position.target?.toFixed(2) ?? "--"}</td>
               <td className="number-cell">{position.risk_reward_ratio?.toFixed(2) ?? "--"}</td>
+              <td>{formatLifecycle(position.lifecycle_state, position.paused_reason)}</td>
               <td style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="button ghost-button small-button" onClick={() => onExit(position)}>Exit</button>
                 <button type="button" className="button ghost-button small-button" onClick={() => onClose(position.id)}>Square Off</button>
@@ -1282,6 +1351,7 @@ function OrdersTable({
             <th>Order price</th>
             <th>Placed</th>
             <th>Status</th>
+            <th>Lifecycle</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -1295,6 +1365,7 @@ function OrdersTable({
               <td className="number-cell">{order.price?.toFixed(2) ?? "--"}</td>
               <td>{new Date(order.created_at).toLocaleString()}</td>
               <td><span className={`status-tag ${order.status === "PENDING" ? "is-neutral" : order.status === "FILLED" ? "is-positive" : "is-risk"}`}>{order.status}</span></td>
+              <td>{formatLifecycle(order.lifecycle_state, order.paused_reason)}</td>
               <td style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="button ghost-button small-button" onClick={() => onEdit(order)}>Edit</button>
                 <button type="button" className="button ghost-button small-button" onClick={() => onDelete(order.id)}>Cancel</button>
@@ -1305,6 +1376,12 @@ function OrdersTable({
       </table>
     </div>
   );
+}
+
+function formatLifecycle(state?: string | null, pausedReason?: string | null) {
+  if (!state) return "--";
+  if (pausedReason) return `${state} (${pausedReason})`;
+  return state.replaceAll("_", " ");
 }
 
 function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {

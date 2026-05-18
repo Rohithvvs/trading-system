@@ -1,5 +1,13 @@
 from .analysis import AnalysisHistory, BacktestHistory
-from .paper_trading import PaperOrder, PaperPosition, PaperTradeHistory, PaperTradingAccount
+from .paper_trading import (
+    ExecutionEvent,
+    MarketEngineSession,
+    PaperNotification,
+    PaperOrder,
+    PaperPosition,
+    PaperTradeHistory,
+    PaperTradingAccount,
+)
 from .stock import WatchedStock
 from .fyers_token import FyersToken
 from .fyers_token_history import FyersTokenHistory
@@ -12,6 +20,9 @@ __all__ = [
     "PaperPosition",
     "PaperTradeHistory",
     "PaperTradingAccount",
+    "PaperNotification",
+    "MarketEngineSession",
+    "ExecutionEvent",
     "WatchedStock",
     "FyersToken",
     "FyersTokenHistory",

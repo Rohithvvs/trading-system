@@ -6,6 +6,7 @@ from ..db import get_db
 from ..schemas.paper_trading import (
     PaperOrderActionResponse,
     PaperOrderCreateRequest,
+    PaperOrderResponse,
     PaperOrderUpdateRequest,
     PaperPositionResponse,
     PaperPositionUpdateRequest,
@@ -22,8 +23,10 @@ from ..schemas.paper_trading import (
     AnalyticsResponse,
     PaperAccountCapitalUpdateRequest,
     TransactionPageResponse,
+    MarketEngineStatusResponse,
 )
 from ..services.paper_trading_service import PaperTradingService
+from ..services.market_engine_service import market_engine
 from ..utils import sanitize_for_json
 
 
@@ -158,6 +161,35 @@ def place_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
+
+
+@router.post("/engine/start", response_model=MarketEngineStatusResponse)
+def start_market_engine() -> MarketEngineStatusResponse:
+    market_engine.request_start()
+    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+
+
+@router.post("/engine/stop", response_model=MarketEngineStatusResponse)
+def stop_market_engine() -> MarketEngineStatusResponse:
+    market_engine.request_stop()
+    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+
+
+@router.get("/engine/status", response_model=MarketEngineStatusResponse)
+def get_market_engine_status() -> MarketEngineStatusResponse:
+    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+
+
+@router.post("/engine/heartbeat", response_model=MarketEngineStatusResponse)
+def market_engine_heartbeat() -> MarketEngineStatusResponse:
+    market_engine.heartbeat()
+    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+
+
+@router.get("/orders/pending", response_model=list[PaperOrderResponse])
+def list_pending_orders(service: PaperTradingService = Depends(get_service)):
+    response = service.get_dashboard()
+    return JSONResponse(content=sanitize_for_json([item.model_dump(mode="json") for item in response.open_orders]))
 
 
 @router.get("/positions", response_model=list[PaperPositionResponse])

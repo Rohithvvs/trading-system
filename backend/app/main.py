@@ -21,6 +21,7 @@ from .services.candle_store import (
 from .db.session import SessionLocal
 from .services.paper_trading_service import PaperTradingService
 from .services.fyers_service import FyersService
+from .services.market_engine_service import market_engine
 # token_service refresh automation removed — manual access-token workflow only
 import asyncio
 from .schemas import AnalysisMode
@@ -118,36 +119,23 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to log database engine/url on startup")
 
-    # Start the positions monitor background task
+    # Start the backend-driven market engine. The service boundary is intentionally
+    # separate so the same loop can later be hosted in a dedicated worker process.
+    try:
+        await market_engine.start_loop()
+    except Exception:
+        logger.exception("Failed to start market engine loop")
+
+    # Legacy monitor kept only for alert checks; position/order automation now
+    # belongs to market_engine so it can survive browser closure cleanly.
     async def _monitor_positions_background():
-        logger.info("Position monitor starting (every 5s)")
+        logger.info("Legacy alert monitor starting (every 5s)")
         fyers = FyersService()
         while True:
             try:
                 db = SessionLocal()
                 try:
                     service = PaperTradingService(db)
-                    account = service._get_or_create_account()
-                    positions = service._position_models(account.id)
-                    for pos in positions:
-                        try:
-                            # Fetch LTP in a thread to avoid blocking event loop
-                            ltp = await asyncio.to_thread(fyers.fetch_ltp, pos.symbol)
-                            if ltp is None:
-                                candles = await asyncio.to_thread(
-                                    fyers.fetch_ohlcv, pos.symbol, AnalysisMode.swing, "1d", 2
-                                )
-                                if candles and len(candles) > 0:
-                                    ltp = candles[-1].close
-                                else:
-                                    logger.warning("No price data available for %s; skipping monitoring", pos.symbol)
-                                    continue
-                            if pos.target is not None and ltp >= pos.target:
-                                await asyncio.to_thread(service.auto_exit, pos.id, ltp, "TARGET_HIT")
-                            elif pos.stop_loss is not None and ltp <= pos.stop_loss:
-                                await asyncio.to_thread(service.auto_exit, pos.id, ltp, "STOPLOSS_HIT")
-                        except Exception:
-                            logger.exception("Error monitoring position %s", pos.symbol)
                     # Check price alerts as well
                     try:
                         alerts = service.get_active_alerts()
@@ -240,6 +228,10 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if settings.app_env != "test" and scheduler.running:
         scheduler.shutdown()
+    try:
+        await market_engine.shutdown()
+    except Exception:
+        logger.exception("Failed to stop market engine loop")
     try:
         from .core.server_state import write_shutdown_time
 

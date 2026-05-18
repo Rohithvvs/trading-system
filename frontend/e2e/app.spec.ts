@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { apiBaseURL, mockScannerResponse, resetPaperAccount, tableDump } from "./helpers";
+import { apiBaseURL, mockEngineStatus, mockScannerResponse, mockUnreadNotification, resetPaperAccount, tableDump } from "./helpers";
 
 test.beforeEach(async ({ request }) => {
   await resetPaperAccount(request);
@@ -46,6 +46,15 @@ test("scanner flow renders results and records browser localStorage history", as
   expect(scanHistory).toContain("INFY-EQ");
 });
 
+test("scanner Buy action prefills paper trading flow", async ({ page }) => {
+  await mockScannerResponse(page);
+  await page.goto("/");
+  await page.getByTestId("nav-scanner").click();
+  await page.getByTestId("run-scanner-button").click();
+  await page.getByText("Buy", { exact: true }).click();
+  await expect(page.getByTestId("paper-symbol-select")).toHaveValue("INFY-EQ");
+});
+
 test("paper trading flow creates an order row that survives page reload", async ({ page, request }) => {
   await page.goto("/");
   await page.getByTestId("nav-paper-trading").click();
@@ -67,4 +76,20 @@ test("paper trading flow creates an order row that survives page reload", async 
   await page.getByTestId("nav-paper-trading").click();
   await page.getByTestId("paper-tab-orders").click();
   await expect(page.getByText("INFY-EQ").first()).toBeVisible();
+});
+
+test("engine status, notification, and paused state render from backend truth", async ({ page }) => {
+  await mockEngineStatus(page, {
+    status: "PAUSED_TOKEN_EXPIRED",
+    websocket_connected: false,
+    token_status: "EXPIRED",
+    paused_reason: "TOKEN_EXPIRED",
+  });
+  await mockUnreadNotification(page, "INFY-EQ paper buy auto-filled at Rs 95.");
+  await page.goto("/");
+  await page.getByTestId("nav-paper-trading").click();
+  await page.getByTestId("start-market-engine-button").click();
+  await expect(page.getByText(/Engine: PAUSED_TOKEN_EXPIRED/)).toBeVisible();
+  await expect(page.getByText(/TOKEN_EXPIRED/)).toBeVisible();
+  await expect(page.getByText(/paper buy auto-filled/)).toBeVisible();
 });

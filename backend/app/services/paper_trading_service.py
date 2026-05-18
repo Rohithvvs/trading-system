@@ -102,6 +102,7 @@ class PaperTradingService:
             product_type=payload.product_type,
             qty=payload.qty,
             order_price=trigger_price,
+            requested_entry_price=trigger_price,
             stop_price=payload.stop_price,
             stop_loss=payload.stop_loss,
             target=payload.target,
@@ -110,6 +111,7 @@ class PaperTradingService:
             source_score=payload.source_score,
             source_confidence=payload.source_confidence,
             status="PENDING",
+            lifecycle_state="PENDING_ENTRY",
         )
         self.db.add(order)
         self.db.flush()
@@ -144,6 +146,9 @@ class PaperTradingService:
         # If BUY was filled, log transaction (cash outflow) to SQLite after commit
         try:
             if filled_order.status == "FILLED" and filled_order.side == "BUY":
+                filled_order.lifecycle_state = "ENTRY_FILLED"
+                if position:
+                    position.lifecycle_state = "OPEN_POSITION"
                 tx = PaperTransaction(
                     account_id=int(account.id),
                     timestamp=datetime.utcnow(),
@@ -155,7 +160,26 @@ class PaperTradingService:
                     balance_after=float(account.cash_balance),
                 )
                 self.db.add(tx)
+                self.add_notification(
+                    account.id,
+                    f"{filled_order.symbol} paper buy filled at Rs {round(float(filled_order.filled_price or 0.0), 2)}.",
+                    "success",
+                    "ENTRY_FILLED",
+                    "order",
+                    filled_order.id,
+                    dedupe_key=f"entry-filled:{filled_order.id}",
+                )
                 self.db.commit()
+            elif filled_order.status == "PENDING" and filled_order.side == "BUY":
+                self.add_notification(
+                    account.id,
+                    f"{filled_order.symbol} limit buy waiting for entry at Rs {round(float(filled_order.order_price or 0.0), 2)}.",
+                    "info",
+                    "PENDING_ENTRY_CREATED",
+                    "order",
+                    filled_order.id,
+                    dedupe_key=f"pending-entry:{filled_order.id}",
+                )
         except Exception as e:
             print(f"ERROR in place_order: {e}")
             self.logger.exception("Failed to write BUY transaction to SQLite")
@@ -176,6 +200,7 @@ class PaperTradingService:
         if order.status != "PENDING":
             raise ValueError("Only pending orders can be cancelled.")
         order.status = "CANCELLED"
+        order.lifecycle_state = "CANCELLED"
         order.cancelled_at = datetime.utcnow()
         self.db.commit()
         return PaperOrderActionResponse(
@@ -359,6 +384,8 @@ class PaperTradingService:
     ) -> tuple[PaperOrder, PaperPosition | None, PaperTradeHistory | None, str]:
         if current_price <= 0:
             order.status = "PENDING"
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
+                order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Live market price unavailable; order remains pending."
 
         should_fill = False
@@ -389,6 +416,8 @@ class PaperTradingService:
 
         if not should_fill:
             order.status = "PENDING"
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
+                order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Order placed and kept pending."
 
         fill_price = current_price
@@ -413,6 +442,7 @@ class PaperTradingService:
                     pass
                 return order, None, None, "Order rejected: insufficient available cash."
             order.status = "FILLED"
+            order.lifecycle_state = "ENTRY_FILLED"
             order.filled_at = datetime.utcnow()
             order.filled_price = fill_price
             # Deduct funds and create/update OPEN position
@@ -436,6 +466,7 @@ class PaperTradingService:
                 position = PaperPosition(
                     account_id=account.id,
                     status="OPEN",
+                    lifecycle_state="OPEN_POSITION",
                     symbol=order.symbol,
                     qty=order.qty,
                     avg_entry_price=fill_price,
@@ -492,6 +523,7 @@ class PaperTradingService:
             return order, None, None, "Order rejected: not enough position quantity to sell."
 
         order.status = "FILLED"
+        order.lifecycle_state = "EXIT_FILLED"
         order.filled_at = datetime.utcnow()
         order.filled_price = fill_price
         account.cash_balance += fill_price * order.qty
@@ -554,10 +586,42 @@ class PaperTradingService:
         account.updated_at = datetime.utcnow()
         return order, updated_position, trade, "Sell order filled."
 
-    def add_notification(self, account_id: int, message: str, level: str = "info") -> None:
-        note = PaperNotification(account_id=account_id, message=message, level=level, is_read=False)
+    def add_notification(
+        self,
+        account_id: int,
+        message: str,
+        level: str = "info",
+        event_type: str | None = None,
+        entity_type: str | None = None,
+        entity_id: int | None = None,
+        dedupe_key: str | None = None,
+        commit: bool = True,
+    ) -> None:
+        if dedupe_key:
+            for pending in self.db.new:
+                if isinstance(pending, PaperNotification) and pending.account_id == account_id and pending.dedupe_key == dedupe_key:
+                    return
+            existing = self.db.scalar(
+                select(PaperNotification).where(
+                    PaperNotification.account_id == account_id,
+                    PaperNotification.dedupe_key == dedupe_key,
+                )
+            )
+            if existing:
+                return
+        note = PaperNotification(
+            account_id=account_id,
+            message=message,
+            level=level,
+            is_read=False,
+            event_type=event_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            dedupe_key=dedupe_key,
+        )
         self.db.add(note)
-        self.db.commit()
+        if commit:
+            self.db.commit()
 
     def get_unread_notifications(self) -> list[PaperNotification]:
         account = self._get_or_create_account()
@@ -654,6 +718,7 @@ class PaperTradingService:
             stop_loss=None,
             target=None,
             status="FILLED",
+            lifecycle_state="EXIT_FILLED",
             notes=f"Auto exit: {reason}",
             filled_price=fill_price,
             filled_at=datetime.utcnow(),
@@ -698,7 +763,15 @@ class PaperTradingService:
             else:
                 msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — {reason}"
                 level = "info"
-            self.add_notification(account.id, msg, level)
+            self.add_notification(
+                account.id,
+                msg,
+                level,
+                "EXIT_FILLED",
+                "position",
+                position.id,
+                dedupe_key=f"exit-filled:{position.id}:{reason}",
+            )
         except Exception as e:
             print(f"ERROR adding notification for auto_exit: {e}")
             self.logger.exception("Failed to add notification for auto_exit")
@@ -873,6 +946,9 @@ class PaperTradingService:
             invested_value=round(position.avg_entry_price * position.qty, 2),
             stop_loss=round(position.stop_loss, 2) if position.stop_loss else None,
             target=round(position.target, 2) if position.target else None,
+            lifecycle_state=position.lifecycle_state,
+            monitor_enabled=bool(position.monitor_enabled),
+            paused_reason=position.paused_reason,
             risk_reward_ratio=risk_reward,
             source_signal=position.source_signal,
             source_score=position.source_score,
@@ -893,6 +969,10 @@ class PaperTradingService:
             stop_loss=round(order.stop_loss, 2) if order.stop_loss is not None else None,
             target=round(order.target, 2) if order.target is not None else None,
             status=order.status,  # type: ignore[arg-type]
+            lifecycle_state=order.lifecycle_state,  # type: ignore[arg-type]
+            requested_entry_price=round(order.requested_entry_price, 2) if order.requested_entry_price is not None else None,
+            monitor_enabled=bool(order.monitor_enabled),
+            paused_reason=order.paused_reason,
             notes=order.notes,
             source_signal=order.source_signal,
             source_score=order.source_score,

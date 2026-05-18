@@ -6,9 +6,10 @@ type CandidateTableProps = {
   rows: CandidateRow[];
   selectedSymbol: string | null;
   onSelect: (symbol: string) => void;
+  onBuy?: (row: CandidateRow) => void;
 };
 
-export function CandidateTable({ rows, selectedSymbol, onSelect }: CandidateTableProps) {
+export function CandidateTable({ rows, selectedSymbol, onSelect, onBuy }: CandidateTableProps) {
   if (!rows.length) {
     return (
       <section className="panel table-panel">
@@ -75,6 +76,7 @@ export function CandidateTable({ rows, selectedSymbol, onSelect }: CandidateTabl
                 News <InfoTooltip content={TOOLTIPS.SCANNER.NEWS} />
               </th>
               <th>Last updated</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -110,6 +112,19 @@ export function CandidateTable({ rows, selectedSymbol, onSelect }: CandidateTabl
                 <td>{row.volume}</td>
                 <td>{row.newsSentiment}</td>
                 <td>{row.lastUpdated ? new Date(row.lastUpdated).toLocaleString() : "--"}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="button ghost-button small-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onBuy?.(row);
+                    }}
+                    disabled={!onBuy || row.signal === "REJECT"}
+                  >
+                    Buy
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
