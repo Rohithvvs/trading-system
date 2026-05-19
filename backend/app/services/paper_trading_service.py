@@ -89,6 +89,8 @@ class PaperTradingService:
             if snapshot:
                 position.current_price = snapshot.current_price
         self.db.commit()
+        # Re-fetch positions after commit to avoid stale object errors
+        positions = self._position_models(account.id)
         return [self._serialize_position(item, price_cache.get(item.symbol)) for item in positions]
 
     def get_pending_orders(self) -> list[PaperOrderResponse]:
@@ -96,6 +98,9 @@ class PaperTradingService:
         self._refresh_pending_orders(account.id)
         orders = [item for item in self._order_models(account.id) if item.status == "PENDING"]
         price_cache = self._load_price_cache({item.symbol for item in orders})
+        self.db.commit()
+        # Re-fetch orders after commit to avoid stale object errors
+        orders = [item for item in self._order_models(account.id) if item.status == "PENDING"]
         return [self._serialize_order(item, price_cache.get(item.symbol)) for item in orders]
 
     def get_order_history(self) -> list[PaperOrderResponse]:
@@ -103,11 +108,17 @@ class PaperTradingService:
         self._refresh_pending_orders(account.id)
         orders = self._order_models(account.id)
         price_cache = self._load_price_cache({item.symbol for item in orders})
+        self.db.commit()
+        # Re-fetch orders after commit to avoid stale object errors
+        orders = self._order_models(account.id)
         return [self._serialize_order(item, price_cache.get(item.symbol)) for item in orders]
 
     def get_trades(self) -> list[PaperTradeHistoryItem]:
         account = self._get_or_create_account()
         self._refresh_pending_orders(account.id)
+        trades = self._trade_models(account.id)
+        self.db.commit()
+        # Re-fetch trades after commit to avoid stale object errors
         trades = self._trade_models(account.id)
         return [self._serialize_trade(item) for item in trades]
 
@@ -178,8 +189,13 @@ class PaperTradingService:
         try:
             self.db.commit()
         except Exception as e:
-            print(f"ERROR in place_order commit: {e}")
+            # Rollback to ensure the session is not left in a broken state
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
             self.logger.exception("Failed to commit order fill for symbol=%s account=%s", payload.symbol, account.id)
+            raise
 
         # If BUY was filled, log transaction (cash outflow) to SQLite after commit
         try:

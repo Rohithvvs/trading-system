@@ -1,0 +1,11 @@
+﻿........ss..................                                             [100%]
+============================== warnings summary ===============================
+venv\Lib\site-packages\fyers_apiv3\FyersWebsocket\data_ws.py:7
+  F:\trading system01\trading system\venv\Lib\site-packages\fyers_apiv3\FyersWebsocket\data_ws.py:7: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    from pkg_resources import resource_filename
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+SKIPPED [1] backend\tests\live\test_fyers_live.py:18: Set FYERS_APP_ID and FYERS_LIVE_ACCESS_TOKEN to run live FYERS tests manually.
+SKIPPED [1] backend\tests\live\test_fyers_live.py:34: Set FYERS_APP_ID and FYERS_LIVE_ACCESS_TOKEN to run live FYERS tests manually.
+26 passed, 2 skipped, 1 warning in 164.23s (0:02:44)
