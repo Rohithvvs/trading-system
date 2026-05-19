@@ -24,6 +24,7 @@ from ..schemas.paper_trading import (
     PaperAccountCapitalUpdateRequest,
     TransactionPageResponse,
     MarketEngineStatusResponse,
+    PaperTradeHistoryItem,
 )
 from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
@@ -188,14 +189,26 @@ def market_engine_heartbeat() -> MarketEngineStatusResponse:
 
 @router.get("/orders/pending", response_model=list[PaperOrderResponse])
 def list_pending_orders(service: PaperTradingService = Depends(get_service)):
-    response = service.get_dashboard()
-    return JSONResponse(content=sanitize_for_json([item.model_dump(mode="json") for item in response.open_orders]))
+    orders = service.get_pending_orders()
+    return JSONResponse(content=sanitize_for_json([item.model_dump(mode="json") for item in orders]))
+
+
+@router.get("/orders/history", response_model=list[PaperOrderResponse])
+def list_order_history(service: PaperTradingService = Depends(get_service)):
+    orders = service.get_order_history()
+    return JSONResponse(content=sanitize_for_json([item.model_dump(mode="json") for item in orders]))
+
+
+@router.get("/trades", response_model=list[PaperTradeHistoryItem])
+def list_trade_history(service: PaperTradingService = Depends(get_service)):
+    trades = service.get_trades()
+    return JSONResponse(content=sanitize_for_json([item.model_dump(mode="json") for item in trades]))
 
 
 @router.get("/positions", response_model=list[PaperPositionResponse])
 def get_positions(service: PaperTradingService = Depends(get_service)) -> list[PaperPositionResponse]:
-    response = service.get_dashboard()
-    return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")["positions"]))
+    positions = service.get_positions()
+    return JSONResponse(content=sanitize_for_json([item.model_dump(mode="json") for item in positions]))
 
 
 @router.post("/positions/squareoff-all", response_model=PaperTradingDashboardResponse)

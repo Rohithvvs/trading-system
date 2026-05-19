@@ -282,6 +282,9 @@ export type PaperPosition = {
   source_signal?: string | null;
   source_score?: number | null;
   source_confidence?: number | null;
+  price_source?: "FYERS_QUOTE" | "CANDLE_FALLBACK" | "NO_DATA" | null;
+  price_fetched_at?: string | null;
+  is_price_stale?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -314,6 +317,11 @@ export type PaperOrder = {
   source_signal?: string | null;
   source_score?: number | null;
   source_confidence?: number | null;
+  last_evaluated_at?: string | null;
+  last_seen_ltp?: number | null;
+  price_source?: "FYERS_QUOTE" | "CANDLE_FALLBACK" | "NO_DATA" | null;
+  price_fetched_at?: string | null;
+  is_price_stale?: boolean;
   created_at: string;
   filled_at?: string | null;
   filled_price?: number | null;
@@ -413,6 +421,9 @@ export type PaperWorkspaceSnapshot = {
   source_signal?: string | null;
   source_score?: number | null;
   source_confidence?: number | null;
+  price_source?: "FYERS_QUOTE" | "CANDLE_FALLBACK" | "NO_DATA" | null;
+  price_fetched_at?: string | null;
+  is_price_stale?: boolean;
 };
 
 export type TechnicalExtras = {

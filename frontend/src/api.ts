@@ -1,12 +1,13 @@
 import type {
   AnalysisMode,
   FullAnalysisResponse,
+  PaperOrder,
   PaperOrderActionResponse,
   PaperOrderTicketState,
-  MarketEngineStatus,
   PaperPosition,
   PaperQuoteResponse,
   PaperTradingDashboardResponse,
+  PaperTradeHistoryItem,
   RecommendationPrefillRequest,
   RecommendationPrefillResponse,
   ScreenerResponse,
@@ -364,6 +365,33 @@ export async function fetchPositions(): Promise<PaperPosition[]> {
     throw new Error(message || "Failed to load positions");
   }
   return response.json() as Promise<PaperPosition[]>;
+}
+
+export async function fetchPendingPaperOrders(): Promise<PaperOrder[]> {
+  const response = await fetchWithDiagnostics(`/paper-trading/orders/pending`, undefined, "Paper pending orders");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load pending orders");
+  }
+  return response.json() as Promise<PaperOrder[]>;
+}
+
+export async function fetchPaperOrderHistory(): Promise<PaperOrder[]> {
+  const response = await fetchWithDiagnostics(`/paper-trading/orders/history`, undefined, "Paper order history");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load order history");
+  }
+  return response.json() as Promise<PaperOrder[]>;
+}
+
+export async function fetchPaperTrades(): Promise<PaperTradeHistoryItem[]> {
+  const response = await fetchWithDiagnostics(`/paper-trading/trades`, undefined, "Paper trade history");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load trade history");
+  }
+  return response.json() as Promise<PaperTradeHistoryItem[]>;
 }
 
 export async function squareOffAllPositions(): Promise<PaperTradingDashboardResponse> {

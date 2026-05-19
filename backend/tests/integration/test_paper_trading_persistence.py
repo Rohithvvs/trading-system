@@ -38,7 +38,22 @@ def test_market_order_creates_paper_trading_rows(client, db_session, monkeypatch
 
     dashboard = client.get("/paper-trading/dashboard?selected_symbol=INFY-EQ")
     assert dashboard.status_code == 200
-    assert dashboard.json()["positions"][0]["symbol"] == "INFY-EQ"
+    response_data = dashboard.json()
+    assert response_data["positions"][0]["symbol"] == "INFY-EQ"
+    assert response_data["selected_workspace"]["price_source"] in ["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"]
+    assert response_data["positions"][0]["price_source"] in ["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"]
+
+    pending_orders = client.get("/paper-trading/orders/pending")
+    assert pending_orders.status_code == 200
+    assert pending_orders.json() == []
+
+    order_history = client.get("/paper-trading/orders/history")
+    assert order_history.status_code == 200
+    assert any(item["id"] == payload["order"]["id"] for item in order_history.json())
+
+    trades = client.get("/paper-trading/trades")
+    assert trades.status_code == 200
+    assert trades.json() == []
 
     write_db_snapshot(
         db_session,

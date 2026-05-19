@@ -40,6 +40,8 @@ class PriceSnapshot:
     candles: list[OHLCVPoint]
     ema_20: float | None
     supertrend: float | None
+    source: str
+    fetched_at: datetime
 
 
 class PaperTradingService:
@@ -55,10 +57,12 @@ class PaperTradingService:
         orders = self._order_models(account.id)
         trades = self._trade_models(account.id)
 
-        price_cache: dict[str, PriceSnapshot] = {}
+        symbols = {item.symbol for item in positions} | {item.symbol for item in orders}
+        price_cache = self._load_price_cache(symbols)
         for position in positions:
-            price_cache[position.symbol] = self._price_snapshot(position.symbol)
-            position.current_price = price_cache[position.symbol].current_price
+            snapshot = price_cache.get(position.symbol)
+            if snapshot:
+                position.current_price = snapshot.current_price
         self.db.commit()
 
         summary = self._build_account_summary(account, positions, orders, trades, price_cache)
@@ -67,13 +71,45 @@ class PaperTradingService:
 
         return PaperTradingDashboardResponse(
             account=summary,
-            positions=[self._serialize_position(item) for item in positions],
-            open_orders=[self._serialize_order(item) for item in orders if item.status == "PENDING"],
-            order_history=[self._serialize_order(item) for item in orders],
+            positions=[self._serialize_position(item, price_cache.get(item.symbol)) for item in positions],
+            open_orders=[self._serialize_order(item, price_cache.get(item.symbol)) for item in orders if item.status == "PENDING"],
+            order_history=[self._serialize_order(item, price_cache.get(item.symbol)) for item in orders],
             trades=[self._serialize_trade(item) for item in trades],
             symbols=settings.nifty500_symbols,
             selected_workspace=workspace,
         )
+
+    def get_positions(self) -> list[PaperPositionResponse]:
+        account = self._get_or_create_account()
+        self._refresh_pending_orders(account.id)
+        positions = self._position_models(account.id)
+        price_cache = self._load_price_cache({item.symbol for item in positions})
+        for position in positions:
+            snapshot = price_cache.get(position.symbol)
+            if snapshot:
+                position.current_price = snapshot.current_price
+        self.db.commit()
+        return [self._serialize_position(item, price_cache.get(item.symbol)) for item in positions]
+
+    def get_pending_orders(self) -> list[PaperOrderResponse]:
+        account = self._get_or_create_account()
+        self._refresh_pending_orders(account.id)
+        orders = [item for item in self._order_models(account.id) if item.status == "PENDING"]
+        price_cache = self._load_price_cache({item.symbol for item in orders})
+        return [self._serialize_order(item, price_cache.get(item.symbol)) for item in orders]
+
+    def get_order_history(self) -> list[PaperOrderResponse]:
+        account = self._get_or_create_account()
+        self._refresh_pending_orders(account.id)
+        orders = self._order_models(account.id)
+        price_cache = self._load_price_cache({item.symbol for item in orders})
+        return [self._serialize_order(item, price_cache.get(item.symbol)) for item in orders]
+
+    def get_trades(self) -> list[PaperTradeHistoryItem]:
+        account = self._get_or_create_account()
+        self._refresh_pending_orders(account.id)
+        trades = self._trade_models(account.id)
+        return [self._serialize_trade(item) for item in trades]
 
     def reset_account(self, payload: PaperTradingAccountResetRequest) -> PaperTradingDashboardResponse:
         account = self._get_or_create_account()
@@ -133,6 +169,8 @@ class PaperTradingService:
             )
         except Exception:
             pass
+        order.last_evaluated_at = datetime.utcnow()
+        order.last_seen_ltp = price.current_price
         # Try to fill the order (this will update order.status, create/update position, and adjust account in the same session)
         filled_order, position, trade, message = self._try_fill_order(account, order, price.current_price)
 
@@ -838,8 +876,22 @@ class PaperTradingService:
         account = self._get_or_create_account()
         for order in pending_orders:
             price = self._price_snapshot(order.symbol)
+            order.last_evaluated_at = datetime.utcnow()
+            order.last_seen_ltp = price.current_price
             self._try_fill_order(account, order, price.current_price)
         self.db.commit()
+
+    def _load_price_cache(self, symbols: set[str]) -> dict[str, PriceSnapshot]:
+        cache: dict[str, PriceSnapshot] = {}
+        for symbol in sorted(symbols):
+            normalized = symbol.strip().upper()
+            if not normalized:
+                continue
+            try:
+                cache[normalized] = self._price_snapshot(normalized)
+            except Exception as exc:
+                self.logger.exception("Failed to load price snapshot for symbol=%s", normalized)
+        return cache
 
     def _price_snapshot(self, symbol: str) -> PriceSnapshot:
         candles = self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90)
@@ -850,7 +902,16 @@ class PaperTradingService:
         if candles:
             low_level_price = candles[-1].close
 
-        current_price = self.fyers_service.fetch_ltp(symbol) or low_level_price
+        ltp = self.fyers_service.fetch_ltp(symbol)
+        source = "FYERS_QUOTE"
+        current_price = ltp
+        if current_price is None:
+            if candles:
+                current_price = low_level_price
+                source = "CANDLE_FALLBACK"
+            else:
+                current_price = 0.0
+                source = "NO_DATA"
         if current_price is None:
             self.logger.warning("No current price available for symbol %s; using 0.0 default", symbol)
             current_price = 0.0
@@ -870,6 +931,8 @@ class PaperTradingService:
             candles=candles[-60:],
             ema_20=ema_20,
             supertrend=supertrend,
+            source=source,
+            fetched_at=datetime.now(timezone.utc),
         )
 
     def _approx_supertrend(self, frame: pd.DataFrame) -> float | None:
@@ -927,7 +990,7 @@ class PaperTradingService:
             updated_at=datetime.now(timezone.utc),
         )
 
-    def _serialize_position(self, position: PaperPosition) -> PaperPositionResponse:
+    def _serialize_position(self, position: PaperPosition, snapshot: PriceSnapshot | None = None) -> PaperPositionResponse:
         unrealized = (position.current_price - position.avg_entry_price) * position.qty
         unrealized_pct = ((position.current_price - position.avg_entry_price) / position.avg_entry_price) * 100 if position.avg_entry_price else 0.0
         risk_reward = None
@@ -953,11 +1016,14 @@ class PaperTradingService:
             source_signal=position.source_signal,
             source_score=position.source_score,
             source_confidence=position.source_confidence,
+            price_source=snapshot.source if snapshot else None,
+            price_fetched_at=snapshot.fetched_at if snapshot else None,
+            is_price_stale=(snapshot.source != "FYERS_QUOTE") if snapshot else False,
             created_at=position.created_at,
             updated_at=position.updated_at,
         )
 
-    def _serialize_order(self, order: PaperOrder) -> PaperOrderResponse:
+    def _serialize_order(self, order: PaperOrder, snapshot: PriceSnapshot | None = None) -> PaperOrderResponse:
         return PaperOrderResponse(
             id=order.id,
             symbol=order.symbol,
@@ -977,6 +1043,11 @@ class PaperTradingService:
             source_signal=order.source_signal,
             source_score=order.source_score,
             source_confidence=order.source_confidence,
+            last_evaluated_at=order.last_evaluated_at,
+            last_seen_ltp=round(order.last_seen_ltp, 2) if order.last_seen_ltp is not None else None,
+            price_source=snapshot.source if snapshot else None,
+            price_fetched_at=snapshot.fetched_at if snapshot else None,
+            is_price_stale=(snapshot.source != "FYERS_QUOTE") if snapshot else False,
             created_at=order.created_at,
             filled_at=order.filled_at,
             filled_price=round(order.filled_price, 2) if order.filled_price is not None else None,
@@ -1031,6 +1102,9 @@ class PaperTradingService:
             source_signal=source_signal,
             source_score=source_score,
             source_confidence=source_confidence,
+            price_source=snapshot.source,
+            price_fetched_at=snapshot.fetched_at,
+            is_price_stale=(snapshot.source != "FYERS_QUOTE"),
         )
 
     def get_analytics(self) -> dict:

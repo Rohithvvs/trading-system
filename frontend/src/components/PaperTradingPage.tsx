@@ -17,6 +17,8 @@ import {
   resetPaperTradingAccount,
   updatePaperPosition,
   fetchPositions,
+  fetchPendingPaperOrders,
+  fetchPaperTrades,
   squareOffAllPositions,
   fetchUnreadNotifications,
   markNotificationsRead,
@@ -335,23 +337,107 @@ export function PaperTradingPage({
     }
     setError(null);
     try {
-      const response = await fetchPaperTradingDashboard(symbol ?? selectedSymbol);
+      if (!dashboard) {
+        const response = await fetchPaperTradingDashboard(symbol ?? selectedSymbol);
+        setDashboard(response);
+        return;
+      }
+      const positions = await fetchPositions();
       setDashboard((current) => {
         if (!current) {
-          return response;
+          return {
+            account: dashboard.account,
+            positions,
+            open_orders: [],
+            order_history: [],
+            trades: [],
+            symbols: dashboard.symbols,
+            selected_workspace: dashboard.selected_workspace,
+          } as PaperTradingDashboardResponse;
         }
         return {
           ...current,
-          account: response.account,
-          positions: response.positions,
-          open_orders: response.open_orders,
-          order_history: response.order_history,
-          trades: response.trades,
-          symbols: response.symbols,
+          positions,
         } as PaperTradingDashboardResponse;
       });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to load positions.");
+    } finally {
+      if (!silent) {
+        setIsBusy(false);
+      }
+    }
+  }
+
+  async function loadPendingOrders(symbol?: string, silent = true) {
+    if (!silent) {
+      setIsBusy(true);
+    }
+    setError(null);
+    try {
+      if (!dashboard) {
+        const response = await fetchPaperTradingDashboard(symbol ?? selectedSymbol);
+        setDashboard(response);
+        return;
+      }
+      const open_orders = await fetchPendingPaperOrders();
+      setDashboard((current) => {
+        if (!current) {
+          return {
+            account: dashboard.account,
+            positions: dashboard.positions,
+            open_orders,
+            order_history: dashboard.order_history,
+            trades: dashboard.trades,
+            symbols: dashboard.symbols,
+            selected_workspace: dashboard.selected_workspace,
+          } as PaperTradingDashboardResponse;
+        }
+        return {
+          ...current,
+          open_orders,
+        } as PaperTradingDashboardResponse;
+      });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to load open orders.");
+    } finally {
+      if (!silent) {
+        setIsBusy(false);
+      }
+    }
+  }
+
+  async function loadTradeHistory(symbol?: string, silent = true) {
+    if (!silent) {
+      setIsBusy(true);
+    }
+    setError(null);
+    try {
+      if (!dashboard) {
+        const response = await fetchPaperTradingDashboard(symbol ?? selectedSymbol);
+        setDashboard(response);
+        return;
+      }
+      const trades = await fetchPaperTrades();
+      setDashboard((current) => {
+        if (!current) {
+          return {
+            account: dashboard.account,
+            positions: dashboard.positions,
+            open_orders: dashboard.open_orders,
+            order_history: dashboard.order_history,
+            trades,
+            symbols: dashboard.symbols,
+            selected_workspace: dashboard.selected_workspace,
+          } as PaperTradingDashboardResponse;
+        }
+        return {
+          ...current,
+          trades,
+        } as PaperTradingDashboardResponse;
+      });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to load trade history.");
     } finally {
       if (!silent) {
         setIsBusy(false);
@@ -371,6 +457,20 @@ export function PaperTradingPage({
       setStatusMessage("Live price paused because the quote request failed. Use Refresh to reload the full dashboard.");
     }
   }
+
+  useEffect(() => {
+    if (!dashboard) {
+      return;
+    }
+
+    if (listTab === "positions") {
+      void loadPositions(selectedSymbol, true);
+    } else if (listTab === "orders") {
+      void loadPendingOrders(selectedSymbol, true);
+    } else if (listTab === "history") {
+      void loadTradeHistory(selectedSymbol, true);
+    }
+  }, [listTab, selectedSymbol]);
 
   async function handleExternalPrefill(payload: RecommendationPrefillRequest) {
     setIsBusy(true);
@@ -424,8 +524,13 @@ export function PaperTradingPage({
       } else {
         const response = await placePaperOrder(ticket);
         setStatusMessage(response.message);
-        // Refresh positions and account immediately after a successful order
-        await loadPositions(ticket.symbol);
+        if (listTab === "orders") {
+          await loadPendingOrders(ticket.symbol);
+        } else if (listTab === "history") {
+          await loadTradeHistory(ticket.symbol);
+        } else {
+          await loadPositions(ticket.symbol);
+        }
         try {
           const acct = await fetchPaperAccountSummary();
           setAccountSummary(acct);
@@ -529,7 +634,11 @@ export function PaperTradingPage({
     try {
       const response = await deletePaperOrder(orderId);
       setStatusMessage(response.message);
-      await loadPositions(selectedSymbol);
+      if (listTab === "orders") {
+        await loadPendingOrders(selectedSymbol);
+      } else {
+        await loadPositions(selectedSymbol);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to cancel order.");
     } finally {
@@ -542,7 +651,13 @@ export function PaperTradingPage({
     try {
       const response = await closePaperPosition(positionId);
       setStatusMessage(response.message);
-      await loadPositions(selectedSymbol);
+      if (listTab === "positions") {
+        await loadPositions(selectedSymbol);
+      } else if (listTab === "orders") {
+        await loadPendingOrders(selectedSymbol);
+      } else {
+        await loadTradeHistory(selectedSymbol);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to close position.");
     } finally {
@@ -828,8 +943,13 @@ export function PaperTradingPage({
                 <p className="section-label">Selected symbol</p>
                 <h2>{workspace?.symbol ?? selectedSymbol}</h2>
               </div>
-              <div className="meta-inline">
+              <div className="meta-inline" style={{ gap: 8, alignItems: 'center' }}>
                 <span className="helper-chip">Current ₹{workspace?.current_price.toFixed(2) ?? "--"}</span>
+                {workspace?.price_source ? (
+                  <span className={`helper-chip ${workspace?.is_price_stale ? "is-risk" : ""}`} title={`Price source: ${workspace.price_source}${workspace.price_fetched_at ? ` • ${new Date(workspace.price_fetched_at).toLocaleTimeString()}` : ""}`}>
+                    {workspace.price_source}{workspace.is_price_stale ? " (stale)" : ""}
+                  </span>
+                ) : null}
                 {workspace?.source_signal ? <span className={`signal-badge signal-${workspace.source_signal.toLowerCase()}`}>{workspace.source_signal}</span> : null}
               </div>
             </div>

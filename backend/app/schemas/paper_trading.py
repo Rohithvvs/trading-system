@@ -44,6 +44,9 @@ class PaperPositionResponse(BaseModel):
     source_signal: str | None = None
     source_score: float | None = None
     source_confidence: float | None = None
+    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"] | None = None
+    price_fetched_at: datetime | None = None
+    is_price_stale: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -76,6 +79,11 @@ class PaperOrderResponse(BaseModel):
     source_signal: str | None = None
     source_score: float | None = None
     source_confidence: float | None = None
+    last_evaluated_at: datetime | None = None
+    last_seen_ltp: float | None = None
+    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"] | None = None
+    price_fetched_at: datetime | None = None
+    is_price_stale: bool = False
     created_at: datetime
     filled_at: datetime | None = None
     filled_price: float | None = None
@@ -110,6 +118,9 @@ class PaperWorkspaceSnapshot(BaseModel):
     source_signal: str | None = None
     source_score: float | None = None
     source_confidence: float | None = None
+    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"] | None = None
+    price_fetched_at: datetime | None = None
+    is_price_stale: bool = False
 
 
 class PaperQuoteResponse(BaseModel):
