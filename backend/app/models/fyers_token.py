@@ -19,6 +19,7 @@ class FyersToken(Base):
     __tablename__ = "fyers_tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+
     access_token = Column(Text, nullable=False)
     refresh_token = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

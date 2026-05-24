@@ -13,6 +13,7 @@ import type {
   ScreenerResponse,
   TimeframeConfig,
   SymbolDetail,
+  MarketEngineStatus,
 } from "./types";
 
 const PRIMARY_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://trading-system-1efs.onrender.com";
@@ -427,7 +428,7 @@ export async function markNotificationsRead(ids: number[]): Promise<{ marked: nu
   return response.json();
 }
 
-export async function fetchNotifications(unread: boolean | null = null, limit = 10): Promise<{ id: number; message: string; level: string; is_read: boolean; created_at: string }[]> {
+export async function fetchNotifications(unread: boolean | null = null, limit = 10): Promise<any[]> {
   const params = [] as string[];
   if (unread !== null) params.push(`unread=${unread}`);
   if (limit) params.push(`limit=${limit}`);

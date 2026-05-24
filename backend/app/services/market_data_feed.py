@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
 from threading import Lock, Thread
 from typing import Any
 
@@ -46,14 +45,29 @@ class FyersMarketDataFeed:
             return
 
         def on_message(message: dict[str, Any]) -> None:
-            symbol = str(message.get("symbol") or message.get("s") or "").replace("NSE:", "")
-            raw_price = message.get("ltp") or message.get("lp")
+            # First try "symbol" and "ltp" keys, otherwise try "s" and "lp" keys
+            payload = {}
+            if "symbol" in message:
+                payload["s"] = message["symbol"]
+            elif "s" in message:
+                payload["s"] = message["s"]
+            
+            if "ltp" in message:
+                payload["lp"] = message["ltp"]
+            elif "lp" in message:
+                payload["lp"] = message["lp"]
+
+            from ..schemas.paper_trading import FyersTickPayload
+            from pydantic import ValidationError
+
             try:
-                price = float(raw_price)
-            except (TypeError, ValueError):
+                tick = FyersTickPayload(**payload)
+            except ValidationError as e:
+                self.logger.warning("Invalid FYERS tick payload dropped: %s | error: %s", payload, e.errors()[0]['msg'])
                 return
-            if symbol:
-                self.on_tick(symbol, price)
+            
+            if tick.symbol:
+                self.on_tick(tick.symbol, tick.ltp)
 
         def on_error(message: Any) -> None:
             self.logger.warning("FYERS websocket error | message=%s", message)

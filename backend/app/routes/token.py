@@ -1,10 +1,10 @@
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import logging
 
 from ..db import get_db
+from ..schemas import FyersTokenCreate
 from ..services import token_service
 
 
@@ -13,15 +13,16 @@ logger = logging.getLogger("app.token")
 
 
 @router.post("/save-access-token")
-def save_access_token_route(payload: dict, db: Session = Depends(get_db)):
+def save_access_token_route(payload: FyersTokenCreate, db: Session = Depends(get_db)):
     logger.info("%s", "=" * 60)
     logger.info("HTTP POST /api/token/save-access-token RECEIVED")
-    logger.info("Payload keys     : %s", list(payload.keys()))
-    token = payload.get("access_token", "")
-    logger.info("Token length     : %s", len(token) if token else 0)
+    logger.info("Payload fields   : access_token=%s, refresh_token=%s, expires_at=%s",
+                len(payload.access_token), payload.refresh_token is not None, payload.expires_at)
+    token = payload.access_token
+    logger.info("Token length     : %s", len(token))
 
-    if not token or len(token) < 10:
-        logger.warning("REJECTED: Token empty or too short (len=%s)", len(token) if token else 0)
+    if len(token) < 10:
+        logger.warning("REJECTED: Token too short (len=%s)", len(token))
         raise HTTPException(status_code=400, detail="Access token is empty or too short")
 
     logger.info("Token accepted. Calling token_service.save_access_token...")

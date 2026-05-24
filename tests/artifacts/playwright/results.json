@@ -11,7 +11,7 @@
     "grepInvert": null,
     "maxFailures": 0,
     "metadata": {
-      "actualWorkers": 2
+      "actualWorkers": 1
     },
     "preserveOutput": "always",
     "projects": [
@@ -20,7 +20,7 @@
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "chromium",
         "name": "chromium",
@@ -61,257 +61,10 @@
     "updateSnapshots": "missing",
     "updateSourceMethod": "patch",
     "version": "1.60.0",
-    "workers": 4,
+    "workers": 1,
     "webServer": null
   },
   "suites": [
-    {
-      "title": "app.spec.ts",
-      "file": "app.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [
-        {
-          "title": "app loads and main navigation is available",
-          "ok": false,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 45000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 1292,
-                  "error": {
-                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
-                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at resetPaperAccount (F:\\trading system01\\trading system\\frontend\\e2e\\helpers.ts:12:25)\n    at F:\\trading system01\\trading system\\frontend\\e2e\\app.spec.ts:6:3",
-                    "location": {
-                      "file": "F:\\trading system01\\trading system\\frontend\\e2e\\helpers.ts",
-                      "column": 25,
-                      "line": 12
-                    },
-                    "snippet": "\u001b[90m   at \u001b[39mhelpers.ts:12\n\n\u001b[0m \u001b[90m 10 |\u001b[39m     data\u001b[33m:\u001b[39m { starting_balance\u001b[33m:\u001b[39m \u001b[35m1000000\u001b[39m }\u001b[33m,\u001b[39m\n \u001b[90m 11 |\u001b[39m   })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 12 |\u001b[39m   expect(response\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 13 |\u001b[39m }\n \u001b[90m 14 |\u001b[39m\n \u001b[90m 15 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m tableDump(request\u001b[33m:\u001b[39m \u001b[33mAPIRequestContext\u001b[39m\u001b[33m,\u001b[39m table\u001b[33m:\u001b[39m string) {\u001b[0m"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "F:\\trading system01\\trading system\\frontend\\e2e\\helpers.ts",
-                        "column": 25,
-                        "line": 12
-                      },
-                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n\u001b[90m   at \u001b[39mhelpers.ts:12\n\n\u001b[0m \u001b[90m 10 |\u001b[39m     data\u001b[33m:\u001b[39m { starting_balance\u001b[33m:\u001b[39m \u001b[35m1000000\u001b[39m }\u001b[33m,\u001b[39m\n \u001b[90m 11 |\u001b[39m   })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 12 |\u001b[39m   expect(response\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 13 |\u001b[39m }\n \u001b[90m 14 |\u001b[39m\n \u001b[90m 15 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m tableDump(request\u001b[33m:\u001b[39m \u001b[33mAPIRequestContext\u001b[39m\u001b[33m,\u001b[39m table\u001b[33m:\u001b[39m string) {\u001b[0m\n\u001b[2m    at resetPaperAccount (F:\\trading system01\\trading system\\frontend\\e2e\\helpers.ts:12:25)\u001b[22m\n\u001b[2m    at F:\\trading system01\\trading system\\frontend\\e2e\\app.spec.ts:6:3\u001b[22m"
-                    }
-                  ],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-05-19T04:05:28.129Z",
-                  "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\app-app-loads-and-main-navigation-is-available-chromium\\error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\app-app-loads-and-main-navigation-is-available-chromium\\trace.zip"
-                    }
-                  ],
-                  "errorLocation": {
-                    "file": "F:\\trading system01\\trading system\\frontend\\e2e\\helpers.ts",
-                    "column": 25,
-                    "line": 12
-                  }
-                }
-              ],
-              "status": "unexpected"
-            }
-          ],
-          "id": "c31ff144dc4fee3acd0a-6080334fbf4a08d766af",
-          "file": "app.spec.ts",
-          "line": 9,
-          "column": 1
-        },
-        {
-          "title": "token management saves a token and backend confirms SQLite persistence",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 45000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 2,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 4185,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-05-19T04:05:30.632Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "c31ff144dc4fee3acd0a-a6f201d74a0b00d5c365",
-          "file": "app.spec.ts",
-          "line": 16,
-          "column": 1
-        },
-        {
-          "title": "scanner flow renders results and records browser localStorage history",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 45000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 2,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 2653,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-05-19T04:05:35.015Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "c31ff144dc4fee3acd0a-07fd66fe4c951534ff17",
-          "file": "app.spec.ts",
-          "line": 38,
-          "column": 1
-        },
-        {
-          "title": "scanner Buy action prefills paper trading flow",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 45000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 2,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 3901,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-05-19T04:05:37.703Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "c31ff144dc4fee3acd0a-c2f925c986797ac22006",
-          "file": "app.spec.ts",
-          "line": 49,
-          "column": 1
-        },
-        {
-          "title": "paper trading flow creates an order row that survives page reload",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 45000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 2,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 3594,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-05-19T04:05:41.628Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "c31ff144dc4fee3acd0a-bb4478fd393c2651deb0",
-          "file": "app.spec.ts",
-          "line": 58,
-          "column": 1
-        },
-        {
-          "title": "engine status, notification, and paused state render from backend truth",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 45000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
-              "results": [
-                {
-                  "workerIndex": 2,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 2253,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-05-19T04:05:45.250Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "c31ff144dc4fee3acd0a-67743de8b2ae98628bae",
-          "file": "app.spec.ts",
-          "line": 81,
-          "column": 1
-        }
-      ]
-    },
     {
       "title": "paper-trading-read-architecture.spec.ts",
       "file": "paper-trading-read-architecture.spec.ts",
@@ -338,34 +91,34 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
                       "status": "failed",
-                      "duration": 4975,
+                      "duration": 5980,
                       "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:43:34",
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:36:27",
                         "location": {
                           "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                          "column": 34,
-                          "line": 43
+                          "column": 27,
+                          "line": 36
                         },
-                        "snippet": "\u001b[0m \u001b[90m 41 |\u001b[39m     \u001b[90m// 3. Verify DB state: order exists\u001b[39m\n \u001b[90m 42 |\u001b[39m     \u001b[36mconst\u001b[39m dbOrders \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m tableDump(request\u001b[33m,\u001b[39m \u001b[32m\"paper_trading_orders\"\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 43 |\u001b[39m     expect(dbOrders\u001b[33m.\u001b[39mrows\u001b[33m.\u001b[39mlength)\u001b[33m.\u001b[39mtoBeGreaterThan(\u001b[35m0\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mconst\u001b[39m createdOrder \u001b[33m=\u001b[39m dbOrders\u001b[33m.\u001b[39mrows\u001b[33m.\u001b[39mfind((r\u001b[33m:\u001b[39m any) \u001b[33m=>\u001b[39m r\u001b[33m.\u001b[39msymbol \u001b[33m===\u001b[39m \u001b[32m\"INFY-EQ\"\u001b[39m \u001b[33m&&\u001b[39m r\u001b[33m.\u001b[39mside \u001b[33m===\u001b[39m \u001b[32m\"BUY\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 45 |\u001b[39m     expect(createdOrder)\u001b[33m.\u001b[39mtoBeDefined()\u001b[33m;\u001b[39m\n \u001b[90m 46 |\u001b[39m     \u001b[90m// In test mode without live prices, orders may stay PENDING\u001b[39m\u001b[0m"
+                        "snippet": "\u001b[0m \u001b[90m 34 |\u001b[39m       }\u001b[33m,\u001b[39m\n \u001b[90m 35 |\u001b[39m     })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 36 |\u001b[39m     expect(orderRes\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 37 |\u001b[39m     \u001b[36mconst\u001b[39m orderData \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m orderRes\u001b[33m.\u001b[39mjson()\u001b[33m;\u001b[39m\n \u001b[90m 38 |\u001b[39m     expect(orderData\u001b[33m.\u001b[39morder)\u001b[33m.\u001b[39mtoBeDefined()\u001b[33m;\u001b[39m\n \u001b[90m 39 |\u001b[39m     expect(orderData\u001b[33m.\u001b[39morder\u001b[33m.\u001b[39mid)\u001b[33m.\u001b[39mtoBeDefined()\u001b[33m;\u001b[39m\u001b[0m"
                       },
                       "errors": [
                         {
                           "location": {
                             "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                            "column": 34,
-                            "line": 43
+                            "column": 27,
+                            "line": 36
                           },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m\n\n\u001b[0m \u001b[90m 41 |\u001b[39m     \u001b[90m// 3. Verify DB state: order exists\u001b[39m\n \u001b[90m 42 |\u001b[39m     \u001b[36mconst\u001b[39m dbOrders \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m tableDump(request\u001b[33m,\u001b[39m \u001b[32m\"paper_trading_orders\"\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 43 |\u001b[39m     expect(dbOrders\u001b[33m.\u001b[39mrows\u001b[33m.\u001b[39mlength)\u001b[33m.\u001b[39mtoBeGreaterThan(\u001b[35m0\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mconst\u001b[39m createdOrder \u001b[33m=\u001b[39m dbOrders\u001b[33m.\u001b[39mrows\u001b[33m.\u001b[39mfind((r\u001b[33m:\u001b[39m any) \u001b[33m=>\u001b[39m r\u001b[33m.\u001b[39msymbol \u001b[33m===\u001b[39m \u001b[32m\"INFY-EQ\"\u001b[39m \u001b[33m&&\u001b[39m r\u001b[33m.\u001b[39mside \u001b[33m===\u001b[39m \u001b[32m\"BUY\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 45 |\u001b[39m     expect(createdOrder)\u001b[33m.\u001b[39mtoBeDefined()\u001b[33m;\u001b[39m\n \u001b[90m 46 |\u001b[39m     \u001b[90m// In test mode without live prices, orders may stay PENDING\u001b[39m\u001b[0m\n\u001b[2m    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:43:34\u001b[22m"
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  34 |       },\n  35 |     });\n> 36 |     expect(orderRes.ok()).toBeTruthy();\n     |                           ^\n  37 |     const orderData = await orderRes.json();\n  38 |     expect(orderData.order).toBeDefined();\n  39 |     expect(orderData.order.id).toBeDefined();\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:36:27"
                         }
                       ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-19T04:05:28.145Z",
+                      "startTime": "2026-05-24T02:03:34.541Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -391,8 +144,8 @@
                       ],
                       "errorLocation": {
                         "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                        "column": 34,
-                        "line": 43
+                        "column": 27,
+                        "line": 36
                       }
                     }
                   ],
@@ -417,10 +170,10 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 3,
-                      "parallelIndex": 1,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "failed",
-                      "duration": 4652,
+                      "duration": 3315,
                       "error": {
                         "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
                         "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:100:25",
@@ -438,13 +191,13 @@
                             "column": 25,
                             "line": 100
                           },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n\u001b[0m \u001b[90m  98 |\u001b[39m       }\u001b[33m,\u001b[39m\n \u001b[90m  99 |\u001b[39m     })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 100 |\u001b[39m     expect(buyRes\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 101 |\u001b[39m\n \u001b[90m 102 |\u001b[39m     \u001b[90m// Place a SELL order (should close the position)\u001b[39m\n \u001b[90m 103 |\u001b[39m     \u001b[36mconst\u001b[39m sellRes \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39mpost(\u001b[32m`${apiBaseURL}/paper-trading/orders`\u001b[39m\u001b[33m,\u001b[39m {\u001b[0m\n\u001b[2m    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:100:25\u001b[22m"
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n   98 |       },\n   99 |     });\n> 100 |     expect(buyRes.ok()).toBeTruthy();\n      |                         ^\n  101 |\n  102 |     // Place a SELL order (should close the position)\n  103 |     const sellRes = await request.post(`${apiBaseURL}/paper-trading/orders`, {\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:100:25"
                         }
                       ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-19T04:05:35.073Z",
+                      "startTime": "2026-05-24T02:03:42.781Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -496,34 +249,31 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 1,
-                      "status": "failed",
-                      "duration": 3846,
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 48250,
                       "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:142:26",
-                        "location": {
-                          "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                          "column": 26,
-                          "line": 142
-                        },
-                        "snippet": "\u001b[0m \u001b[90m 140 |\u001b[39m     \u001b[90m// Fetch the dashboard/account to check lifecycle metadata and balances\u001b[39m\n \u001b[90m 141 |\u001b[39m     \u001b[36mconst\u001b[39m dashRes \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(\u001b[32m`${apiBaseURL}/paper-trading/dashboard`\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 142 |\u001b[39m     expect(dashRes\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 143 |\u001b[39m     \u001b[36mconst\u001b[39m dashboard \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m dashRes\u001b[33m.\u001b[39mjson()\u001b[33m;\u001b[39m\n \u001b[90m 144 |\u001b[39m     \u001b[36mconst\u001b[39m account \u001b[33m=\u001b[39m dashboard\u001b[33m.\u001b[39maccount\u001b[33m;\u001b[39m\n \u001b[90m 145 |\u001b[39m\u001b[0m"
+                        "message": "\u001b[31mTest timeout of 45000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 45000ms exceeded.\u001b[39m"
                       },
                       "errors": [
                         {
+                          "message": "\u001b[31mTest timeout of 45000ms exceeded.\u001b[39m"
+                        },
+                        {
                           "location": {
                             "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                            "column": 26,
-                            "line": 142
+                            "column": 79,
+                            "line": 156
                           },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n\u001b[0m \u001b[90m 140 |\u001b[39m     \u001b[90m// Fetch the dashboard/account to check lifecycle metadata and balances\u001b[39m\n \u001b[90m 141 |\u001b[39m     \u001b[36mconst\u001b[39m dashRes \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(\u001b[32m`${apiBaseURL}/paper-trading/dashboard`\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 142 |\u001b[39m     expect(dashRes\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 143 |\u001b[39m     \u001b[36mconst\u001b[39m dashboard \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m dashRes\u001b[33m.\u001b[39mjson()\u001b[33m;\u001b[39m\n \u001b[90m 144 |\u001b[39m     \u001b[36mconst\u001b[39m account \u001b[33m=\u001b[39m dashboard\u001b[33m.\u001b[39maccount\u001b[33m;\u001b[39m\n \u001b[90m 145 |\u001b[39m\u001b[0m\n\u001b[2m    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:142:26\u001b[22m"
+                          "message": "Error: locator.textContent: Test timeout of 45000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"account-balance\"]')\u001b[22m\n\n\n  154 |\n  155 |     // Verify account info displays\n> 156 |     const balanceText = await page.locator('[data-testid=\"account-balance\"]').textContent();\n      |                                                                               ^\n  157 |     expect(balanceText).toBeTruthy();\n  158 |   });\n  159 |\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:156:79"
                         }
                       ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-19T04:05:42.338Z",
+                      "startTime": "2026-05-24T02:03:47.350Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -546,12 +296,7 @@
                           "contentType": "application/zip",
                           "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\paper-trading-read-archite-10dfa-ls-render-from-API-response-chromium\\trace.zip"
                         }
-                      ],
-                      "errorLocation": {
-                        "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                        "column": 26,
-                        "line": 142
-                      }
+                      ]
                     }
                   ],
                   "status": "unexpected"
@@ -564,7 +309,7 @@
             },
             {
               "title": "price source and staleness metadata display correctly",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -575,20 +320,65 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 5481,
-                      "errors": [],
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 3627,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:175:27",
+                        "location": {
+                          "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
+                          "column": 27,
+                          "line": 175
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 173 |\u001b[39m       }\u001b[33m,\u001b[39m\n \u001b[90m 174 |\u001b[39m     })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 175 |\u001b[39m     expect(orderRes\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 176 |\u001b[39m\n \u001b[90m 177 |\u001b[39m     \u001b[90m// Fetch positions via the dedicated endpoint\u001b[39m\n \u001b[90m 178 |\u001b[39m     \u001b[36mconst\u001b[39m posRes \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(\u001b[32m`${apiBaseURL}/paper-trading/positions`\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
+                            "column": 27,
+                            "line": 175
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  173 |       },\n  174 |     });\n> 175 |     expect(orderRes.ok()).toBeTruthy();\n      |                           ^\n  176 |\n  177 |     // Fetch positions via the dedicated endpoint\n  178 |     const posRes = await request.get(`${apiBaseURL}/paper-trading/positions`);\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:175:27"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-19T04:05:48.216Z",
+                      "startTime": "2026-05-24T02:04:36.785Z",
                       "annotations": [],
-                      "attachments": []
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\paper-trading-read-archite-0fa7e--metadata-display-correctly-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\paper-trading-read-archite-0fa7e--metadata-display-correctly-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\paper-trading-read-archite-0fa7e--metadata-display-correctly-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "F:\\trading system01\\trading system\\tests\\artifacts\\playwright\\test-results\\paper-trading-read-archite-0fa7e--metadata-display-correctly-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
+                        "column": 27,
+                        "line": 175
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "f637541678ccaca80b32-638133f98a5035fd9379",
@@ -609,34 +399,34 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
+                      "workerIndex": 4,
+                      "parallelIndex": 0,
                       "status": "failed",
-                      "duration": 968,
+                      "duration": 754,
                       "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoHaveProperty\u001b[2m(\u001b[22m\u001b[32mpath\u001b[39m\u001b[2m)\u001b[22m\n\nExpected path: \u001b[32m\"workspace\"\u001b[39m\nReceived path: \u001b[31m[]\u001b[39m\n\nReceived value: \u001b[31m{\"account\": {\"account_id\": 1, \"account_name\": \"Primary Paper Account\", \"available_cash\": 1000000, \"balance\": 1000000, \"base_currency\": \"INR\", \"equity\": 1000000, \"max_risk_per_trade\": 0.02, \"open_orders_count\": 1, \"open_positions_count\": 0, \"realized_pnl\": 0, \"reserved_cash\": 0, \"starting_balance\": 1000000, \"total_invested\": 0, \"unrealized_pnl\": 0, \"updated_at\": \"2026-05-19T04:05:54.791597Z\"}, \"open_orders\": [{\"created_at\": \"2026-05-19T04:05:54.439539\", \"filled_at\": null, \"filled_price\": null, \"id\": 1, \"is_price_stale\": true, \"last_evaluated_at\": \"2026-05-19T04:05:54.717487\", \"last_seen_ltp\": 0, \"lifecycle_state\": \"PENDING_ENTRY\", \"monitor_enabled\": true, \"notes\": \"dashboard test buy\", \"paused_reason\": null, \"price\": 0, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"product_type\": \"CNC\", \"qty\": 3, \"requested_entry_price\": 0, \"side\": \"BUY\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"status\": \"PENDING\", \"stop_loss\": null, \"stop_price\": null, \"symbol\": \"INFY-EQ\", \"target\": null, \"type\": \"MARKET\"}], \"order_history\": [{\"created_at\": \"2026-05-19T04:05:54.439539\", \"filled_at\": null, \"filled_price\": null, \"id\": 1, \"is_price_stale\": true, \"last_evaluated_at\": \"2026-05-19T04:05:54.717487\", \"last_seen_ltp\": 0, \"lifecycle_state\": \"PENDING_ENTRY\", \"monitor_enabled\": true, \"notes\": \"dashboard test buy\", \"paused_reason\": null, \"price\": 0, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"product_type\": \"CNC\", \"qty\": 3, \"requested_entry_price\": 0, \"side\": \"BUY\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"status\": \"PENDING\", \"stop_loss\": null, \"stop_price\": null, \"symbol\": \"INFY-EQ\", \"target\": null, \"type\": \"MARKET\"}], \"positions\": [], \"selected_workspace\": {\"candles\": [], \"current_price\": 0, \"ema_20\": null, \"is_price_stale\": true, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"supertrend\": null, \"symbol\": \"INFY-EQ\"}, \"symbols\": [\"360ONE-EQ\", \"3MINDIA-EQ\", \"ABB-EQ\", \"ACC-EQ\", \"ACMESOLAR-EQ\", \"AIAENG-EQ\", \"APLAPOLLO-EQ\", \"ASKAUTOLTD-EQ\", \"AUBANK-EQ\", \"AWL-EQ\", …], \"trades\": []}\u001b[39m",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoHaveProperty\u001b[2m(\u001b[22m\u001b[32mpath\u001b[39m\u001b[2m)\u001b[22m\n\nExpected path: \u001b[32m\"workspace\"\u001b[39m\nReceived path: \u001b[31m[]\u001b[39m\n\nReceived value: \u001b[31m{\"account\": {\"account_id\": 1, \"account_name\": \"Primary Paper Account\", \"available_cash\": 1000000, \"balance\": 1000000, \"base_currency\": \"INR\", \"equity\": 1000000, \"max_risk_per_trade\": 0.02, \"open_orders_count\": 1, \"open_positions_count\": 0, \"realized_pnl\": 0, \"reserved_cash\": 0, \"starting_balance\": 1000000, \"total_invested\": 0, \"unrealized_pnl\": 0, \"updated_at\": \"2026-05-19T04:05:54.791597Z\"}, \"open_orders\": [{\"created_at\": \"2026-05-19T04:05:54.439539\", \"filled_at\": null, \"filled_price\": null, \"id\": 1, \"is_price_stale\": true, \"last_evaluated_at\": \"2026-05-19T04:05:54.717487\", \"last_seen_ltp\": 0, \"lifecycle_state\": \"PENDING_ENTRY\", \"monitor_enabled\": true, \"notes\": \"dashboard test buy\", \"paused_reason\": null, \"price\": 0, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"product_type\": \"CNC\", \"qty\": 3, \"requested_entry_price\": 0, \"side\": \"BUY\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"status\": \"PENDING\", \"stop_loss\": null, \"stop_price\": null, \"symbol\": \"INFY-EQ\", \"target\": null, \"type\": \"MARKET\"}], \"order_history\": [{\"created_at\": \"2026-05-19T04:05:54.439539\", \"filled_at\": null, \"filled_price\": null, \"id\": 1, \"is_price_stale\": true, \"last_evaluated_at\": \"2026-05-19T04:05:54.717487\", \"last_seen_ltp\": 0, \"lifecycle_state\": \"PENDING_ENTRY\", \"monitor_enabled\": true, \"notes\": \"dashboard test buy\", \"paused_reason\": null, \"price\": 0, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"product_type\": \"CNC\", \"qty\": 3, \"requested_entry_price\": 0, \"side\": \"BUY\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"status\": \"PENDING\", \"stop_loss\": null, \"stop_price\": null, \"symbol\": \"INFY-EQ\", \"target\": null, \"type\": \"MARKET\"}], \"positions\": [], \"selected_workspace\": {\"candles\": [], \"current_price\": 0, \"ema_20\": null, \"is_price_stale\": true, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"supertrend\": null, \"symbol\": \"INFY-EQ\"}, \"symbols\": [\"360ONE-EQ\", \"3MINDIA-EQ\", \"ABB-EQ\", \"ACC-EQ\", \"ACMESOLAR-EQ\", \"AIAENG-EQ\", \"APLAPOLLO-EQ\", \"ASKAUTOLTD-EQ\", \"AUBANK-EQ\", \"AWL-EQ\", …], \"trades\": []}\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:231:23",
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:223:27",
                         "location": {
                           "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                          "column": 23,
-                          "line": 231
+                          "column": 27,
+                          "line": 223
                         },
-                        "snippet": "\u001b[0m \u001b[90m 229 |\u001b[39m\n \u001b[90m 230 |\u001b[39m     \u001b[90m// Verify dashboard has all required sections\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 231 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"workspace\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 232 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"positions\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 233 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"pending_orders\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 234 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"order_history\"\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                        "snippet": "\u001b[0m \u001b[90m 221 |\u001b[39m       }\u001b[33m,\u001b[39m\n \u001b[90m 222 |\u001b[39m     })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 223 |\u001b[39m     expect(orderRes\u001b[33m.\u001b[39mok())\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 224 |\u001b[39m\n \u001b[90m 225 |\u001b[39m     \u001b[90m// Fetch the full dashboard\u001b[39m\n \u001b[90m 226 |\u001b[39m     \u001b[36mconst\u001b[39m dashRes \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(\u001b[32m`${apiBaseURL}/paper-trading/dashboard`\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
                       },
                       "errors": [
                         {
                           "location": {
                             "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                            "column": 23,
-                            "line": 231
+                            "column": 27,
+                            "line": 223
                           },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoHaveProperty\u001b[2m(\u001b[22m\u001b[32mpath\u001b[39m\u001b[2m)\u001b[22m\n\nExpected path: \u001b[32m\"workspace\"\u001b[39m\nReceived path: \u001b[31m[]\u001b[39m\n\nReceived value: \u001b[31m{\"account\": {\"account_id\": 1, \"account_name\": \"Primary Paper Account\", \"available_cash\": 1000000, \"balance\": 1000000, \"base_currency\": \"INR\", \"equity\": 1000000, \"max_risk_per_trade\": 0.02, \"open_orders_count\": 1, \"open_positions_count\": 0, \"realized_pnl\": 0, \"reserved_cash\": 0, \"starting_balance\": 1000000, \"total_invested\": 0, \"unrealized_pnl\": 0, \"updated_at\": \"2026-05-19T04:05:54.791597Z\"}, \"open_orders\": [{\"created_at\": \"2026-05-19T04:05:54.439539\", \"filled_at\": null, \"filled_price\": null, \"id\": 1, \"is_price_stale\": true, \"last_evaluated_at\": \"2026-05-19T04:05:54.717487\", \"last_seen_ltp\": 0, \"lifecycle_state\": \"PENDING_ENTRY\", \"monitor_enabled\": true, \"notes\": \"dashboard test buy\", \"paused_reason\": null, \"price\": 0, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"product_type\": \"CNC\", \"qty\": 3, \"requested_entry_price\": 0, \"side\": \"BUY\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"status\": \"PENDING\", \"stop_loss\": null, \"stop_price\": null, \"symbol\": \"INFY-EQ\", \"target\": null, \"type\": \"MARKET\"}], \"order_history\": [{\"created_at\": \"2026-05-19T04:05:54.439539\", \"filled_at\": null, \"filled_price\": null, \"id\": 1, \"is_price_stale\": true, \"last_evaluated_at\": \"2026-05-19T04:05:54.717487\", \"last_seen_ltp\": 0, \"lifecycle_state\": \"PENDING_ENTRY\", \"monitor_enabled\": true, \"notes\": \"dashboard test buy\", \"paused_reason\": null, \"price\": 0, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"product_type\": \"CNC\", \"qty\": 3, \"requested_entry_price\": 0, \"side\": \"BUY\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"status\": \"PENDING\", \"stop_loss\": null, \"stop_price\": null, \"symbol\": \"INFY-EQ\", \"target\": null, \"type\": \"MARKET\"}], \"positions\": [], \"selected_workspace\": {\"candles\": [], \"current_price\": 0, \"ema_20\": null, \"is_price_stale\": true, \"price_fetched_at\": \"2026-05-19T04:05:54.788943Z\", \"price_source\": \"NO_DATA\", \"source_confidence\": null, \"source_score\": null, \"source_signal\": null, \"supertrend\": null, \"symbol\": \"INFY-EQ\"}, \"symbols\": [\"360ONE-EQ\", \"3MINDIA-EQ\", \"ABB-EQ\", \"ACC-EQ\", \"ACMESOLAR-EQ\", \"AIAENG-EQ\", \"APLAPOLLO-EQ\", \"ASKAUTOLTD-EQ\", \"AUBANK-EQ\", \"AWL-EQ\", …], \"trades\": []}\u001b[39m\n\n\u001b[0m \u001b[90m 229 |\u001b[39m\n \u001b[90m 230 |\u001b[39m     \u001b[90m// Verify dashboard has all required sections\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 231 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"workspace\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 232 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"positions\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 233 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"pending_orders\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 234 |\u001b[39m     expect(dashboard)\u001b[33m.\u001b[39mtoHaveProperty(\u001b[32m\"order_history\"\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:231:23\u001b[22m"
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  221 |       },\n  222 |     });\n> 223 |     expect(orderRes.ok()).toBeTruthy();\n      |                           ^\n  224 |\n  225 |     // Fetch the full dashboard\n  226 |     const dashRes = await request.get(`${apiBaseURL}/paper-trading/dashboard`);\n    at F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts:223:27"
                         }
                       ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-19T04:05:53.855Z",
+                      "startTime": "2026-05-24T02:04:41.628Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -652,8 +442,8 @@
                       ],
                       "errorLocation": {
                         "file": "F:\\trading system01\\trading system\\frontend\\e2e\\paper-trading-read-architecture.spec.ts",
-                        "column": 23,
-                        "line": 231
+                        "column": 27,
+                        "line": 223
                       }
                     }
                   ],
@@ -672,9 +462,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-05-19T04:05:27.295Z",
-    "duration": 28183.173,
-    "expected": 6,
+    "startTime": "2026-05-24T02:03:27.646Z",
+    "duration": 75422.563,
+    "expected": 0,
     "skipped": 0,
     "unexpected": 5,
     "flaky": 0

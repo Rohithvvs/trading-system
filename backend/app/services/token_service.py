@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-import hashlib
 import logging
 from typing import Any, List
 import os
 
 from sqlalchemy.orm import Session
-
 from ..models import FyersToken, FyersTokenHistory
-
 
 logger = logging.getLogger("app.token")
 
-
 def get_fyers_token_row(db: Session) -> FyersToken | None:
-    return db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+    return db.query(FyersToken).first()
 
 
 def _mask_token(token: str | None) -> str | None:
@@ -40,13 +36,12 @@ def save_access_token(access_token: str, db: Session) -> dict:
 
     try:
         logger.info("STEP 1: Querying existing FyersToken row from DB...")
-        row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+        row = get_fyers_token_row(db)
         logger.info("STEP 1 RESULT: row_found=%s", row is not None)
 
         if row is None:
             logger.info("STEP 2: No existing row. Creating new FyersToken row...")
             row = FyersToken(
-                id=1,
                 access_token=access_token,
                 status="active",
                 access_token_saved_at=datetime.utcnow(),
@@ -97,7 +92,7 @@ def save_access_token(access_token: str, db: Session) -> dict:
 
         # Verification read
         try:
-            verify_row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+            verify_row = get_fyers_token_row(db)
             logger.info(
                 "VERIFY: token_in_db=%s, status=%s",
                 bool(verify_row and verify_row.access_token),
@@ -147,8 +142,8 @@ def get_token_history(db: Session, limit: int = 50) -> List[dict[str, Any]]:
 
 
 def get_current_access_token(db: Session) -> str | None:
-    logger.info("Reading access token from database...")
-    row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+    logger.info("Reading access token from database")
+    row = get_fyers_token_row(db)
     if row is None:
         logger.warning("No FyersToken row found in database")
         return None
@@ -156,4 +151,5 @@ def get_current_access_token(db: Session) -> str | None:
         logger.warning("FyersToken row exists but access_token is empty")
         return None
     logger.info("Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
+    
     return row.access_token

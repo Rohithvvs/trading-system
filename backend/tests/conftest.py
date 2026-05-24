@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 ARTIFACT_DIR = ROOT / "tests" / "artifacts" / "backend"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-TEST_DB_PATH = ARTIFACT_DIR / "test_app.db"
+TEST_DB_PATH = ARTIFACT_DIR / "test_app_v2.db"
 
 # Export artifact dir and RUN_ID early so the application picks them up when imported
 RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")

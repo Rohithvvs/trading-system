@@ -93,6 +93,12 @@ async def lifespan(app: FastAPI):
         id="nightly_candle_sync",
         replace_existing=True,
     )
+    scheduler.add_job(
+        automated_screening_job,
+        CronTrigger(minute="0,30", hour="9-15", timezone="Asia/Kolkata"),
+        id="automated_screening_job",
+        replace_existing=True,
+    )
     # FYERS refresh automation removed. Manual access-token workflow only.
     scheduler.start()
     logger.info("Scheduler started — nightly sync at 18:30 IST")
@@ -312,3 +318,8 @@ async def nightly_candle_sync():
 
 
 # Lifespan managed startup/shutdown is handled by the `lifespan` context manager above.
+
+async def automated_screening_job():
+    logger.info("AUTOMATED SCREENING job triggered")
+    pass
+

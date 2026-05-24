@@ -199,6 +199,7 @@ export type ScreenerResponse = {
   scan_stages?: ScreenerStageSummary[];
   stopped_at_stage?: string | null;
   duplicate_symbols_skipped?: number;
+  scanned_at?: string;
 };
 
 export type CandidateRow = {

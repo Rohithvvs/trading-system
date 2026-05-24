@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+import datetime
+import logging
+from zoneinfo import ZoneInfo
 
 from ..db import get_db
+from ..db.scan_store import get_last_scan_time
 from ..schemas.paper_trading import (
     PaperOrderActionResponse,
     PaperOrderCreateRequest,
@@ -181,9 +185,87 @@ def get_market_engine_status() -> MarketEngineStatusResponse:
     return JSONResponse(content=sanitize_for_json(market_engine.status()))
 
 
+import asyncio
+import concurrent.futures
+
+# Dedicated executor for heavy Pandas background scans to prevent starving FastAPI worker threads
+_scan_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+def _run_automated_background_scan_sync():
+    """Runs a complete Nifty 500 swing scan and caches it in SQLite."""
+    logger = logging.getLogger("app.background")
+    logger.info("Starting automated background scan...")
+    try:
+        from ..db.session import SessionLocal
+        from ..routes.analysis import screener_full
+        from ..schemas.analysis import ScreenerRequest, AnalysisMode, TimeframeConfig
+        
+        db = SessionLocal()
+        try:
+            req = ScreenerRequest(
+                mode=AnalysisMode.SWING,
+                timeframe_config=TimeframeConfig(intraday="5m", swing="1d", lookback_window=180),
+                universe="NIFTY500",
+                custom_symbols=[],
+                top_n=20
+            )
+            # screener_full handles caching to SQLite internally via RouterAgent
+            screener_full(req, db=db)
+            logger.info("Automated background scan completed successfully.")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Automated background scan failed: %s", e, exc_info=True)
+
+async def _run_automated_background_scan():
+    """Async wrapper to run the heavy sync scan in a dedicated ThreadPoolExecutor."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(_scan_executor, _run_automated_background_scan_sync)
+
+
 @router.post("/engine/heartbeat", response_model=MarketEngineStatusResponse)
-def market_engine_heartbeat() -> MarketEngineStatusResponse:
+def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEngineStatusResponse:
     market_engine.heartbeat()
+    
+    # 1. Immediately log the incoming cron keep-alive ping is done via market_engine.heartbeat() internal logs.
+    logger = logging.getLogger("app.heartbeat")
+    
+    now_ist = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+    last_scan_str = get_last_scan_time()
+    
+    should_run = False
+    
+    if last_scan_str:
+        # SQLite datetime('now') stores UTC. Parse it and convert to IST.
+        try:
+            last_scan_utc = datetime.datetime.strptime(last_scan_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+            last_scan_ist = last_scan_utc.astimezone(ZoneInfo("Asia/Kolkata"))
+        except ValueError:
+            # Fallback if the format is different
+            last_scan_ist = datetime.datetime.fromisoformat(last_scan_str).astimezone(ZoneInfo("Asia/Kolkata"))
+    else:
+        last_scan_ist = None
+
+    # 2. MORNING 9:00 AM CHECK: Between 09:00 AM and 09:15 AM IST and no scan has run yet today
+    if datetime.time(9, 0) <= now_ist.time() <= datetime.time(9, 15):
+        if not last_scan_ist or last_scan_ist.date() != now_ist.date():
+            logger.info("Triggering morning baseline scan (9:00 AM - 9:15 AM window).")
+            should_run = True
+
+    # 3. 30-MINUTE INTERVAL CHECK: During market hours, check if last scan is older than 30 mins
+    if not should_run and market_engine.is_market_hours():
+        if last_scan_ist:
+            mins_since_last = (now_ist - last_scan_ist).total_seconds() / 60.0
+            if mins_since_last > 30:
+                logger.info(f"Triggering interval scan. Last scan was {mins_since_last:.1f} mins ago.")
+                should_run = True
+        else:
+            logger.info("Triggering initial interval scan (no previous scan found).")
+            should_run = True
+
+    if should_run:
+        background_tasks.add_task(_run_automated_background_scan)
+
     return JSONResponse(content=sanitize_for_json(market_engine.status()))
 
 

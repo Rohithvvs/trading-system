@@ -149,11 +149,14 @@ class MarketEngineService:
     def _on_tick(self, symbol: str, price: float) -> None:
         normalized = symbol.replace("NSE:", "").upper()
         self.latest_ltp[normalized] = price
-        with SessionLocal() as db:
-            self._process_symbol(db, normalized, price)
-            session = self._get_or_create_session(db)
-            session.last_tick_at = datetime.utcnow()
-            db.commit()
+        try:
+            with SessionLocal() as db:
+                self._process_symbol(db, normalized, price)
+                session = self._get_or_create_session(db)
+                session.last_tick_at = datetime.utcnow()
+                db.commit()
+        except Exception as e:
+            self.logger.error("Tick processing error for %s: %s", normalized, e)
 
     def _process_symbol(self, db, symbol: str, price: float) -> None:
         service = PaperTradingService(db)

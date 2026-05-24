@@ -14,7 +14,7 @@ if str(repo_root) not in sys.path:
 
 try:
 	# Preferred import when running from the repository root:
-	from backend.app.main import app
+	pass
 except Exception:
 	# Backwards-compatible fallback when running `uvicorn main:app` from inside `backend/`:
-	from app.main import app
+	pass

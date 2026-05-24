@@ -46,7 +46,7 @@ def test_screener_results_are_stable_across_repeated_runs(monkeypatch):
     monkeypatch.setattr(
         service,
         "_process_symbol_safe",
-        lambda symbol, lookback_window, stage_name: _screen_result(symbol, scores[symbol]),
+        lambda symbol, lookback_window, stage_name, *args, **kwargs: _screen_result(symbol, scores[symbol]),
     )
 
     first = [item.symbol for item in service.screen_symbols_swing(list(scores), 260, "test")]
@@ -63,7 +63,7 @@ def test_screener_ignores_future_completion_order(monkeypatch):
     monkeypatch.setattr(
         service,
         "_process_symbol_safe",
-        lambda symbol, lookback_window, stage_name: _screen_result(symbol, scores[symbol]),
+        lambda symbol, lookback_window, stage_name, *args, **kwargs: _screen_result(symbol, scores[symbol]),
     )
     monkeypatch.setattr(
         "backend.app.services.screener_service.as_completed",

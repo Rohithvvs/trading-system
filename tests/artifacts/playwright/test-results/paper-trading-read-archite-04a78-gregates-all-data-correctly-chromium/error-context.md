@@ -12,17 +12,22 @@
 # Error details
 
 ```
-Error: expect(received).toHaveProperty(path)
+Error: expect(received).toBeTruthy()
 
-Expected path: "workspace"
-Received path: []
-
-Received value: {"account": {"account_id": 1, "account_name": "Primary Paper Account", "available_cash": 1000000, "balance": 1000000, "base_currency": "INR", "equity": 1000000, "max_risk_per_trade": 0.02, "open_orders_count": 1, "open_positions_count": 0, "realized_pnl": 0, "reserved_cash": 0, "starting_balance": 1000000, "total_invested": 0, "unrealized_pnl": 0, "updated_at": "2026-05-19T04:05:54.791597Z"}, "open_orders": [{"created_at": "2026-05-19T04:05:54.439539", "filled_at": null, "filled_price": null, "id": 1, "is_price_stale": true, "last_evaluated_at": "2026-05-19T04:05:54.717487", "last_seen_ltp": 0, "lifecycle_state": "PENDING_ENTRY", "monitor_enabled": true, "notes": "dashboard test buy", "paused_reason": null, "price": 0, "price_fetched_at": "2026-05-19T04:05:54.788943Z", "price_source": "NO_DATA", "product_type": "CNC", "qty": 3, "requested_entry_price": 0, "side": "BUY", "source_confidence": null, "source_score": null, "source_signal": null, "status": "PENDING", "stop_loss": null, "stop_price": null, "symbol": "INFY-EQ", "target": null, "type": "MARKET"}], "order_history": [{"created_at": "2026-05-19T04:05:54.439539", "filled_at": null, "filled_price": null, "id": 1, "is_price_stale": true, "last_evaluated_at": "2026-05-19T04:05:54.717487", "last_seen_ltp": 0, "lifecycle_state": "PENDING_ENTRY", "monitor_enabled": true, "notes": "dashboard test buy", "paused_reason": null, "price": 0, "price_fetched_at": "2026-05-19T04:05:54.788943Z", "price_source": "NO_DATA", "product_type": "CNC", "qty": 3, "requested_entry_price": 0, "side": "BUY", "source_confidence": null, "source_score": null, "source_signal": null, "status": "PENDING", "stop_loss": null, "stop_price": null, "symbol": "INFY-EQ", "target": null, "type": "MARKET"}], "positions": [], "selected_workspace": {"candles": [], "current_price": 0, "ema_20": null, "is_price_stale": true, "price_fetched_at": "2026-05-19T04:05:54.788943Z", "price_source": "NO_DATA", "source_confidence": null, "source_score": null, "source_signal": null, "supertrend": null, "symbol": "INFY-EQ"}, "symbols": ["360ONE-EQ", "3MINDIA-EQ", "ABB-EQ", "ACC-EQ", "ACMESOLAR-EQ", "AIAENG-EQ", "APLAPOLLO-EQ", "ASKAUTOLTD-EQ", "AUBANK-EQ", "AWL-EQ", …], "trades": []}
+Received: false
 ```
 
 # Test source
 
 ```ts
+  123 |     await page.getByTestId("paper-tab-history").click();
+  124 |     await page.waitForTimeout(500);
+  125 |     const historyRows = await page.locator('[data-testid="history-row"]').count();
+  126 |     expect(historyRows).toBeGreaterThanOrEqual(2); // At least BUY and SELL
+  127 | 
+  128 |     // 3. Verify via DB that trade history contains both trades
+  129 |     const dbHistory = await tableDump(request, "paper_trading_orders");
+  130 |     const buyTrade = dbHistory.rows.find((r: any) => r.symbol === "INFY-EQ" && r.side === "BUY");
   131 |     const sellTrade = dbHistory.rows.find((r: any) => r.symbol === "INFY-EQ" && r.side === "SELL");
   132 |     expect(buyTrade).toBeDefined();
   133 |     expect(sellTrade).toBeDefined();
@@ -115,7 +120,8 @@ Received value: {"account": {"account_id": 1, "account_name": "Primary Paper Acc
   220 |         notes: "dashboard test buy",
   221 |       },
   222 |     });
-  223 |     expect(orderRes.ok()).toBeTruthy();
+> 223 |     expect(orderRes.ok()).toBeTruthy();
+      |                           ^ Error: expect(received).toBeTruthy()
   224 | 
   225 |     // Fetch the full dashboard
   226 |     const dashRes = await request.get(`${apiBaseURL}/paper-trading/dashboard`);
@@ -123,10 +129,9 @@ Received value: {"account": {"account_id": 1, "account_name": "Primary Paper Acc
   228 |     const dashboard = await dashRes.json();
   229 | 
   230 |     // Verify dashboard has all required sections
-> 231 |     expect(dashboard).toHaveProperty("workspace");
-      |                       ^ Error: expect(received).toHaveProperty(path)
+  231 |     expect(dashboard).toHaveProperty("selected_workspace");
   232 |     expect(dashboard).toHaveProperty("positions");
-  233 |     expect(dashboard).toHaveProperty("pending_orders");
+  233 |     expect(dashboard).toHaveProperty("open_orders");
   234 |     expect(dashboard).toHaveProperty("order_history");
   235 |     expect(dashboard).toHaveProperty("trades");
   236 | 

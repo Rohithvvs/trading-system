@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from .analysis import OHLCVPoint
 
+
+class FyersTickPayload(BaseModel):
+    symbol: str = Field(alias="s")
+    ltp: float = Field(alias="lp")
+
+    @field_validator("symbol", mode="before")
+    def _extract_symbol(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            raise ValueError("symbol must be a string")
+        return v.replace("NSE:", "").strip()
+
+    @field_validator("ltp", mode="before")
+    def _parse_ltp(cls, v: Any) -> float:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            raise ValueError("ltp must be castable to float")
 
 class PaperAccountSummary(BaseModel):
     account_id: int
@@ -44,7 +61,7 @@ class PaperPositionResponse(BaseModel):
     source_signal: str | None = None
     source_score: float | None = None
     source_confidence: float | None = None
-    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"] | None = None
+    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"] | None = None
     price_fetched_at: datetime | None = None
     is_price_stale: bool = False
     created_at: datetime
@@ -81,7 +98,7 @@ class PaperOrderResponse(BaseModel):
     source_confidence: float | None = None
     last_evaluated_at: datetime | None = None
     last_seen_ltp: float | None = None
-    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"] | None = None
+    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"] | None = None
     price_fetched_at: datetime | None = None
     is_price_stale: bool = False
     created_at: datetime
@@ -118,7 +135,7 @@ class PaperWorkspaceSnapshot(BaseModel):
     source_signal: str | None = None
     source_score: float | None = None
     source_confidence: float | None = None
-    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"] | None = None
+    price_source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"] | None = None
     price_fetched_at: datetime | None = None
     is_price_stale: bool = False
 
@@ -126,7 +143,7 @@ class PaperWorkspaceSnapshot(BaseModel):
 class PaperQuoteResponse(BaseModel):
     symbol: str
     current_price: float
-    source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA"]
+    source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"]
     updated_at: datetime
 
 

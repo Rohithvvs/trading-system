@@ -228,9 +228,9 @@ test.describe("Paper Trading Read Architecture", () => {
     const dashboard = await dashRes.json();
 
     // Verify dashboard has all required sections
-    expect(dashboard).toHaveProperty("workspace");
+    expect(dashboard).toHaveProperty("selected_workspace");
     expect(dashboard).toHaveProperty("positions");
-    expect(dashboard).toHaveProperty("pending_orders");
+    expect(dashboard).toHaveProperty("open_orders");
     expect(dashboard).toHaveProperty("order_history");
     expect(dashboard).toHaveProperty("trades");
 

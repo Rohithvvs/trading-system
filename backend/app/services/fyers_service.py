@@ -17,22 +17,18 @@ from ..core.log_manager import fyers_logger
 # FYERS-specific exceptions for clearer error handling
 class FyersAuthExpiredError(Exception):
     """Raised when the Fyers access token has expired."""
-    pass
 
 
 class FyersAuthInvalidError(Exception):
     """Raised when the Fyers access token is wrong/invalid."""
-    pass
 
 
 class FyersRateLimitError(Exception):
     """Raised when Fyers API rate limit is hit."""
-    pass
 
 
 class FyersAPIError(Exception):
     """Generic Fyers API error with message."""
-    pass
 
 
 def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
@@ -356,7 +352,7 @@ class FyersService:
         lookback_window: int,
         points: int,
     ) -> list[OHLCVPoint]:
-        from .ohlcv_store import (
+        from .candle_store import (
             get_candle_count,
             get_last_stored_date,
             init_db,
@@ -695,3 +691,89 @@ class FyersService:
             return float(value) if value not in (None, "") else None
         except (TypeError, ValueError):
             return None
+
+    def fetch_incremental_ohlcv(self, symbol: str, cached_candles: list[OHLCVPoint]) -> list[OHLCVPoint]:
+        """
+        Fetch only the latest missing daily candles from FYERS API.
+        If cache is empty or too stale (stale > 5 days), do a full history backfill.
+        """
+        try:
+            from . import candle_store
+        except Exception:
+            return self.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
+
+        if not cached_candles:
+            return self.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
+
+        # Find the latest stored date in the cache
+        last_cached_dt = max(p.timestamp.date() for p in cached_candles)
+        today_dt = date.today()
+
+        if last_cached_dt >= today_dt:
+            return []
+
+        days_diff = (today_dt - last_cached_dt).days
+        if days_diff > 5:
+            return self.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
+
+        self.logger.info("INCREMENTAL FETCH | symbol=%s | last_cached=%s | fetching today's single live candle", symbol, last_cached_dt)
+        try:
+            client = self._client()
+            today_str = today_dt.isoformat()
+            payload = {
+                "symbol": self._normalize_symbol(symbol),
+                "resolution": "1D",
+                "date_format": "1",
+                "range_from": today_str,
+                "range_to": today_str,
+                "cont_flag": "1",
+            }
+            response = client.history(data=payload)
+            _check_fyers_response(response, symbol)
+            candle_rows = response.get("candles", []) if isinstance(response, dict) else []
+            
+            fetched: list[OHLCVPoint] = []
+            for row in candle_rows:
+                if len(row) < 6:
+                    continue
+                fetched.append(
+                    OHLCVPoint(
+                        timestamp=self._parse_timestamp(row[0]),
+                        open=float(row[1]),
+                        high=float(row[2]),
+                        low=float(row[3]),
+                        close=float(row[4]),
+                        volume=int(row[5]),
+                    )
+                )
+            
+            if fetched:
+                clean_symbol = self._cache_symbol(symbol)
+                import pandas as pd
+                rows = [
+                    {
+                        "date": p.timestamp.date().isoformat(),
+                        "open": float(p.open),
+                        "high": float(p.high),
+                        "low": float(p.low),
+                        "close": float(p.close),
+                        "volume": int(p.volume),
+                    }
+                    for p in fetched
+                ]
+                df = pd.DataFrame(rows)
+                candle_store.store_candles(clean_symbol, df)
+                self.logger.info("INCREMENTAL CACHE STORED | symbol=%s | rows=%s", symbol, len(df))
+            return fetched
+        except Exception as exc:
+            self.logger.warning("Failed to fetch/store incremental today candle | symbol=%s | error=%s", symbol, exc)
+            return []
+
+    def combine_candles(self, cached: list[OHLCVPoint], new_candles: list[OHLCVPoint]) -> list[OHLCVPoint]:
+        """Combine and deduplicate cached and new candles by timestamp date."""
+        combined_map = {c.timestamp.date(): c for c in cached}
+        for c in new_candles:
+            combined_map[c.timestamp.date()] = c
+        sorted_dates = sorted(combined_map.keys())
+        return [combined_map[d] for d in sorted_dates]
+

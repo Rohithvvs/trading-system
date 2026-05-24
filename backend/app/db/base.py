@@ -8,5 +8,3 @@ class Base(DeclarativeBase):
 # This keeps table metadata available for tools that import db.base
 # (note: importing models here is intentional to ensure tables are
 # registered; avoid circular-work by keeping only imports).
-from ..models.fyers_token import FyersToken
-from ..models.fyers_token_history import FyersTokenHistory

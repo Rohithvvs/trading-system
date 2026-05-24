@@ -36,8 +36,11 @@ def configure_logging() -> None:
 
     root_logger.addHandler(stream_handler)
 
+    from logging.handlers import RotatingFileHandler
+
     try:
-        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        # Use a RotatingFileHandler to cap log sizes and retain history (e.g. 10 MB per file, max 5 backups)
+        file_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
     except OSError as exc:
         root_logger.warning("File logging disabled | path=%s | error=%s", LOG_FILE, exc)
         return

@@ -6,7 +6,6 @@ import pytest
 
 import backend.app.routes.analysis as analysis_routes
 from backend.app.schemas.analysis import (
-    AnalysisResponse,
     FullAnalysisResponse,
     RankingsResponse,
     ScreenerConditionResult,

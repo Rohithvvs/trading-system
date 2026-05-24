@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.app.config import settings
-from backend.app.services.ohlcv_store import get_candle_count, init_db, save_candles, update_ltp
+from backend.app.services.candle_store import get_candle_count, init_db, save_candles, update_ltp
 
 
 CSV_PATH = Path(r"F:\trading system01\trading system\ind_nifty500list.csv")

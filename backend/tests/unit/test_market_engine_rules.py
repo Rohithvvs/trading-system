@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from backend.app.models.paper_trading import ExecutionEvent, MarketEngineSession, PaperNotification, PaperOrder, PaperPosition
+from backend.app.models.paper_trading import ExecutionEvent, PaperNotification, PaperOrder, PaperPosition
 from backend.app.services.market_engine_service import MarketEngineService
 from backend.app.services.paper_trading_service import PaperTradingService
 import backend.app.services.paper_trading_service as paper_service
@@ -59,7 +59,7 @@ def test_limit_buy_remains_pending_until_threshold(db_session, engine):
 
 @pytest.mark.unit
 def test_duplicate_target_ticks_create_one_sell_and_one_exit_event(db_session, engine):
-    order = make_pending_order(db_session)
+    make_pending_order(db_session)
     engine._process_symbol(db_session, "INFY-EQ", 95.0)
     db_session.commit()
     position = db_session.scalar(select(PaperPosition).where(PaperPosition.symbol == "INFY-EQ"))
@@ -117,7 +117,7 @@ def test_market_closed_sets_waiting_without_crashing(db_session, monkeypatch):
 
 @pytest.mark.unit
 def test_symbol_subscriptions_follow_active_state(db_session, engine):
-    order = make_pending_order(db_session)
+    make_pending_order(db_session)
     session = engine._get_or_create_session(db_session)
     session.status = "STARTING"
     engine._reconcile_session(db_session, session)

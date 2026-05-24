@@ -56,8 +56,8 @@ export function DashboardHeader({
         <div className="header-meta">
           <StatusPill label="Market" value={marketStatus} tone={marketStatus === "Open" ? "positive" : "neutral"} />
           <StatusPill
-            label="Last scan"
-            value={lastScanLabel ?? (lastScanAt ? new Date(lastScanAt).toLocaleString() : "Not run yet")}
+            label="Last Updated"
+            value={lastScanLabel ?? (lastScanAt ? new Date(lastScanAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Not run yet")}
             tone="neutral"
           />
         </div>

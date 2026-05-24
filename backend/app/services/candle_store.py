@@ -93,7 +93,6 @@ def store_candles(symbol: str, df: pd.DataFrame):
     if df is None or df.empty:
         return
 
-    from datetime import timezone as _tz
     fetched_at = datetime.now(timezone.utc).isoformat()
 
     rows = [
@@ -287,3 +286,30 @@ def get_all_cached_symbols() -> list[str]:
             "SELECT DISTINCT symbol FROM candles"
         ).fetchall()
     return [row[0] for row in rows]
+
+
+def load_all_cached_candles(symbols: list[str]) -> dict[str, pd.DataFrame]:
+    """Execute a single SQLite query using WHERE symbol IN (...) to load all historical candles at once."""
+    if not symbols:
+        return {}
+    placeholders = ",".join("?" for _ in symbols)
+    query = f"SELECT symbol, date, open, high, low, close, volume FROM candles WHERE symbol IN ({placeholders}) ORDER BY date ASC"
+    
+    data = {symbol: [] for symbol in symbols}
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(query, symbols)
+        for row in cursor:
+            data[row["symbol"]].append({
+                "date": row["date"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "volume": int(row["volume"]),
+            })
+            
+    return {
+        symbol: pd.DataFrame(rows) if rows else pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+        for symbol, rows in data.items()
+    }

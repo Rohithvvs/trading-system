@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import csv
-import os
-from dataclasses import dataclass, field
 from pathlib import Path
+from functools import cached_property
 
-from dotenv import load_dotenv
-
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-load_dotenv(ROOT_DIR / ".env")
-
 
 def normalize_database_url(raw_value: str) -> str:
     value = raw_value.strip()
@@ -22,94 +19,70 @@ def normalize_database_url(raw_value: str) -> str:
         return f"sqlite:///./{value}"
     return value
 
-
-@dataclass(slots=True)
-class Settings:
-    app_name: str = os.getenv("APP_NAME", "Trading System")
-    app_env: str = os.getenv("APP_ENV", "development")
-    app_host: str = os.getenv("APP_HOST", "127.0.0.1")
-    app_port: int = int(os.getenv("APP_PORT", "8000"))
-    database_url: str = normalize_database_url(
-        os.getenv("DATABASE_URL", "sqlite:///./trading_system.db")
-    )
-    cors_origins_raw: str = os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
-    )
-    fyers_app_id: str = os.getenv("FYERS_APP_ID", "")
-    fyers_access_token: str = os.getenv("FYERS_ACCESS_TOKEN", "")
-    fyers_secret_id: str = os.getenv("FYERS_SECRET_ID", "")
-    fyers_pin: str = os.getenv("FYERS_PIN", "")
-    fyers_redirect_uri: str = os.getenv("FYERS_REDIRECT_URI", "")
-    mongo_url: str = os.getenv("MONGO_URL", "")
-    mongo_db_name: str = os.getenv("MONGO_DB_NAME", "")
-    nifty500_csv_path: str = os.getenv("NIFTY500_CSV_PATH", "ind_nifty500list.csv")
-    nifty500_symbols_raw: str = os.getenv("NIFTY500_SYMBOLS", "")
-    nifty_next_500_symbols_raw: str = os.getenv("NIFTY_NEXT_500_SYMBOLS", "")
-    universe_symbols_raw: str = os.getenv("UNIVERSE_SYMBOLS", os.getenv("NIFTY1000_SYMBOLS", ""))
-    bse500_symbols_raw: str = os.getenv("BSE500_SYMBOLS", "")
-    bse1000_symbols_raw: str = os.getenv("BSE1000_SYMBOLS", "")
-    fyers_screener_symbols_raw: str = os.getenv(
-        "FYERS_SCREENER_SYMBOLS",
-        (
+class Settings(BaseSettings):
+    app_name: str = "Trading System"
+    app_env: str = "development"
+    app_host: str = "127.0.0.1"
+    app_port: int = 8000
+    database_url: str = "sqlite:///./trading_system.db"
+    cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
+    
+    fyers_app_id: str = ""
+    fyers_access_token: str = ""
+    fyers_secret_id: str = ""
+    fyers_pin: str = ""
+    fyers_redirect_uri: str = ""
+    mongo_url: str = ""
+    mongo_db_name: str = ""
+    nifty500_csv_path: str = "ind_nifty500list.csv"
+    nifty500_symbols_raw: str = Field(default="", alias="NIFTY500_SYMBOLS")
+    nifty_next_500_symbols_raw: str = Field(default="", alias="NIFTY_NEXT_500_SYMBOLS")
+    nifty1000_symbols_raw: str = Field(default="", alias="NIFTY1000_SYMBOLS")
+    universe_symbols_raw: str = Field(default="", alias="UNIVERSE_SYMBOLS")
+    bse500_symbols_raw: str = Field(default="", alias="BSE500_SYMBOLS")
+    bse1000_symbols_raw: str = Field(default="", alias="BSE1000_SYMBOLS")
+    fyers_screener_symbols_raw: str = Field(
+        default=(
             "RELIANCE-EQ,INFY-EQ,TCS-EQ,HDFCBANK-EQ,ICICIBANK-EQ,SBIN-EQ,LT-EQ,ITC-EQ,"
             "AXISBANK-EQ,BAJFINANCE-EQ,HINDUNILVR-EQ,KOTAKBANK-EQ,ASIANPAINT-EQ,"
             "MARUTI-EQ,TITAN-EQ,ADANIPORTS-EQ,POWERGRID-EQ,ULTRACEMCO-EQ,NTPC-EQ,"
             "TATAMOTORS-EQ,TATASTEEL-EQ,M&M-EQ,SUNPHARMA-EQ,HCLTECH-EQ,WIPRO-EQ"
         ),
+        alias="FYERS_SCREENER_SYMBOLS"
     )
-    news_provider: str = os.getenv("NEWS_PROVIDER", "marketaux")
-    news_api_key: str = os.getenv("NEWS_API_KEY", "")
-    news_base_url: str = os.getenv("NEWS_BASE_URL", "https://api.marketaux.com/v1/news/all")
-    llm_provider: str = os.getenv("LLM_PROVIDER", "groq")
-    llm_api_key: str = os.getenv("GROQ_API_KEY", "")
-    llm_model: str = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
-    advisory_disclaimer: str = os.getenv(
-        "ADVISORY_DISCLAIMER",
-        "Advisory only. This system does not place live trades and is not financial advice.",
-    )
-    cors_origins: list[str] = field(init=False)
-    fyers_screener_symbols: list[str] = field(init=False)
-    nifty500_symbols: list[str] = field(init=False)
-    nifty_next_500_symbols: list[str] = field(init=False)
-    bse500_symbols: list[str] = field(init=False)
-    bse1000_symbols: list[str] = field(init=False)
-    universe_symbols: list[str] = field(init=False)
+    news_provider: str = "marketaux"
+    news_api_key: str = ""
+    news_base_url: str = "https://api.marketaux.com/v1/news/all"
+    llm_provider: str = "groq"
+    llm_api_key: str = Field(default="", alias="GROQ_API_KEY")
+    llm_model: str = "LLAMA_3_70B"
+    advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
-    def __post_init__(self) -> None:
-        self.cors_origins = [origin.strip() for origin in self.cors_origins_raw.split(",") if origin.strip()]
-        self.fyers_screener_symbols = [
+    model_config = SettingsConfigDict(
+        env_file=str(ROOT_DIR / ".env"),
+        env_file_encoding='utf-8',
+        extra="ignore",
+        populate_by_name=True
+    )
+
+    @field_validator("database_url", mode="before")
+    def _validate_db_url(cls, v):
+        if v:
+            return normalize_database_url(v)
+        return "sqlite:///./trading_system.db"
+
+    @cached_property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins_raw.split(",") if origin.strip()]
+
+    @cached_property
+    def fyers_screener_symbols(self) -> list[str]:
+        return [
             symbol.strip().upper() for symbol in self.fyers_screener_symbols_raw.split(",") if symbol.strip()
         ]
-        self.nifty500_symbols = self._load_nifty500_symbols()
-        nifty_next_source = self.nifty_next_500_symbols_raw or self._difference(
-            self.universe_symbols_raw,
-            ",".join(self.nifty500_symbols),
-        )
-        self.nifty_next_500_symbols = [
-            symbol.strip().upper() for symbol in nifty_next_source.split(",") if symbol.strip()
-        ]
-        self.bse500_symbols = [
-            symbol.strip().upper() for symbol in self.bse500_symbols_raw.split(",") if symbol.strip()
-        ]
-        self.bse1000_symbols = [
-            symbol.strip().upper() for symbol in self.bse1000_symbols_raw.split(",") if symbol.strip()
-        ]
-        if self.universe_symbols_raw:
-            self.universe_symbols = [
-                symbol.strip().upper() for symbol in self.universe_symbols_raw.split(",") if symbol.strip()
-            ]
-        else:
-            self.universe_symbols = list(self.nifty500_symbols)
 
-    def _difference(self, larger: str, smaller: str) -> str:
-        larger_symbols = [symbol.strip().upper() for symbol in larger.split(",") if symbol.strip()]
-        smaller_keys = {
-            symbol.strip().upper() for symbol in smaller.split(",") if symbol.strip()
-        }
-        return ",".join(symbol for symbol in larger_symbols if symbol not in smaller_keys)
-
-    def _load_nifty500_symbols(self) -> list[str]:
+    @cached_property
+    def nifty500_symbols(self) -> list[str]:
         csv_symbols = self._load_nifty500_symbols_from_csv()
         if csv_symbols:
             return csv_symbols
@@ -118,6 +91,45 @@ class Settings:
                 symbol.strip().upper() for symbol in self.nifty500_symbols_raw.split(",") if symbol.strip()
             ]
         return list(self.fyers_screener_symbols)
+
+    @cached_property
+    def universe_symbols(self) -> list[str]:
+        actual_universe_raw = self.universe_symbols_raw or self.nifty1000_symbols_raw
+        if actual_universe_raw:
+            return [
+                symbol.strip().upper() for symbol in actual_universe_raw.split(",") if symbol.strip()
+            ]
+        return list(self.nifty500_symbols)
+
+    @cached_property
+    def nifty_next_500_symbols(self) -> list[str]:
+        actual_universe_raw = self.universe_symbols_raw or self.nifty1000_symbols_raw
+        nifty_next_source = self.nifty_next_500_symbols_raw or self._difference(
+            actual_universe_raw,
+            ",".join(self.nifty500_symbols),
+        )
+        return [
+            symbol.strip().upper() for symbol in nifty_next_source.split(",") if symbol.strip()
+        ]
+
+    @cached_property
+    def bse500_symbols(self) -> list[str]:
+        return [
+            symbol.strip().upper() for symbol in self.bse500_symbols_raw.split(",") if symbol.strip()
+        ]
+
+    @cached_property
+    def bse1000_symbols(self) -> list[str]:
+        return [
+            symbol.strip().upper() for symbol in self.bse1000_symbols_raw.split(",") if symbol.strip()
+        ]
+
+    def _difference(self, larger: str, smaller: str) -> str:
+        larger_symbols = [symbol.strip().upper() for symbol in larger.split(",") if symbol.strip()]
+        smaller_keys = {
+            symbol.strip().upper() for symbol in smaller.split(",") if symbol.strip()
+        }
+        return ",".join(symbol for symbol in larger_symbols if symbol not in smaller_keys)
 
     def _load_nifty500_symbols_from_csv(self) -> list[str]:
         csv_path = Path(self.nifty500_csv_path)
@@ -137,6 +149,5 @@ class Settings:
                 combined = f"{symbol}-{series}" if series else symbol
                 symbols.append(combined)
         return list(dict.fromkeys(symbols))
-
 
 settings = Settings()

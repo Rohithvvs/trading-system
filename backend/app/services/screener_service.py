@@ -7,13 +7,13 @@ import os
 import threading
 import time
 
-from ..config import settings
 from ..schemas import AnalysisMode, OHLCVPoint, ScreenerConditionResult
 from ..utils import get_logger
-from .fyers_service import FyersService, FyersRateLimitError
+from .fyers_service import FyersService, FyersRateLimitError, FyersAuthExpiredError, FyersAuthInvalidError
 from .technical_analysis_service import TechnicalAnalysisService
 from ..core.log_manager import scanner_logger
 from datetime import datetime
+from . import candle_store
 
 MINIMUM_SWING_CANDLES = 220
 
@@ -40,17 +40,15 @@ class TokenBucketRateLimiter:
         time.sleep(1.0 / self.capacity)
         self.acquire()
 
-
 _rate_limiter = TokenBucketRateLimiter(calls_per_second=5.0)
 
-
 class ScreenerService:
-    def __init__(self, fyers_service: FyersService | None = None) -> None:
+    def __init__(self, fyers_service=None):
         self.fyers_service = fyers_service or FyersService()
         self.technical_service = TechnicalAnalysisService()
         self.logger = get_logger("app.screener")
 
-    def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str) -> ScreenerConditionResult:
+    def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint] = None) -> ScreenerConditionResult:
         """Process a single symbol and return a ScreenerConditionResult.
         This contains the original symbol-level logic extracted from the
         sequential loop. Do NOT change the internal logic here when
@@ -58,14 +56,17 @@ class ScreenerService:
         """
         # Begin symbol scanning
         self.logger.info("STEP 1/8 | Begin symbol screening | stage=%s | symbol=%s", stage_name, symbol)
-        candles = self.fyers_service.get_candles_cached(
-            symbol=symbol,
-            mode=AnalysisMode.swing,
-            resolution="1d",
-            lookback_window=max(lookback_window, 260),
-            allow_mock=False,
-        )
+        if candles is None:
+            candles = self.fyers_service.get_candles_cached(
+                symbol=symbol,
+                mode=AnalysisMode.swing,
+                resolution="1d",
+                lookback_window=max(lookback_window, 260),
+                allow_mock=False,
+            )
         candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1d")
+        if not candle_source or candle_source == "unknown":
+            candle_source = "CANDLE_CACHE_DB"
         minimum_swing_candles_met = len(candles) >= MINIMUM_SWING_CANDLES
         self.logger.info(
             "CANDLE CHECK | symbol=%s | candles=%s | minimum_required=%s | met=%s",
@@ -259,23 +260,26 @@ class ScreenerService:
 
         return result
 
-    def _process_symbol_safe(self, symbol: str, lookback_window: int, stage_name: str) -> ScreenerConditionResult:
+    def _process_symbol_safe(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint] = None) -> ScreenerConditionResult:
         """Wrapper that rate-limits and retries on Fyers rate-limit errors."""
         max_retries = 3
         backoff = 2.0
         for attempt in range(max_retries):
             try:
                 _rate_limiter.acquire()
-                return self._process_single_symbol(symbol, lookback_window, stage_name)
+                return self._process_single_symbol(symbol, lookback_window, stage_name, candles)
             except FyersRateLimitError:
                 wait = backoff ** attempt
                 self.logger.warning(
-                    "RATE LIMIT symbol=%s attempt=%s waiting=%.1fs",
+                    "RATE LIMIT | symbol=%s | attempt=%s | waiting=%.1fs",
                     symbol,
                     attempt + 1,
                     wait,
                 )
                 time.sleep(wait)
+            except (FyersAuthExpiredError, FyersAuthInvalidError) as auth_err:
+                self.logger.error("AUTH ERROR | symbol=%s | error=%s", symbol, auth_err)
+                raise  # Re-raise to abort the entire scan for this user
             except Exception as e:
                 self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)
                 # Return a minimal failed ScreenerConditionResult
@@ -350,12 +354,39 @@ class ScreenerService:
             lookback_window,
         )
 
-        # Parallel execution with bounded workers and per-symbol retries
+        # Batch-load all cached daily candles from local database
+        clean_symbols = [self.fyers_service._cache_symbol(symbol) for symbol in symbols]
+        cached_dfs = candle_store.load_all_cached_candles(clean_symbols)
+
+        precombined_datasets: dict[str, list[OHLCVPoint]] = {}
+        for symbol in symbols:
+            clean = self.fyers_service._cache_symbol(symbol)
+            df = cached_dfs.get(clean)
+            cached_candles: list[OHLCVPoint] = []
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    cached_candles.append(
+                        OHLCVPoint(
+                            timestamp=self.fyers_service._parse_timestamp(row["date"]),
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=int(row["volume"]),
+                        )
+                    )
+            
+            # Fetch latest missing data incrementally using memory helper
+            new_candles = self.fyers_service.fetch_incremental_ohlcv(symbol, cached_candles)
+            combined = self.fyers_service.combine_candles(cached_candles, new_candles)
+            precombined_datasets[symbol] = combined
+
+        # Parallel execution with bounded workers and per-symbol retries using precombined memory data
         MAX_WORKERS = 6
         futures_map = {}
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures_map = {
-                executor.submit(self._process_symbol_safe, symbol, lookback_window, stage_name): symbol
+                executor.submit(self._process_symbol_safe, symbol, lookback_window, stage_name, precombined_datasets[symbol]): symbol
                 for symbol in symbols
             }
 
@@ -365,6 +396,13 @@ class ScreenerService:
                     result = future.result(timeout=60)
                     results.append(result)
                     self.logger.info("COMPLETED symbol=%s", symbol)
+                except (FyersAuthExpiredError, FyersAuthInvalidError) as auth_err:
+                    self.logger.error("AUTH ERROR CAUGHT IN WORKER POOL | aborting remaining futures. Error: %s", auth_err)
+                    # Cancel all remaining futures in the executor
+                    for f in futures_map:
+                        f.cancel()
+                    # Break out and raise so the celery task knows this user's scan failed
+                    raise
                 except Exception as e:
                     self.logger.error("FUTURE ERROR symbol=%s error=%s", symbol, e)
                     # Append a minimal error result to keep lengths consistent
@@ -426,7 +464,7 @@ class ScreenerService:
         if condition_failure_counts:
             self.logger.info(
                 "STEP 4/8 | Condition failure summary | %s",
-                ", ".join(f"%s=%s" % item for item in condition_failure_counts.items()),
+                ", ".join("%s=%s" % item for item in condition_failure_counts.items()),
             )
         results.sort(key=lambda item: (-item.screener_score, item.symbol))
         return results

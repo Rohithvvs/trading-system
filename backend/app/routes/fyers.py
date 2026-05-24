@@ -21,7 +21,7 @@ def save_fyers_token(payload: FyersTokenCreate, db: Session = Depends(get_db)):
     try:
         # Deactivate existing tokens
         try:
-            db.query(FyersToken).filter(FyersToken.is_active == True).update({"is_active": False, "status": "inactive"})
+            db.query(FyersToken).filter(FyersToken.is_active).update({"is_active": False, "status": "inactive"})
             db.commit()
         except Exception:
             db.rollback()
@@ -73,7 +73,7 @@ def save_fyers_token(payload: FyersTokenCreate, db: Session = Depends(get_db)):
 @router.get("/token/status")
 def fyers_token_status(db: Session = Depends(get_db)):
     try:
-        row = db.query(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()).first()
+        row = db.query(FyersToken).filter(FyersToken.is_active).order_by(FyersToken.created_at.desc()).first()
         if not row:
             return JSONResponse(content={"has_token": False, "created_at": None, "expires_at": None, "is_active": False})
         return JSONResponse(

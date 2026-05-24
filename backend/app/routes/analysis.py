@@ -24,12 +24,10 @@ from ..services.fyers_service import (
     FyersAuthInvalidError,
     FyersRateLimitError,
     FyersAPIError,
+    FyersService,
 )
 
-from ..services.technical_analysis_service import TechnicalAnalysisService
 from ..services.market_info_service import MarketInfoService
-from ..services.news_service import NewsService
-from ..services.backtest_service import BacktestService
 from ..services.workstation_service import WorkstationService
 
 

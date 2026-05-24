@@ -70,11 +70,11 @@ class WorkstationService:
         return self._scan_item(row)
 
     def list_saved_scans(self) -> list[SavedScanItem]:
-        rows = self.db.scalars(select(SavedScan).where(SavedScan.is_active == True).order_by(SavedScan.updated_at.desc())).all()
+        rows = self.db.scalars(select(SavedScan).where(SavedScan.is_active).order_by(SavedScan.updated_at.desc())).all()
         return [self._scan_item(row) for row in rows]
 
     def delete_saved_scan(self, scan_id: int) -> None:
-        row = self.db.get(SavedScan, scan_id)
+        row = self.db.scalar(select(SavedScan).where(SavedScan.id == scan_id))
         if row:
             row.is_active = False
             self.db.commit()

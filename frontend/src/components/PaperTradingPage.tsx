@@ -911,7 +911,7 @@ export function PaperTradingPage({
                 <AnalyticsPanel />
               )
             ) : null}
-            {listTab === "alerts" ? (
+            {((listTab as any) === "alerts") ? (
               <AlertsPanel onRefresh={() => void loadPositions(selectedSymbol)} />
             ) : null}
             {listTab === "account" ? (
@@ -1367,7 +1367,7 @@ function OrderTicketCard({
               Total estimated charges: ₹{(ticket.side === 'SELL' ? ((entryReference ?? 0) * ticket.qty * 0.001).toFixed(2) : '0.00')}
             </p>
             <p>
-              Estimated total {ticket.side === 'BUY' ? 'cost' : 'proceeds'}: ₹{ticket.side === 'BUY' ? ((entryReference ?? 0) * ticket.qty + (ticket.side === 'SELL' ? 0 : 0)).toFixed(2) : ((entryReference ?? 0) * ticket.qty - ((entryReference ?? 0) * ticket.qty * 0.001)).toFixed(2)}
+              Estimated total {ticket.side === 'BUY' ? 'cost' : 'proceeds'}: ₹{ticket.side === 'BUY' ? ((entryReference ?? 0) * ticket.qty + 0).toFixed(2) : ((entryReference ?? 0) * ticket.qty - ((entryReference ?? 0) * ticket.qty * 0.001)).toFixed(2)}
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="button" className="button ghost-button" onClick={() => setPreviewOpen(false)}>Cancel</button>
@@ -1501,7 +1501,7 @@ function OrdersTable({
 function formatLifecycle(state?: string | null, pausedReason?: string | null) {
   if (!state) return "--";
   if (pausedReason) return `${state} (${pausedReason})`;
-  return state.replaceAll("_", " ");
+  return state.replace(/_/g, " ");
 }
 
 function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
@@ -1848,10 +1848,9 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
         setAccount(resp.account);
         onAccountUpdate?.(resp.account);
       }
-      setStatusMessage("Starting capital updated.");
-      setTimeout(() => setStatusMessage(null), 3000);
+      console.info("Starting capital updated.");
     } catch (e: any) {
-      setError(String(e?.message ?? e));
+      console.error(String(e?.message ?? e));
     } finally {
       setSaving(false);
     }

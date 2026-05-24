@@ -12,10 +12,9 @@
 # Error details
 
 ```
-Error: expect(received).toBeGreaterThan(expected)
+Error: expect(received).toBeTruthy()
 
-Expected: > 0
-Received:   0
+Received: false
 ```
 
 # Page snapshot
@@ -33,7 +32,7 @@ Received:   0
         - heading "Cash-only execution simulator" [level=1] [ref=e15]
         - paragraph [ref=e16]: TradingView-style practice flow for Nifty 500 cash stocks, connected to your analysis and trade-plan outputs.
       - generic [ref=e17]:
-        - generic "INFY-EQ" [ref=e18]: "Engine: STOPPED | Feed: disconnected | Symbols: 1"
+        - generic "No active symbols" [ref=e18]: "Engine: STOPPED | Feed: disconnected | Symbols: 0"
         - button "Start Market Engine" [ref=e19] [cursor=pointer]
         - button "Stop Engine" [ref=e20] [cursor=pointer]
         - generic [ref=e21]:
@@ -121,38 +120,37 @@ Received:   0
           - generic [ref=e101]:
             - text: Market status
             - button "More information" [ref=e103]: ℹ️
-          - strong [ref=e104]: OPEN 🟢
+          - strong [ref=e104]: CLOSED 🔴
           - paragraph [ref=e105]: Based on IST clock
       - generic [ref=e106]:
         - button "Quick Buy" [ref=e107] [cursor=pointer]
         - button "Quick Sell" [ref=e108] [cursor=pointer]
-    - generic [ref=e111]: INFY-EQ limit buy waiting for entry at Rs 0.0.
-    - generic [ref=e112]:
-      - generic [ref=e114]:
-        - tablist "Paper trading data tabs" [ref=e115]:
-          - button "Positions" [ref=e116] [cursor=pointer]
-          - button "Open Orders" [ref=e117] [cursor=pointer]
-          - button "History" [ref=e118] [cursor=pointer]
-          - button "Analytics" [ref=e119] [cursor=pointer]
-          - button "Alerts" [ref=e120] [cursor=pointer]
-          - button "Account" [ref=e121] [cursor=pointer]
-        - generic [ref=e122]:
-          - button "Square Off ALL" [disabled] [ref=e123] [cursor=pointer]
-          - button "More information" [ref=e125]: ℹ️
-        - generic [ref=e126]: No open positions
-      - generic [ref=e127]:
-        - generic [ref=e128]:
-          - generic [ref=e129]:
-            - generic [ref=e130]:
-              - paragraph [ref=e131]: Order ticket
-              - heading "Place paper order" [level=2] [ref=e132]
-            - generic [ref=e133]: Cash only
-          - generic [ref=e134]:
-            - generic [ref=e135]:
-              - generic [ref=e136]:
+    - generic [ref=e109]:
+      - generic [ref=e111]:
+        - tablist "Paper trading data tabs" [ref=e112]:
+          - button "Positions" [ref=e113] [cursor=pointer]
+          - button "Open Orders" [ref=e114] [cursor=pointer]
+          - button "History" [ref=e115] [cursor=pointer]
+          - button "Analytics" [ref=e116] [cursor=pointer]
+          - button "Alerts" [ref=e117] [cursor=pointer]
+          - button "Account" [ref=e118] [cursor=pointer]
+        - generic [ref=e119]:
+          - button "Square Off ALL" [disabled] [ref=e120] [cursor=pointer]
+          - button "More information" [ref=e122]: ℹ️
+        - generic [ref=e123]: No open positions
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - paragraph [ref=e128]: Order ticket
+              - heading "Place paper order" [level=2] [ref=e129]
+            - generic [ref=e130]: Cash only
+          - generic [ref=e131]:
+            - generic [ref=e132]:
+              - generic [ref=e133]:
                 - text: Symbol
-                - button "More information" [ref=e138]: ℹ️
-              - combobox [ref=e139]:
+                - button "More information" [ref=e135]: ℹ️
+              - combobox [ref=e136]:
                 - option "360ONE-EQ"
                 - option "3MINDIA-EQ"
                 - option "ABB-EQ"
@@ -908,100 +906,100 @@ Received:   0
                 - option "ZYDUSLIFE-EQ"
                 - option "ZYDUSWELL-EQ"
                 - option "ECLERX-EQ"
-            - generic [ref=e140]:
-              - generic [ref=e141]:
+            - generic [ref=e137]:
+              - generic [ref=e138]:
                 - text: Side
-                - button "More information" [ref=e143]: ℹ️
-              - combobox [ref=e144]:
+                - button "More information" [ref=e140]: ℹ️
+              - combobox [ref=e141]:
                 - option "Buy" [selected]
                 - option "Sell"
-            - generic [ref=e145]:
-              - generic [ref=e146]:
+            - generic [ref=e142]:
+              - generic [ref=e143]:
                 - text: Order type
-                - button "More information" [ref=e148]: ℹ️
-              - combobox [ref=e149]:
+                - button "More information" [ref=e145]: ℹ️
+              - combobox [ref=e146]:
                 - option "Market"
                 - option "Limit" [selected]
                 - option "Stop-Loss (market on trigger)"
                 - option "Stop-Limit"
                 - option "GTT (Good Till Triggered)"
-            - generic [ref=e150]:
-              - generic [ref=e151]:
+            - generic [ref=e147]:
+              - generic [ref=e148]:
                 - text: Product
-                - button "More information" [ref=e153]: ℹ️
-              - combobox [ref=e154]:
+                - button "More information" [ref=e150]: ℹ️
+              - combobox [ref=e151]:
                 - option "MIS (Intraday)"
                 - option "CNC (Delivery)" [selected]
                 - option "NRML (Carry)"
-            - generic [ref=e155]:
-              - generic [ref=e156]:
+            - generic [ref=e152]:
+              - generic [ref=e153]:
                 - text: Quantity
-                - button "More information" [ref=e158]: ℹ️
-              - spinbutton [ref=e159]: "1"
-            - generic [ref=e160]:
-              - generic [ref=e161]:
+                - button "More information" [ref=e155]: ℹ️
+              - spinbutton [ref=e156]: "1"
+            - generic [ref=e157]:
+              - generic [ref=e158]:
                 - text: Limit price
-                - button "More information" [ref=e163]: ℹ️
-              - spinbutton [ref=e164]: "0"
-            - generic [ref=e165]:
-              - generic [ref=e166]:
+                - button "More information" [ref=e160]: ℹ️
+              - spinbutton [ref=e161]: "150"
+            - generic [ref=e162]:
+              - generic [ref=e163]:
                 - text: Stop-loss
-                - button "More information" [ref=e168]: ℹ️
-              - spinbutton [ref=e169]
-            - generic [ref=e170]:
-              - generic [ref=e171]:
+                - button "More information" [ref=e165]: ℹ️
+              - spinbutton [ref=e166]
+            - generic [ref=e167]:
+              - generic [ref=e168]:
                 - text: Target
-                - button "More information" [ref=e173]: ℹ️
-              - spinbutton [ref=e174]
+                - button "More information" [ref=e170]: ℹ️
+              - spinbutton [ref=e171]
+          - generic [ref=e172]:
+            - generic [ref=e173]: Notes
+            - textbox "Notes" [ref=e174]
           - generic [ref=e175]:
-            - generic [ref=e176]: Notes
-            - textbox "Notes" [ref=e177]
-          - generic [ref=e178]:
-            - generic [ref=e179]:
-              - generic [ref=e180]:
+            - generic [ref=e176]:
+              - generic [ref=e177]:
                 - text: Trailing stop %
-                - button "More information" [ref=e182]: ℹ️
-              - spinbutton [ref=e183]: "2"
-            - generic [ref=e184]:
-              - generic [ref=e185]:
+                - button "More information" [ref=e179]: ℹ️
+              - spinbutton [ref=e180]: "2"
+            - generic [ref=e181]:
+              - generic [ref=e182]:
                 - text: Cash allocation %
-                - button "More information" [ref=e187]: ℹ️
-              - spinbutton [ref=e188]: "10"
-            - button "Apply trailing SL" [ref=e189] [cursor=pointer]
-            - button "Use suggested qty 1 More information" [ref=e190] [cursor=pointer]:
-              - text: Use suggested qty 1
-              - button "More information" [ref=e192]: ℹ️
-          - generic [ref=e193]:
+                - button "More information" [ref=e184]: ℹ️
+              - spinbutton [ref=e185]: "10"
+            - button "Apply trailing SL" [ref=e186] [cursor=pointer]
+            - button "Use suggested qty 666 More information" [ref=e187] [cursor=pointer]:
+              - text: Use suggested qty 666
+              - button "More information" [ref=e189]: ℹ️
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - generic [ref=e192]: Current
+              - strong [ref=e193]: ₹150.00
             - generic [ref=e194]:
-              - generic [ref=e195]: Current
-              - strong [ref=e196]: "--"
+              - generic [ref=e195]: Estimated cost
+              - strong [ref=e196]: ₹150.00
             - generic [ref=e197]:
-              - generic [ref=e198]: Estimated cost
+              - generic [ref=e198]: Risk amount
               - strong [ref=e199]: ₹0.00
             - generic [ref=e200]:
-              - generic [ref=e201]: Risk amount
-              - strong [ref=e202]: ₹0.00
-            - generic [ref=e203]:
-              - generic [ref=e204]: Risk / Reward
-              - strong [ref=e205]: "--"
-          - paragraph [ref=e206]: "Account rule: avoid risking more than 2.0% per trade and prefer setups with at least 1:2 risk-reward."
-          - generic [ref=e207]:
-            - generic [ref=e208]: Risk 0.00% of account
-            - button "Place paper order" [ref=e210] [cursor=pointer]
-        - generic [ref=e211]:
-          - generic [ref=e212]:
+              - generic [ref=e201]: Risk / Reward
+              - strong [ref=e202]: "--"
+          - paragraph [ref=e203]: "Account rule: avoid risking more than 2.0% per trade and prefer setups with at least 1:2 risk-reward."
+          - generic [ref=e204]:
+            - generic [ref=e205]: Risk 0.00% of account
+            - button "Place paper order" [ref=e207] [cursor=pointer]
+        - generic [ref=e208]:
+          - generic [ref=e209]:
+            - generic [ref=e210]:
+              - paragraph [ref=e211]: Selected symbol
+              - heading "INFY-EQ" [level=2] [ref=e212]
             - generic [ref=e213]:
-              - paragraph [ref=e214]: Selected symbol
-              - heading "INFY-EQ" [level=2] [ref=e215]
-            - generic [ref=e216]:
-              - generic [ref=e217]: Current ₹0.00
-              - 'generic "Price source: NO_DATA • 9:35:32 AM" [ref=e218]': NO_DATA (stale)
-          - generic [ref=e219]:
-            - heading "No chart data" [level=2] [ref=e220]
-            - paragraph [ref=e221]: Select a symbol or refresh the workspace to load candles.
-        - generic [ref=e222]:
-          - heading "No position selected" [level=2] [ref=e223]
-          - paragraph [ref=e224]: Select a symbol with an active position to adjust stop-loss or target in the trade details panel.
+              - generic [ref=e214]: Current ₹150.00
+              - 'generic "Price source: TEST_MOCK • 7:33:39 AM" [ref=e215]': TEST_MOCK (stale)
+          - generic [ref=e216]:
+            - heading "No chart data" [level=2] [ref=e217]
+            - paragraph [ref=e218]: Select a symbol or refresh the workspace to load candles.
+        - generic [ref=e219]:
+          - heading "No position selected" [level=2] [ref=e220]
+          - paragraph [ref=e221]: Select a symbol with an active position to adjust stop-loss or target in the trade details panel.
 ```
 
 # Test source
@@ -1042,15 +1040,15 @@ Received:   0
   33  |         notes: "e2e verification buy",
   34  |       },
   35  |     });
-  36  |     expect(orderRes.ok()).toBeTruthy();
+> 36  |     expect(orderRes.ok()).toBeTruthy();
+      |                           ^ Error: expect(received).toBeTruthy()
   37  |     const orderData = await orderRes.json();
   38  |     expect(orderData.order).toBeDefined();
   39  |     expect(orderData.order.id).toBeDefined();
   40  | 
   41  |     // 3. Verify DB state: order exists
   42  |     const dbOrders = await tableDump(request, "paper_trading_orders");
-> 43  |     expect(dbOrders.rows.length).toBeGreaterThan(0);
-      |                                  ^ Error: expect(received).toBeGreaterThan(expected)
+  43  |     expect(dbOrders.rows.length).toBeGreaterThan(0);
   44  |     const createdOrder = dbOrders.rows.find((r: any) => r.symbol === "INFY-EQ" && r.side === "BUY");
   45  |     expect(createdOrder).toBeDefined();
   46  |     // In test mode without live prices, orders may stay PENDING
@@ -1144,11 +1142,4 @@ Received:   0
   134 |   });
   135 | 
   136 |   test("lifecycle state and paused labels render from API response", async ({ page, request }) => {
-  137 |     await page.goto("/");
-  138 |     await page.getByTestId("nav-paper-trading").click();
-  139 | 
-  140 |     // Fetch the dashboard/account to check lifecycle metadata and balances
-  141 |     const dashRes = await request.get(`${apiBaseURL}/paper-trading/dashboard`);
-  142 |     expect(dashRes.ok()).toBeTruthy();
-  143 |     const dashboard = await dashRes.json();
 ```

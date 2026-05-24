@@ -56,12 +56,28 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    void loadLatestScan().then((saved) => {
-      if (!saved) {
-        return;
+    function loadAndApply() {
+      void loadLatestScan().then((saved) => {
+        if (!saved) return;
+        applyScanResult(saved, "restored");
+      });
+    }
+
+    // Initial load on mount
+    loadAndApply();
+
+    // 30 minute polling interval
+    const intervalId = setInterval(() => {
+      const status = getMarketStatus();
+      if (status === "Open") {
+        console.info("[scanner] 30-min auto-polling new cached scan...");
+        loadAndApply();
+      } else {
+        console.info("[scanner] Auto-poll skipped (Market is closed)");
       }
-      applyScanResult(saved, "restored");
-    });
+    }, 30 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -246,7 +262,7 @@ export default function App() {
       {mainView === "scanner" ? (
         <DashboardHeader
           isLoading={isLoading}
-          lastScanAt={screenerResult?.analysis?.generated_at ?? null}
+          lastScanAt={screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
           lastScanLabel={lastScanLabel}
           marketStatus={marketStatus}
           search={filters.search}

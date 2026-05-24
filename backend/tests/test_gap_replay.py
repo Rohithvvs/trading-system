@@ -84,7 +84,7 @@ def test_target_hit(tmp_path):
     # avoid timezone/market-hours complications in CI
     gr._is_market_hours = lambda dt: True
 
-    summary = run_gap_replay(session, fake)
+    run_gap_replay(session, fake)
 
     th = (
         session.query(PaperTradeHistory)
@@ -112,7 +112,7 @@ def test_stoploss_hit(tmp_path):
     fake = FakeFyers([c1, c2])
     gr._is_market_hours = lambda dt: True
 
-    summary = run_gap_replay(session, fake)
+    run_gap_replay(session, fake)
 
     th = (
         session.query(PaperTradeHistory)
@@ -141,7 +141,7 @@ def test_both_hit_target_first(tmp_path):
     fake = FakeFyers([c_target, c_stop])
     gr._is_market_hours = lambda dt: True
 
-    summary = run_gap_replay(session, fake)
+    run_gap_replay(session, fake)
 
     th = (
         session.query(PaperTradeHistory)

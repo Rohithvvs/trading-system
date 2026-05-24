@@ -233,6 +233,7 @@ class ScreenerResponse(BaseModel):
     disclaimer: str
     data_source: str = "unknown"
     data_warning: str | None = None
+    scanned_at: str | None = None
     market_context: dict[str, str | float | bool] = Field(default_factory=dict)
     scan_stages: list[ScreenerStageSummary] = Field(default_factory=list)
     stopped_at_stage: str | None = None
