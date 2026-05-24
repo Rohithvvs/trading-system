@@ -14,3 +14,4 @@ fyers-apiv3
 pytest==8.3.5
 httpx==0.28.1
 orjson>=3.9.0
+yfinance==0.2.36
