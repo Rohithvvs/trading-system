@@ -99,18 +99,6 @@ class ScreenerService:
             )
             if scan_log is not None:
                 scan_log.info("SKIP datasource_failed | symbol=%s | source=%s", symbol, candle_source)
-                try:
-    def _process_single_symbol(
-        self,
-        symbol: str,
-        lookback_window: int,
-        stage_name: str,
-        candles: list[OHLCVPoint],
-        technical,
-    ) -> ScreenerConditionResult:
-        candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1D")
-        
-        if not candles:
             return ScreenerConditionResult(
                 symbol=symbol,
                 close=0.0,

@@ -18,6 +18,7 @@ from .analysis import (
     TechnicalAnalysisResult,
     TradePlan,
     TimeframeConfig,
+    FundamentalAnalysisResult,
 )
 from .health import HealthResponse
 from .paper_trading import (
@@ -71,4 +72,5 @@ __all__ = [
     "TimeframeConfig",
     "FyersTokenCreate",
     "FyersTokenResponse",
+    "FundamentalAnalysisResult",
 ]
