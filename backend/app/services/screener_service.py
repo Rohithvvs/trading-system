@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from statistics import mean
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
@@ -99,13 +100,17 @@ class ScreenerService:
             if scan_log is not None:
                 scan_log.info("SKIP datasource_failed | symbol=%s | source=%s", symbol, candle_source)
                 try:
-                    scan_log.info(
-                        "SCAN_ENTRY | symbol=%s | score=0.0 | signal=unknown | confidence=0.0 | timestamp=%s",
-                        symbol,
-                        datetime.utcnow().isoformat(),
-                    )
-                except Exception:
-                    pass
+    def _process_single_symbol(
+        self,
+        symbol: str,
+        lookback_window: int,
+        stage_name: str,
+        candles: list[OHLCVPoint],
+        technical,
+    ) -> ScreenerConditionResult:
+        candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1D")
+        
+        if not candles:
             return ScreenerConditionResult(
                 symbol=symbol,
                 close=0.0,
@@ -122,7 +127,7 @@ class ScreenerService:
                 screener_score=0.0,
                 technical_signal="unknown",
                 technical_score=0.0,
-                candles_fetched=len(candles),
+                candles_fetched=0,
                 conditions={"data_source_failed": True},
                 matched=False,
             )
@@ -137,10 +142,10 @@ class ScreenerService:
                 latest.close if latest else "n/a",
                 latest.volume if latest else "n/a",
             )
-            if scan_log is not None:
-                scan_log.info("SKIP data_quality_failed | symbol=%s | candles=%s", symbol, len(candles))
+            if self._scan_log is not None:
+                self._scan_log.info("SKIP data_quality_failed | symbol=%s | candles=%s", symbol, len(candles))
                 try:
-                    scan_log.info(
+                    self._scan_log.info(
                         "SCAN_ENTRY | symbol=%s | score=0.0 | signal=unknown | confidence=0.0 | timestamp=%s",
                         symbol,
                         datetime.utcnow().isoformat(),
@@ -167,8 +172,6 @@ class ScreenerService:
                 conditions={"data_quality_failed": True},
                 matched=False,
             )
-
-        technical = self.technical_service.analyze(symbol, candles, AnalysisMode.swing)
         indicators = technical.indicators
         latest = candles[-1]
         previous = candles[-2]
@@ -178,10 +181,10 @@ class ScreenerService:
         broad_eligibility = self._passes_broad_trend(candles, technical)
 
         # Log broad trend failures specifically to the scan log when present
-        if scan_log is not None and not broad_eligibility:
+        if self._scan_log is not None and not broad_eligibility:
             sma50 = float(indicators.get("sma_50", 0.0))
             sma200 = float(indicators.get("sma_200", 0.0))
-            scan_log.info(
+            self._scan_log.info(
                 "SKIP broad_trend_failed | symbol=%s | score=%.1f | sma50=%.2f | sma200=%.2f",
                 symbol,
                 technical.score,
@@ -228,9 +231,9 @@ class ScreenerService:
         )
 
         # mirror pass/fail to scan log
-        if scan_log is not None:
+        if self._scan_log is not None:
             if result.matched:
-                scan_log.info(
+                self._scan_log.info(
                     "PASS shortlisted | symbol=%s | screener_score=%.1f | technical_score=%.1f | signal=%s",
                     symbol,
                     result.screener_score,
@@ -239,7 +242,7 @@ class ScreenerService:
                 )
             else:
                 failed_conditions = [name for name, passed in result.conditions.items() if not passed]
-                scan_log.info(
+                self._scan_log.info(
                     "FAIL below_threshold | symbol=%s | screener_score=%.1f | broad_eligibility=%s | failed=%s",
                     symbol,
                     result.screener_score,
@@ -247,7 +250,7 @@ class ScreenerService:
                     ",".join(failed_conditions),
                 )
             try:
-                scan_log.info(
+                self._scan_log.info(
                     "SCAN_ENTRY | symbol=%s | score=%.1f | signal=%s | confidence=%.2f | timestamp=%s",
                     symbol,
                     result.screener_score,
@@ -260,69 +263,7 @@ class ScreenerService:
 
         return result
 
-    def _process_symbol_safe(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint] = None) -> ScreenerConditionResult:
-        """Wrapper that rate-limits and retries on Fyers rate-limit errors."""
-        max_retries = 3
-        backoff = 2.0
-        for attempt in range(max_retries):
-            try:
-                _rate_limiter.acquire()
-                return self._process_single_symbol(symbol, lookback_window, stage_name, candles)
-            except FyersRateLimitError:
-                wait = backoff ** attempt
-                self.logger.warning(
-                    "RATE LIMIT | symbol=%s | attempt=%s | waiting=%.1fs",
-                    symbol,
-                    attempt + 1,
-                    wait,
-                )
-                time.sleep(wait)
-            except (FyersAuthExpiredError, FyersAuthInvalidError) as auth_err:
-                self.logger.error("AUTH ERROR | symbol=%s | error=%s", symbol, auth_err)
-                raise  # Re-raise to abort the entire scan for this user
-            except Exception as e:
-                self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)
-                # Return a minimal failed ScreenerConditionResult
-                return ScreenerConditionResult(
-                    symbol=symbol,
-                    close=0.0,
-                    ema_20=0.0,
-                    sma_30=0.0,
-                    sma_50=0.0,
-                    sma_100=0.0,
-                    sma_200=0.0,
-                    macd=0.0,
-                    macd_signal=0.0,
-                    supertrend=0.0,
-                    volume=0,
-                    previous_volume=0,
-                    screener_score=0.0,
-                    technical_signal="unknown",
-                    technical_score=0.0,
-                    candles_fetched=0,
-                    conditions={"processing_error": True},
-                    matched=False,
-                )
-        return ScreenerConditionResult(
-            symbol=symbol,
-            close=0.0,
-            ema_20=0.0,
-            sma_30=0.0,
-            sma_50=0.0,
-            sma_100=0.0,
-            sma_200=0.0,
-            macd=0.0,
-            macd_signal=0.0,
-            supertrend=0.0,
-            volume=0,
-            previous_volume=0,
-            screener_score=0.0,
-            technical_signal="unknown",
-            technical_score=0.0,
-            candles_fetched=0,
-            conditions={"processing_failed": True},
-            matched=False,
-        )
+
 
     def screen_symbols_swing(
         self,
@@ -359,75 +300,114 @@ class ScreenerService:
         cached_dfs = candle_store.load_all_cached_candles(clean_symbols)
 
         precombined_datasets: dict[str, list[OHLCVPoint]] = {}
-        for symbol in symbols:
-            clean = self.fyers_service._cache_symbol(symbol)
-            df = cached_dfs.get(clean)
-            cached_candles: list[OHLCVPoint] = []
-            if df is not None and not df.empty:
-                for _, row in df.iterrows():
-                    cached_candles.append(
-                        OHLCVPoint(
-                            timestamp=self.fyers_service._parse_timestamp(row["date"]),
-                            open=float(row["open"]),
-                            high=float(row["high"]),
-                            low=float(row["low"]),
-                            close=float(row["close"]),
-                            volume=int(row["volume"]),
-                        )
-                    )
+
+        async def fetch_all_symbols():
+            sem = asyncio.Semaphore(15)
             
-            # Fetch latest missing data incrementally using memory helper
-            new_candles = self.fyers_service.fetch_incremental_ohlcv(symbol, cached_candles)
-            combined = self.fyers_service.combine_candles(cached_candles, new_candles)
-            precombined_datasets[symbol] = combined
-
-        # Parallel execution with bounded workers and per-symbol retries using precombined memory data
-        MAX_WORKERS = 6
-        futures_map = {}
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures_map = {
-                executor.submit(self._process_symbol_safe, symbol, lookback_window, stage_name, precombined_datasets[symbol]): symbol
-                for symbol in symbols
-            }
-
-            for future in as_completed(futures_map):
-                symbol = futures_map[future]
-                try:
-                    result = future.result(timeout=60)
-                    results.append(result)
-                    self.logger.info("COMPLETED symbol=%s", symbol)
-                except (FyersAuthExpiredError, FyersAuthInvalidError) as auth_err:
-                    self.logger.error("AUTH ERROR CAUGHT IN WORKER POOL | aborting remaining futures. Error: %s", auth_err)
-                    # Cancel all remaining futures in the executor
-                    for f in futures_map:
-                        f.cancel()
-                    # Break out and raise so the celery task knows this user's scan failed
-                    raise
-                except Exception as e:
-                    self.logger.error("FUTURE ERROR symbol=%s error=%s", symbol, e)
-                    # Append a minimal error result to keep lengths consistent
-                    results.append(
-                        ScreenerConditionResult(
-                            symbol=symbol,
-                            close=0.0,
-                            ema_20=0.0,
-                            sma_30=0.0,
-                            sma_50=0.0,
-                            sma_100=0.0,
-                            sma_200=0.0,
-                            macd=0.0,
-                            macd_signal=0.0,
-                            supertrend=0.0,
-                            volume=0,
-                            previous_volume=0,
-                            screener_score=0.0,
-                            technical_signal="unknown",
-                            technical_score=0.0,
-                            candles_fetched=0,
-                            conditions={"future_error": True},
-                            matched=False,
+            async def process_symbol(symbol: str):
+                clean = self.fyers_service._cache_symbol(symbol)
+                df = cached_dfs.get(clean)
+                cached_candles: list[OHLCVPoint] = []
+                if df is not None and not df.empty:
+                    # Map cleanly into a light dictionary memory layout to avoid over-instantiating massive object arrays via iterrows
+                    records = df.to_dict('records')
+                    for row in records:
+                        cached_candles.append(
+                            OHLCVPoint(
+                                timestamp=self.fyers_service._parse_timestamp(row["date"]),
+                                open=float(row["open"]),
+                                high=float(row["high"]),
+                                low=float(row["low"]),
+                                close=float(row["close"]),
+                                volume=int(row["volume"]),
+                            )
                         )
-                    )
+                
+                async with sem:
+                    # Fetch latest missing data incrementally using a thread pool to handle network I/O concurrently
+                    new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, cached_candles)
+                
+                combined = self.fyers_service.combine_candles(cached_candles, new_candles)
+                return symbol, combined
+
+            tasks = [process_symbol(s) for s in symbols]
+            results = await asyncio.gather(*tasks)
+            for s, combined in results:
+                precombined_datasets[s] = combined
+
+        asyncio.run(fetch_all_symbols())
+
+        import pandas as pd
+        # Add explicit data validation layer to forward-fill missing points
+        candles_dict: dict[str, list[OHLCVPoint]] = {}
+        for symbol, candles in precombined_datasets.items():
+            if not candles:
+                continue
+            # Convert to DataFrame to ffill any data gaps cleanly
+            df = pd.DataFrame([{
+                "timestamp": c.timestamp,
+                "open": c.open,
+                "high": c.high,
+                "low": c.low,
+                "close": c.close,
+                "volume": c.volume
+            } for c in candles])
+            df.set_index("timestamp", inplace=True)
+            df.sort_index(inplace=True)
+            df = df.ffill()
+            
+            filled_candles = []
+            for ts, row in df.iterrows():
+                filled_candles.append(OHLCVPoint(
+                    timestamp=ts,
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=int(row["volume"]),
+                ))
+            candles_dict[symbol] = filled_candles
+
+        # Vectorized Bulk Analysis over the entire universe
+        self.logger.info("STEP 2/8 | Stage=%s | Run vectorized analyze_bulk on entire universe", stage_name)
+        bulk_technical_results = self.technical_service.analyze_bulk(candles_dict, AnalysisMode.swing)
+
+        # Evaluate scoring sequentially using the precomputed results
+        for symbol in symbols:
+            candles = candles_dict.get(symbol, [])
+            if not candles:
+                results.append(ScreenerConditionResult(
+                    symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
+                    sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
+                    supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
+                    technical_signal="unknown", technical_score=0.0, candles_fetched=0,
+                    conditions={"data_source_failed": True}, matched=False
+                ))
+                continue
+                
+            technical = bulk_technical_results.get(symbol)
+            if not technical:
+                results.append(ScreenerConditionResult(
+                    symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
+                    sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
+                    supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
+                    technical_signal="unknown", technical_score=0.0, candles_fetched=len(candles),
+                    conditions={"technical_analysis_failed": True}, matched=False
+                ))
+                continue
+
+            try:
+                result = self._process_single_symbol(symbol, lookback_window, stage_name, candles, technical)
+                results.append(result)
+            except Exception as e:
+                self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)
+                results.append(ScreenerConditionResult(
+                    symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
+                    sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
+                    supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
+                    technical_signal="unknown", technical_score=0.0, candles_fetched=len(candles),
+                    conditions={"processing_error": True}, matched=False
+                ))
 
         # Post-process aggregated results to compute summaries
         data_source_failed = sum(1 for r in results if r.conditions.get("data_source_failed"))

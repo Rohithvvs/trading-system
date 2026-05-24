@@ -135,7 +135,7 @@ class PaperTradingService:
         return self.get_dashboard()
 
     def place_order(self, payload: PaperOrderCreateRequest) -> PaperOrderActionResponse:
-        account = self._get_or_create_account()
+        account = self._get_or_create_account(for_update=True)
         self._validate_symbol(payload.symbol)
         self._refresh_pending_orders(account.id)
         price = self._price_snapshot(payload.symbol)
@@ -373,8 +373,11 @@ class PaperTradingService:
             updated_at=datetime.now(timezone.utc),
         )
 
-    def _get_or_create_account(self) -> PaperTradingAccount:
-        account = self.db.scalar(select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc()))
+    def _get_or_create_account(self, for_update: bool = False) -> PaperTradingAccount:
+        query = select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc())
+        if for_update:
+            query = query.with_for_update()
+        account = self.db.scalar(query)
         if account:
             return account
         account = PaperTradingAccount(
@@ -755,7 +758,7 @@ class PaperTradingService:
             self.logger.exception("Failed to add notification for triggered alert")
 
     def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL") -> PaperOrderActionResponse:
-        account = self._get_or_create_account()
+        account = self._get_or_create_account(for_update=True)
         position = self.db.scalar(select(PaperPosition).where(PaperPosition.id == position_id, PaperPosition.account_id == account.id))
         if not position:
             raise ValueError("Position not found.")
@@ -1237,7 +1240,7 @@ class PaperTradingService:
         return result
 
     def update_starting_capital(self, amount: float) -> PaperTradingDashboardResponse:
-        account = self._get_or_create_account()
+        account = self._get_or_create_account(for_update=True)
         try:
             delta = float(amount) - float(account.starting_balance)
         except Exception as e:

@@ -10,6 +10,7 @@ from ..schemas import (
     RecommendationReasoning,
     TechnicalAnalysisResult,
     TradePlan,
+    FundamentalAnalysisResult,
 )
 
 
@@ -19,16 +20,50 @@ class RecommendationService:
         symbol: str,
         technical_results: list[TechnicalAnalysisResult],
         sentiment_score: float,
+        fundamental_result: FundamentalAnalysisResult | None,
         backtests: list[BacktestResult],
         candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]],
         llm_reasoning: dict[str, object],
     ) -> FinalRecommendation:
-        technical_score = max(result.score for result in technical_results)
-        best_backtest = max(backtests, key=lambda item: item.total_return)
-        sentiment_component = (sentiment_score + 1) * 20
-        backtest_component = self._backtest_component(best_backtest)
-        score = round((technical_score * 0.5) + sentiment_component + backtest_component, 2)
-        confidence = round(min(0.95, max(0.35, score / 120)), 2)
+        technical_score = max((result.score for result in technical_results), default=0.0)
+        best_backtest = max(backtests, key=lambda item: item.total_return) if backtests else None
+        
+        fundamental_score = fundamental_result.fundamental_score if fundamental_result else 0.0
+
+        # Calculate volume catalyst trigger
+        primary_technical = technical_results[0] if technical_results else None
+        candles = candles_by_mode.get(primary_technical.mode, []) if primary_technical else []
+        current_volume = candles[-1].volume if candles else 0
+        avg_volume = mean([c.volume for c in candles[-20:]]) if len(candles) >= 20 else current_volume
+
+        tech_wt, backtest_wt, news_wt, fund_wt = self.calculate_dynamic_weights(
+            sentiment_score=sentiment_score,
+            fundamental_score=fundamental_score,
+            current_volume=current_volume,
+            avg_volume=avg_volume
+        )
+
+        backtest_points = self._backtest_component(best_backtest) if best_backtest else 0.0
+        
+        # Max Possible:
+        # Tech: 100 * tech_wt
+        # Backtest: 100 * backtest_wt (Since backtest max component was 25 for 0.25 wt, we should scale it. Wait, previously max was 25 points out of 100. So we should treat raw component as out of 100 and multiply by weight.)
+        
+        # Actually, let's normalize raw scores to 100:
+        raw_tech = technical_score # 0 to 100
+        raw_backtest = min(max((best_backtest.total_return * 4) if best_backtest and best_backtest.trade_count >= 5 else 0.0, -20.0), 100.0) # -20 to 100
+        raw_news = sentiment_score * 100 # -100 to 100
+        raw_fund = fundamental_score * 100 # -100 to 100
+        
+        score = round(
+            (raw_tech * tech_wt) + 
+            (raw_backtest * backtest_wt) + 
+            (raw_news * news_wt) + 
+            (raw_fund * fund_wt), 2
+        )
+        score = max(0.0, min(100.0, score)) # Ensure bounds
+        
+        confidence = round(min(0.95, max(0.35, score / 100)), 2)
         trade_plans = self._build_trade_plans(technical_results, backtests, candles_by_mode)
 
         if score >= 72:
@@ -57,6 +92,32 @@ class RecommendationService:
             trade_plans=trade_plans,
             summary=summary,
         )
+
+    def calculate_dynamic_weights(
+        self,
+        sentiment_score: float, 
+        fundamental_score: float,
+        current_volume: float,
+        avg_volume: float
+    ) -> tuple[float, float, float, float]:
+        """
+        Returns (tech_wt, backtest_wt, sentiment_wt, fundamental_wt) adding up to 1.0
+        """
+        # Standard Regime
+        weights = {"tech": 0.50, "fundamental": 0.25, "backtest": 0.25, "news": 0.0}
+        
+        # Catalyst Conditions
+        news_catalyst = abs(sentiment_score) >= 0.75
+        volume_catalyst = avg_volume > 0 and current_volume > (avg_volume * 3.0)
+        
+        if news_catalyst or volume_catalyst:
+            # Catalyst Regime
+            weights["news"] = 0.30
+            weights["fundamental"] = 0.30
+            weights["tech"] = 0.20
+            weights["backtest"] = 0.20
+            
+        return weights["tech"], weights["backtest"], weights["news"], weights["fundamental"]
 
     def _backtest_component(self, backtest: BacktestResult) -> float:
         if backtest.verdict == "insufficient" or backtest.trade_count < 5:

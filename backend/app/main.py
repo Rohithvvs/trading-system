@@ -87,18 +87,54 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to init candle_store DB on startup")
 
+    # JOB 1: Market Engine Spin Up
     scheduler.add_job(
-        nightly_candle_sync,
-        CronTrigger(hour=18, minute=30, timezone="Asia/Kolkata"),
-        id="nightly_candle_sync",
+        market_engine.request_start,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=55, timezone="Asia/Kolkata"),
+        id="market_engine_spin_up",
         replace_existing=True,
     )
+
+    # JOB 2: Pre-Market Deep Scan
     scheduler.add_job(
         automated_screening_job,
-        CronTrigger(minute="0,30", hour="9-15", timezone="Asia/Kolkata"),
-        id="automated_screening_job",
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="Asia/Kolkata"),
+        id="pre_market_deep_scan",
         replace_existing=True,
     )
+
+    # JOB 3: Intraday Engine Heartbeat Loop (09:00 AM to 14:45 PM)
+    scheduler.add_job(
+        market_engine.heartbeat,
+        CronTrigger(day_of_week="mon-fri", hour="9-14", minute="0,15,30,45", timezone="Asia/Kolkata"),
+        id="intraday_heartbeat_1",
+        replace_existing=True,
+    )
+
+    # JOB 3 continued: Intraday Engine Heartbeat Loop (15:00 PM to 15:30 PM)
+    scheduler.add_job(
+        market_engine.heartbeat,
+        CronTrigger(day_of_week="mon-fri", hour=15, minute="0,15,30", timezone="Asia/Kolkata"),
+        id="intraday_heartbeat_2",
+        replace_existing=True,
+    )
+
+    # JOB 4: Market Engine Cool Down
+    scheduler.add_job(
+        market_engine.request_stop,
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone="Asia/Kolkata"),
+        id="market_engine_cool_down",
+        replace_existing=True,
+    )
+
+    # JOB 5: Strategy Performance & Drift Tracker
+    scheduler.add_job(
+        track_strategy_drift_job,
+        CronTrigger(day_of_week="fri", hour=16, minute=0, timezone="Asia/Kolkata"),
+        id="track_strategy_drift_job",
+        replace_existing=True,
+    )
+
     # FYERS refresh automation removed. Manual access-token workflow only.
     scheduler.start()
     logger.info("Scheduler started — nightly sync at 18:30 IST")
@@ -307,13 +343,19 @@ async def nightly_candle_sync():
     logger.info("NIGHTLY SYNC stale_symbols=%s total=%s", len(stale), len(symbols))
     import asyncio
     from .schemas import AnalysisMode
-    for symbol in stale:
-        try:
-            # Run the synchronous cache-refresh in a thread so we don't block the event loop
-            await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
-            logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
-        except Exception as e:
-            logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)
+    sem = asyncio.Semaphore(10)
+
+    async def _sync_symbol(symbol: str):
+        async with sem:
+            try:
+                await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
+                logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
+            except Exception as e:
+                logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)
+
+    if stale:
+        await asyncio.gather(*[_sync_symbol(s) for s in stale])
+        
     logger.info("NIGHTLY SYNC complete")
 
 
@@ -321,5 +363,31 @@ async def nightly_candle_sync():
 
 async def automated_screening_job():
     logger.info("AUTOMATED SCREENING job triggered")
-    pass
+    from .agents.orchestrator_agent import OrchestratorAgent
+    from .schemas import ScreenerRequest, TimeframeMode
+    import asyncio
+    
+    agent = OrchestratorAgent()
+    request = ScreenerRequest(
+        screener_name="Automated Interval Scan",
+        timeframe=TimeframeMode.swing
+    )
+    
+    try:
+        logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
+        await asyncio.to_thread(agent.run_screener, request)
+        logger.info("AUTOMATED SCREENING job complete")
+    except Exception as e:
+        logger.exception("AUTOMATED SCREENING failed: %s", e)
+
+
+async def track_strategy_drift_job():
+    logger.info("STRATEGY DRIFT TRACKER job triggered")
+    from .services.analytics_service import AnalyticsService
+    try:
+        service = AnalyticsService()
+        await service.track_strategy_drift()
+        logger.info("STRATEGY DRIFT TRACKER job complete")
+    except Exception as e:
+        logger.exception("STRATEGY DRIFT TRACKER failed: %s", e)
 

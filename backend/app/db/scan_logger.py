@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 from pathlib import Path
 
 LOG_PATH = Path(__file__).parent / "latest_scan.log"
@@ -12,8 +13,10 @@ def get_scan_logger() -> logging.Logger:
     # Remove old handlers to avoid duplicate writes
     logger.handlers.clear()
 
-    # FileHandler with mode='w' overwrites on every new scan run
-    fh = logging.FileHandler(LOG_PATH, mode='w', encoding='utf-8')
+    # FileHandler replaced with RotatingFileHandler to bound physical disk footprint
+    fh = logging.handlers.RotatingFileHandler(
+        LOG_PATH, maxBytes=20 * 1024 * 1024, backupCount=5, encoding='utf-8'
+    )
     fh.setLevel(logging.INFO)
     formatter = logging.Formatter(
         '%(asctime)s | %(levelname)s | %(message)s',

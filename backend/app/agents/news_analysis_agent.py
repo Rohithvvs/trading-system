@@ -12,5 +12,8 @@ class NewsAnalysisAgent:
 
     def run(self, symbol: str) -> tuple[list[ArticleItem], float, str, str]:
         articles = self.news_service.fetch_recent_news(symbol)
+        if not articles:
+            return [], 0.5, "Neutral", "No recent news found for this symbol."
+            
         score, label, summary = self.sentiment_service.summarize(symbol, articles)
         return articles, score, label, summary

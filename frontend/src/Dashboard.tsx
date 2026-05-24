@@ -50,6 +50,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
   const [lastScanLabel, setLastScanLabel] = useState<string | null>(null);
+  const [liveTicks, setLiveTicks] = useState<Record<string, number>>({});
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -66,18 +67,50 @@ export default function Dashboard() {
     // Initial load on mount
     loadAndApply();
 
-    // 30 minute polling interval
-    const intervalId = setInterval(() => {
-      const status = getMarketStatus();
-      if (status === "Open") {
-        console.info("[scanner] 30-min auto-polling new cached scan...");
-        loadAndApply();
-      } else {
-        console.info("[scanner] Auto-poll skipped (Market is closed)");
-      }
-    }, 30 * 60 * 1000);
+    // Connect to WebSocket for real-time tick stream, replacing 30-minute polling restriction
+    let socket: WebSocket;
+    let reconnectTimer: number;
+    let retryCount = 0;
 
-    return () => clearInterval(intervalId);
+    const connect = () => {
+      const wsUrl = process.env.NODE_ENV === "production" ? `wss://${window.location.host}/ws/ticks` : "ws://localhost:8000/ws/ticks";
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        console.info("[scanner] WebSocket connected for real-time tick stream");
+        retryCount = 0;
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'TICK_UPDATE' && data.symbol && data.price) {
+            setLiveTicks(prev => ({ ...prev, [data.symbol]: data.price }));
+          }
+        } catch (err) {
+          // Ignore parse errors from non-tick messages
+        }
+      };
+
+      socket.onclose = () => {
+        console.info(`[scanner] WebSocket disconnected. Attempting reconnect ${retryCount + 1}...`);
+        const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
+        reconnectTimer = window.setTimeout(() => {
+          retryCount++;
+          connect();
+        }, backoff);
+      };
+    };
+
+    connect();
+
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -344,14 +377,43 @@ export default function Dashboard() {
             </div>
 
             {isLoading ? (
-              <section className="panel loading-state">
-                <h2>Running scanner</h2>
-                <ol>
-                  <li>Fetching OHLCV for the configured Nifty 500 universe.</li>
-                  <li>Validating data quality and broad trend eligibility.</li>
-                  <li>Scoring the shortlist and running full analysis on the top set.</li>
-                </ol>
-              </section>
+              <div className="agent-tracker-overlay">
+                <div className="agent-tracker-card">
+                  <h2><span className="pulsing-dot"></span> Multi-Agent Scanner Active</h2>
+                  <p className="agent-tracker-subtitle">Institutional grading in progress across NIFTY 500...</p>
+                  
+                  <div className="agent-status-list">
+                    <div className="agent-status-item">
+                      <div className="agent-status-icon active"></div>
+                      <div className="agent-status-text">
+                        <strong>Technical Analysis Agent</strong>
+                        <span>Vectorizing OHLCV structures and momentum oscillators</span>
+                      </div>
+                    </div>
+                    <div className="agent-status-item">
+                      <div className="agent-status-icon active"></div>
+                      <div className="agent-status-text">
+                        <strong>Fundamental Analysis Agent</strong>
+                        <span>Parsing revenue growth, margins, and debt metrics</span>
+                      </div>
+                    </div>
+                    <div className="agent-status-item">
+                      <div className="agent-status-icon active"></div>
+                      <div className="agent-status-text">
+                        <strong>News & Sentiment Agent</strong>
+                        <span>Scoring qualitative headlines against LLM models</span>
+                      </div>
+                    </div>
+                    <div className="agent-status-item">
+                      <div className="agent-status-icon active"></div>
+                      <div className="agent-status-text">
+                        <strong>Backtest Engine</strong>
+                        <span>Simulating historical trades for dynamic win-rate</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             ) : null}
 
             {error ? (
@@ -386,6 +448,7 @@ export default function Dashboard() {
                     setDetailViewOpen(true);
                   }}
                   onBuy={(row) => sendRowToPaperTrading(row)}
+                  liveTicks={liveTicks}
                 />
               )
             ) : null}

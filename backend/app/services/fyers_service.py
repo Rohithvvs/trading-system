@@ -31,6 +31,10 @@ class FyersAPIError(Exception):
     """Generic Fyers API error with message."""
 
 
+class FyersNetworkException(Exception):
+    """Raised when FYERS API connection drops or exhausts all retries."""
+
+
 def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
     """
     Inspect a FYERS response dict and raise a specific exception when a known
@@ -717,57 +721,65 @@ class FyersService:
             return self.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
 
         self.logger.info("INCREMENTAL FETCH | symbol=%s | last_cached=%s | fetching today's single live candle", symbol, last_cached_dt)
-        try:
-            client = self._client()
-            today_str = today_dt.isoformat()
-            payload = {
-                "symbol": self._normalize_symbol(symbol),
-                "resolution": "1D",
-                "date_format": "1",
-                "range_from": today_str,
-                "range_to": today_str,
-                "cont_flag": "1",
-            }
-            response = client.history(data=payload)
-            _check_fyers_response(response, symbol)
-            candle_rows = response.get("candles", []) if isinstance(response, dict) else []
-            
-            fetched: list[OHLCVPoint] = []
-            for row in candle_rows:
-                if len(row) < 6:
-                    continue
-                fetched.append(
-                    OHLCVPoint(
-                        timestamp=self._parse_timestamp(row[0]),
-                        open=float(row[1]),
-                        high=float(row[2]),
-                        low=float(row[3]),
-                        close=float(row[4]),
-                        volume=int(row[5]),
+        
+        for retry_count in range(3):
+            try:
+                client = self._client()
+                today_str = today_dt.isoformat()
+                payload = {
+                    "symbol": self._normalize_symbol(symbol),
+                    "resolution": "1D",
+                    "date_format": "1",
+                    "range_from": today_str,
+                    "range_to": today_str,
+                    "cont_flag": "1",
+                }
+                response = client.history(data=payload)
+                _check_fyers_response(response, symbol)
+                candle_rows = response.get("candles", []) if isinstance(response, dict) else []
+                
+                fetched: list[OHLCVPoint] = []
+                for row in candle_rows:
+                    if len(row) < 6:
+                        continue
+                    fetched.append(
+                        OHLCVPoint(
+                            timestamp=self._parse_timestamp(row[0]),
+                            open=float(row[1]),
+                            high=float(row[2]),
+                            low=float(row[3]),
+                            close=float(row[4]),
+                            volume=int(row[5]),
+                        )
                     )
-                )
-            
-            if fetched:
-                clean_symbol = self._cache_symbol(symbol)
-                import pandas as pd
-                rows = [
-                    {
-                        "date": p.timestamp.date().isoformat(),
-                        "open": float(p.open),
-                        "high": float(p.high),
-                        "low": float(p.low),
-                        "close": float(p.close),
-                        "volume": int(p.volume),
-                    }
-                    for p in fetched
-                ]
-                df = pd.DataFrame(rows)
-                candle_store.store_candles(clean_symbol, df)
-                self.logger.info("INCREMENTAL CACHE STORED | symbol=%s | rows=%s", symbol, len(df))
-            return fetched
-        except Exception as exc:
-            self.logger.warning("Failed to fetch/store incremental today candle | symbol=%s | error=%s", symbol, exc)
-            return []
+                
+                if fetched:
+                    clean_symbol = self._cache_symbol(symbol)
+                    import pandas as pd
+                    rows = [
+                        {
+                            "date": p.timestamp.date().isoformat(),
+                            "open": float(p.open),
+                            "high": float(p.high),
+                            "low": float(p.low),
+                            "close": float(p.close),
+                            "volume": int(p.volume),
+                        }
+                        for p in fetched
+                    ]
+                    df = pd.DataFrame(rows)
+                    candle_store.store_candles(clean_symbol, df)
+                    self.logger.info("INCREMENTAL CACHE STORED | symbol=%s | rows=%s", symbol, len(df))
+                return fetched
+            except (FyersAuthExpiredError, FyersAuthInvalidError):
+                raise
+            except Exception as exc:
+                wait_time = 2 ** retry_count
+                self.logger.warning("Network drop fetching incremental candle | symbol=%s | attempt=%s | wait=%ss | error=%s", symbol, retry_count + 1, wait_time, exc)
+                time.sleep(wait_time)
+        
+        self.logger.error("All 3 attempts failed for incremental candle | symbol=%s", symbol)
+        raise FyersNetworkException(f"Incremental fetch compromised after 3 retries for symbol: {symbol}")
 
     def combine_candles(self, cached: list[OHLCVPoint], new_candles: list[OHLCVPoint]) -> list[OHLCVPoint]:
         """Combine and deduplicate cached and new candles by timestamp date."""

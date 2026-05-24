@@ -23,6 +23,11 @@ class BacktestService:
                 "volume": [candle.volume for candle in candles],
             }
         )
+        
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"])
+        frame = frame.sort_values("timestamp")
+        frame = frame.ffill().bfill()
+        
         fast_window = 9 if mode == AnalysisMode.intraday else 20
         slow_window = 20 if mode == AnalysisMode.intraday else 50
         frame["ema_fast"] = EMAIndicator(close=frame["close"], window=fast_window).ema_indicator()

@@ -42,3 +42,17 @@ class BacktestHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     stock = relationship("WatchedStock", back_populates="backtests")
+
+
+class StrategyPerformanceLog(Base):
+    __tablename__ = "strategy_performance_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol: Mapped[str] = mapped_column(String(25), index=True)
+    screened_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    initial_score: Mapped[float] = mapped_column(Float)
+    dominant_agent: Mapped[str] = mapped_column(String(50))
+    realized_return_5d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    realized_return_10d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    realized_return_20d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

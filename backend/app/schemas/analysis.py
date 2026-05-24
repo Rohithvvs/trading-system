@@ -70,6 +70,16 @@ class TechnicalAnalysisResult(BaseModel):
     summary: str
 
 
+class FundamentalAnalysisResult(BaseModel):
+    revenue_growth_pct: float | None = None
+    profit_margin_pct: float | None = None
+    debt_to_equity: float | None = None
+    pe_ratio: float | None = None
+    fundamental_score: float
+    summary: str
+
+
+
 class ArticleItem(BaseModel):
     title: str
     description: str
@@ -141,6 +151,7 @@ class StockAnalysisResult(BaseModel):
     news_summary: str
     news_sentiment_label: str
     news_sentiment_score: float
+    fundamental: FundamentalAnalysisResult | None = None
     backtests: list[BacktestResult]
     recommendation: FinalRecommendation
     disclaimer: str

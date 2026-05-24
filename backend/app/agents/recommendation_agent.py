@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..schemas import AnalysisMode, BacktestResult, FinalRecommendation, OHLCVPoint, TechnicalAnalysisResult
+from ..schemas import AnalysisMode, BacktestResult, FinalRecommendation, OHLCVPoint, TechnicalAnalysisResult, FundamentalAnalysisResult
 from ..services.llm_service import LLMService
 from ..services.recommendation_service import RecommendationService
 
@@ -16,6 +16,7 @@ class RecommendationAgent:
         technical_results: list[TechnicalAnalysisResult],
         sentiment_label: str,
         sentiment_score: float,
+        fundamental_result: FundamentalAnalysisResult | None,
         backtests: list[BacktestResult],
         candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]],
     ) -> FinalRecommendation:
@@ -33,6 +34,7 @@ class RecommendationAgent:
                 "sentiment_score": sentiment_score,
                 "backtest_verdict": best_backtest.verdict,
                 "backtest_return": best_backtest.total_return,
+                "fundamental_score": fundamental_result.fundamental_score if fundamental_result else 0.0,
                 "current_price": current_price,
                 "modes": [item.mode.value for item in technical_results],
             },
@@ -41,6 +43,7 @@ class RecommendationAgent:
             symbol=symbol,
             technical_results=technical_results,
             sentiment_score=sentiment_score,
+            fundamental_result=fundamental_result,
             backtests=backtests,
             candles_by_mode=candles_by_mode,
             llm_reasoning=llm_reasoning,

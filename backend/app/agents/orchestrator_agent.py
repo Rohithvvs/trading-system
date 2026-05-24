@@ -29,6 +29,7 @@ from .news_analysis_agent import NewsAnalysisAgent
 from .ranking_agent import RankingAgent
 from .recommendation_agent import RecommendationAgent
 from .technical_analysis_agent import TechnicalAnalysisAgent
+from .fundamental_analysis_agent import FundamentalAnalysisAgent
 
 
 class OrchestratorAgent:
@@ -42,6 +43,7 @@ class OrchestratorAgent:
         self.backtest_agent = BacktestAgent()
         self.recommendation_agent = RecommendationAgent()
         self.ranking_agent = RankingAgent()
+        self.fundamental_agent = FundamentalAnalysisAgent()
 
     def run_full(self, request: AnalysisRequest) -> FullAnalysisResponse:
         self.logger.info(
@@ -52,7 +54,71 @@ class OrchestratorAgent:
             request.timeframe.swing,
             request.timeframe.lookback_window,
         )
-        items = [self._analyze_symbol(symbol, request) for symbol in request.symbols]
+        import asyncio
+        
+        # Pre-fetch all OHLCV data concurrently for the entire batch
+        modes = self._resolve_modes(request.mode)
+        candles_by_symbol_and_mode = {}
+        
+        async def fetch_for_symbol(symbol: str):
+            candles_by_mode = {
+                mode: self.fyers_service.fetch_ohlcv(
+                    symbol=symbol,
+                    mode=mode,
+                    resolution=self._resolution_for_mode(mode, request),
+                    lookback_window=request.timeframe.lookback_window,
+                )
+                for mode in modes
+            }
+            candles_by_symbol_and_mode[symbol] = candles_by_mode
+            
+        async def prefetch_all():
+            await asyncio.gather(*(fetch_for_symbol(symbol) for symbol in request.symbols))
+            
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        if loop and loop.is_running():
+            import nest_asyncio
+            nest_asyncio.apply()
+            asyncio.run(prefetch_all())
+        else:
+            asyncio.run(prefetch_all())
+            
+        # Build the bulk candles dictionary for the technical matrix
+        candles_dict_by_mode = {mode: {} for mode in modes}
+        for symbol, c_map in candles_by_symbol_and_mode.items():
+            for mode in modes:
+                if c_map[mode]:
+                    candles_dict_by_mode[mode][symbol] = c_map[mode]
+                    
+        # Execute the vectorized bulk technical analysis once
+        bulk_technical_results = {}
+        for mode in modes:
+            self.logger.info("Executing batched deep analysis | mode=%s | symbols=%s", mode.value, len(candles_dict_by_mode[mode]))
+            bulk_technical_results[mode] = self.technical_agent.run_bulk(candles_dict_by_mode[mode], mode)
+            
+        # Dispatch Backtest and News agents concurrently for the batch
+        async def run_remaining_agents():
+            return await asyncio.gather(*(
+                asyncio.to_thread(
+                    self._analyze_symbol_post_bulk, 
+                    symbol, 
+                    request, 
+                    candles_by_symbol_and_mode[symbol], 
+                    bulk_technical_results
+                )
+                for symbol in request.symbols
+            ))
+            
+        if loop and loop.is_running():
+            items = asyncio.run(run_remaining_agents())
+        else:
+            items = asyncio.run(run_remaining_agents())
+            
+
         rankings = self.ranking_agent.run(items)
         self.logger.info(
             "Completed full analysis | analyzed=%s | best_swing=%s | best_intraday=%s",
@@ -391,24 +457,21 @@ class OrchestratorAgent:
             return
         self.logger.info("SCANNER_DETERMINISM %s", json.dumps(payload, sort_keys=True, default=str))
 
-    def _analyze_symbol(self, symbol: str, request: AnalysisRequest) -> StockAnalysisResult:
-        self.logger.info("Analyzing symbol | symbol=%s | mode=%s", symbol, request.mode.value)
+    def _analyze_symbol_post_bulk(
+        self, 
+        symbol: str, 
+        request: AnalysisRequest, 
+        candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]],
+        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]]
+    ) -> StockAnalysisResult:
+        self.logger.info("Completing post-bulk analysis | symbol=%s", symbol)
         stock = self._get_or_create_stock(symbol)
         modes = self._resolve_modes(request.mode)
-        candles_by_mode = {
-            mode: self.fyers_service.fetch_ohlcv(
-                symbol=symbol,
-                mode=mode,
-                resolution=self._resolution_for_mode(mode, request),
-                lookback_window=request.timeframe.lookback_window,
-            )
-            for mode in modes
-        }
+        
         if any(not candles for candles in candles_by_mode.values()):
             self.logger.warning(
-                "Skipping deep analysis because live OHLCV is unavailable | symbol=%s | modes_without_data=%s",
+                "Skipping post-bulk analysis because live OHLCV is unavailable | symbol=%s",
                 symbol,
-                ",".join(mode.value for mode, candles in candles_by_mode.items() if not candles),
             )
             return self._unavailable_analysis_result(symbol, request, candles_by_mode)
         for mode in modes:
@@ -425,15 +488,68 @@ class OrchestratorAgent:
                 candle_count,
                 latest_ts,
             )
-        technical_results = [
-            self.technical_agent.run(symbol, candles_by_mode[mode], mode)
-            for mode in modes
-        ]
-        backtests = [
-            self.backtest_agent.run(symbol, mode, candles_by_mode[mode])
-            for mode in modes
-        ]
-        articles, sentiment_score, sentiment_label, news_summary = self.news_agent.run(symbol)
+        import asyncio
+        
+        def safe_news_run(sym: str):
+            try:
+                articles, sentiment_score, sentiment_label, news_summary = self.news_agent.run(sym)
+                if not articles:
+                    return [], 0.5, "NEUTRAL", "No recent news found"
+                return articles, sentiment_score, sentiment_label, news_summary
+            except Exception as e:
+                self.logger.error("News API failed for %s: %s", sym, e)
+                return [], 0.5, "NEUTRAL", "No recent news found"
+
+        async def _run_agents_concurrently():
+            def run_backtest():
+                results = []
+                for mode in modes:
+                    try:
+                        results.append(self.backtest_agent.run(symbol, mode, candles_by_mode[mode]))
+                    except Exception as e:
+                        self.logger.error("Backtest agent failed for %s in %s mode: %s", symbol, mode.value, e)
+                        from ..schemas.analysis import BacktestResult
+                        results.append(BacktestResult(
+                            mode=mode,
+                            strategy_name="error_fallback",
+                            total_return=0.0,
+                            cagr=0.0,
+                            max_drawdown=0.0,
+                            win_rate=0.0,
+                            profit_factor=0.0,
+                            trade_count=0,
+                            verdict="Failed",
+                            equity_curve=[]
+                        ))
+                return results
+
+            return await asyncio.gather(
+                asyncio.to_thread(run_backtest),
+                asyncio.to_thread(safe_news_run, symbol),
+                asyncio.to_thread(self.fundamental_agent.run, symbol)
+            )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import nest_asyncio
+            nest_asyncio.apply()
+            backtests, (articles, sentiment_score, sentiment_label, news_summary), fundamental_result = asyncio.run(_run_agents_concurrently())
+        else:
+            backtests, (articles, sentiment_score, sentiment_label, news_summary), fundamental_result = asyncio.run(_run_agents_concurrently())
+
+        # Retrieve the pre-computed vectorized technical results
+        technical_results = []
+        for mode in modes:
+            tech_res = bulk_technical_results[mode].get(symbol)
+            if not tech_res:
+                 # Fallback empty result if omitted from bulk
+                 from ..schemas import TechnicalAnalysisResult
+                 tech_res = TechnicalAnalysisResult(mode=mode, signal="neutral", score=0.0, indicators={}, summary="No technical data")
+            technical_results.append(tech_res)
 
         technical_score = max(result.score for result in technical_results)
         best_backtest = max(backtests, key=lambda item: item.total_return)
@@ -442,6 +558,7 @@ class OrchestratorAgent:
             technical_results=technical_results,
             sentiment_label=sentiment_label,
             sentiment_score=sentiment_score,
+            fundamental_result=fundamental_result,
             backtests=backtests,
             candles_by_mode=candles_by_mode,
         )
@@ -473,6 +590,7 @@ class OrchestratorAgent:
             news_summary=news_summary,
             news_sentiment_label=sentiment_label,
             news_sentiment_score=sentiment_score,
+            fundamental=fundamental_result,
             backtests=backtests,
             recommendation=recommendation,
             disclaimer=advisory_payload(),

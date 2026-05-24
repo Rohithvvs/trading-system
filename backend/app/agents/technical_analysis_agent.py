@@ -8,5 +8,5 @@ class TechnicalAnalysisAgent:
     def __init__(self) -> None:
         self.service = TechnicalAnalysisService()
 
-    def run(self, symbol: str, candles: list[OHLCVPoint], mode: AnalysisMode) -> TechnicalAnalysisResult:
-        return self.service.analyze(symbol, candles, mode)
+    def run_bulk(self, candles_dict: dict[str, list[OHLCVPoint]], mode: AnalysisMode) -> dict[str, TechnicalAnalysisResult]:
+        return self.service.analyze_bulk(candles_dict, mode)

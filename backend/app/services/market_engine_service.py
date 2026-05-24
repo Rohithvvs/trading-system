@@ -24,6 +24,7 @@ class MarketEngineService:
         self.logger = get_logger("app.market_engine")
         self.fyers = FyersService()
         self.latest_ltp: dict[str, float] = {}
+        self._active_positions_cache: dict[str, list[PaperPosition]] = {}
         self._task: asyncio.Task | None = None
         self._running = False
         self._feed = FyersMarketDataFeed(self._on_tick, self._on_feed_error, self._on_connection_change)
@@ -103,13 +104,13 @@ class MarketEngineService:
                 with SessionLocal() as db:
                     session = self._get_or_create_session(db)
                     if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED", "WAITING_MARKET_OPEN"}:
-                        self._reconcile_session(db, session)
+                        await self._reconcile_session(db, session)
                     db.commit()
             except Exception:
                 self.logger.exception("Market engine loop failed")
             await asyncio.sleep(2)
 
-    def _reconcile_session(self, db, session: MarketEngineSession) -> None:
+    async def _reconcile_session(self, db, session: MarketEngineSession) -> None:
         if not self.is_market_hours():
             if session.status != "WAITING_MARKET_OPEN":
                 self.logger.info("Market closed; engine waiting for next session")
@@ -131,20 +132,27 @@ class MarketEngineService:
             session.paused_reason = None
             if session.started_at is None:
                 session.started_at = datetime.utcnow()
-            self._poll_missing_prices(db, desired)
+            await self._poll_missing_prices(desired)
         except (FyersAuthExpiredError, FyersAuthInvalidError):
             self._pause_for_token(db, session)
         except Exception:
             self.logger.exception("Market engine reconcile failed")
             session.status = "ERROR_RETRYING"
 
-    def _poll_missing_prices(self, db, symbols: set[str]) -> None:
-        for symbol in symbols:
-            if symbol in self.latest_ltp:
-                continue
-            ltp = self.fyers.fetch_ltp(symbol)
-            if ltp is not None:
-                self._process_symbol(db, symbol, ltp)
+    async def _poll_missing_prices(self, symbols: set[str]) -> None:
+        missing = [sym for sym in symbols if sym not in self.latest_ltp]
+        if not missing:
+            return
+            
+        sem = asyncio.Semaphore(10)
+        
+        async def fetch_and_process(sym: str):
+            async with sem:
+                ltp = await asyncio.to_thread(self.fyers.fetch_ltp, sym)
+                if ltp is not None:
+                    await asyncio.to_thread(self._on_tick, sym, ltp)
+
+        await asyncio.gather(*(fetch_and_process(sym) for sym in missing))
 
     def _on_tick(self, symbol: str, price: float) -> None:
         normalized = symbol.replace("NSE:", "").upper()
@@ -174,7 +182,7 @@ class MarketEngineService:
             prior = order.lifecycle_state
             order.last_seen_ltp = price
             order.last_evaluated_at = datetime.utcnow()
-            account = service._get_or_create_account()
+            account = service._get_or_create_account(for_update=True)
             filled_order, position, _, _ = service._try_fill_order(account, order, price)
             if filled_order.status == "FILLED":
                 filled_order.lifecycle_state = "ENTRY_FILLED"
@@ -203,16 +211,7 @@ class MarketEngineService:
                     commit=False,
                 )
 
-        positions = list(
-            db.scalars(
-                select(PaperPosition).where(
-                    PaperPosition.symbol == symbol,
-                    PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
-                    PaperPosition.status == "OPEN",
-                    PaperPosition.monitor_enabled.is_(True),
-                )
-            )
-        )
+        positions = self._active_positions_cache.get(symbol, [])
         for position in positions:
             if position.target is not None and price >= position.target:
                 self.logger.info("Target hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
@@ -233,15 +232,21 @@ class MarketEngineService:
                 )
             )
         )
-        position_symbols = set(
+        positions = list(
             db.scalars(
-                select(PaperPosition.symbol).where(
+                select(PaperPosition).where(
                     PaperPosition.status == "OPEN",
                     PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
                     PaperPosition.monitor_enabled.is_(True),
                 )
             )
         )
+        
+        self._active_positions_cache.clear()
+        for pos in positions:
+            self._active_positions_cache.setdefault(pos.symbol, []).append(pos)
+            
+        position_symbols = {pos.symbol for pos in positions if pos.symbol}
         return {s for s in order_symbols | position_symbols if s}
 
     def _set_market_closed_waiting(self, db) -> None:

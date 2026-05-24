@@ -79,3 +79,46 @@ class LLMService:
                 "historical setup in the current advisory engine."
             ),
         }
+
+    def analyze_sentiment(self, symbol: str, headlines: list[str]) -> float:
+        if not headlines:
+            return 0.0
+        if settings.llm_provider.lower() == "groq" and settings.llm_api_key:
+            system_prompt = (
+                "You are a quantitative sentiment analyzer. Respond with valid JSON only. "
+                "Evaluate the following headlines for the given stock symbol and return a clean, minified JSON object containing a numeric 'sentiment_score' "
+                "strictly bounded between -1.0 (highly catastrophic/bearish) and 1.0 (highly disruptive/bullish)."
+            )
+            user_prompt = (
+                f"Symbol: {symbol}\n"
+                f"Headlines: {json.dumps(headlines)}\n"
+            )
+            try:
+                response = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.llm_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": settings.llm_model,
+                        "temperature": 0.0,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "response_format": {"type": "json_object"},
+                    },
+                    timeout=10,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                content = payload["choices"][0]["message"]["content"]
+                parsed = json.loads(content)
+                score = float(parsed.get("sentiment_score", 0.0))
+                return max(-1.0, min(1.0, score))
+            except Exception as e:
+                from ..utils import get_logger
+                get_logger("app.llm_service").error("Sentiment LLM failed for %s: %s", symbol, e)
+                return 0.0
+        return 0.0
