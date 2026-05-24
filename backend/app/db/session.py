@@ -7,8 +7,14 @@ from ..config import settings
 from .base import Base
 
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+connect_args = {}
+if settings.database_url.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+else:
+    # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
+    connect_args["connect_timeout"] = 120
+
+engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
 
