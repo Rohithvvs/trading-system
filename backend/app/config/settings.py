@@ -13,6 +13,8 @@ def normalize_database_url(raw_value: str) -> str:
     value = raw_value.strip()
     if not value:
         return "sqlite:///./trading_system.db"
+    if value.startswith("postgres://"):
+        value = value.replace("postgres://", "postgresql://", 1)
     if "://" in value:
         return value
     if value.endswith(".db") or value.endswith(".sqlite") or value.endswith(".sqlite3"):
