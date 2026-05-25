@@ -95,7 +95,7 @@ def test_shortlist_breaks_equal_screener_scores_by_symbol():
             disclaimer="test",
         )
     )
-    orchestrator.run_full = lambda request: FullAnalysisResponse(
+    orchestrator.run_full = lambda request, progress_callback=None: FullAnalysisResponse(
         items=[],
         rankings=orchestrator.ranking_agent.run([]),
         disclaimer="test",

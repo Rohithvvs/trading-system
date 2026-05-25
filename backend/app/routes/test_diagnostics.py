@@ -118,7 +118,7 @@ def sqlite_table_dump(
 
 @router.get("/token", dependencies=[Depends(require_test_mode)])
 def token_storage(db: Session = Depends(get_db)) -> dict[str, Any]:
-    row = db.execute(text("SELECT * FROM fyers_tokens WHERE id = 1")).mappings().first()
+    row = db.execute(text("SELECT * FROM fyers_tokens ORDER BY id DESC LIMIT 1")).mappings().first()
     history_count = int(db.execute(text("SELECT COUNT(*) FROM fyers_token_history")).scalar() or 0)
     if not row:
         return {"stored_in_sqlite": False, "history_count": history_count, "token_masked": None}

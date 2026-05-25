@@ -72,17 +72,29 @@ def test_screener_full_persists_latest_scan_and_history(client, db_session, monk
         def __init__(self, db):
             self.db = db
 
-        def screener_full(self, payload):
+        def screener_full(self, payload, progress_callback=None):
             return fake_screener_response()
 
     monkeypatch.setattr(analysis_routes, "RouterAgent", FakeRouterAgent)
 
+    import json
+    
     response = client.post(
         "/analysis/screener/full",
         json={"mode": "swing", "timeframe": {"intraday": "5m", "swing": "1d", "lookback_window": 30}, "symbols": ["INFY-EQ"], "top_n": 1},
     )
     assert response.status_code == 200, response.text
-    assert response.json()["shortlisted_symbols"] == ["INFY-EQ"]
+    
+    # Parse SSE stream to find the final result
+    final_result = None
+    for line in response.text.split("\n"):
+        if line.startswith("data: "):
+            data = json.loads(line[6:])
+            if data.get("status") == "complete":
+                final_result = data.get("result")
+    
+    assert final_result is not None, "SSE stream did not emit a complete result"
+    assert final_result["shortlisted_symbols"] == ["INFY-EQ"]
 
     history_row = assert_scan_history_stored(db_session)
     assert history_row["shortlisted_count"] == 1

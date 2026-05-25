@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import isfinite
@@ -8,6 +9,8 @@ import pandas as pd
 from sqlalchemy import delete, select, func
 from sqlalchemy.orm import Session
 from ta.trend import EMAIndicator
+
+_account_creation_lock = threading.Lock()
 
 from ..config import settings
 from ..models.paper_trading import PaperOrder, PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperNotification, PaperTransaction, PaperAlert
@@ -377,19 +380,23 @@ class PaperTradingService:
         query = select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc())
         if for_update:
             query = query.with_for_update()
-        account = self.db.scalar(query)
-        if account:
+            
+        with _account_creation_lock:
+            # We must query ONLY inside the lock to prevent Python/SQLite deadlocks.
+            account = self.db.scalar(query)
+            if account:
+                return account
+                
+            account = PaperTradingAccount(
+                name="Primary Paper Account",
+                starting_balance=1000000.0,
+                cash_balance=1000000.0,
+                max_risk_per_trade=0.02,
+            )
+            self.db.add(account)
+            self.db.commit()
+            self.db.refresh(account)
             return account
-        account = PaperTradingAccount(
-            name="Primary Paper Account",
-            starting_balance=1000000.0,
-            cash_balance=1000000.0,
-            max_risk_per_trade=0.02,
-        )
-        self.db.add(account)
-        self.db.commit()
-        self.db.refresh(account)
-        return account
 
     def _validate_symbol(self, symbol: str) -> None:
         if symbol.strip().upper() not in settings.nifty500_symbols:

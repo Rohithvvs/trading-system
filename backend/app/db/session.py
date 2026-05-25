@@ -17,17 +17,6 @@ else:
 
 engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
 
-if settings.database_url.startswith("sqlite"):
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        try:
-            cursor.execute("PRAGMA journal_mode=WAL;")
-            cursor.execute("PRAGMA synchronous=NORMAL;")
-            cursor.execute("PRAGMA busy_timeout=30000;")
-        finally:
-            cursor.close()
-
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
 
@@ -52,6 +41,10 @@ def init_db() -> None:
     if settings.database_url.startswith("sqlite"):
         try:
             with engine.begin() as conn:
+                conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+                conn.exec_driver_sql("PRAGMA synchronous=NORMAL;")
+                conn.exec_driver_sql("PRAGMA busy_timeout=30000;")
+
                 res = conn.exec_driver_sql("PRAGMA table_info('paper_trading_positions')").mappings().all()
                 cols = [r.get('name') for r in res] if res else []
                 if 'status' not in cols:

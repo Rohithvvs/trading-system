@@ -31,6 +31,8 @@ const DEFAULT_FILTERS: DashboardFilters = {
   onlyHighConfidence: false,
 };
 
+import { ScannerProgress } from "./components/ScannerProgress";
+
 export default function App() {
   const [mainView, setMainView] = useState<MainAppView>("home");
   const [theme, setTheme] = useState<ThemeMode>("dark");
@@ -50,6 +52,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
   const [lastScanLabel, setLastScanLabel] = useState<string | null>(null);
+
+  // Streaming Progress State
+  const [progressStage, setProgressStage] = useState("Initializing...");
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -135,6 +142,9 @@ export default function App() {
   async function handleRunScanner() {
     setIsLoading(true);
     setError(null);
+    setProgressStage("Authenticating & Waking Agents...");
+    setProgressPercent(0);
+    setScanStartTime(Date.now());
 
     try {
       console.info("[scanner] handleRunScanner triggered", {
@@ -151,6 +161,10 @@ export default function App() {
         },
         selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
         topN,
+        (stage, progress) => {
+          setProgressStage(stage);
+          setProgressPercent(progress);
+        }
       );
 
       console.info("[scanner] storing scanner result", {
@@ -183,9 +197,11 @@ export default function App() {
       }
 
       setError(errorMessage);
+      setScanStartTime(null);
     } finally {
       console.info("[scanner] handleRunScanner completed");
       setIsLoading(false);
+      setScanStartTime(null);
     }
   }
 
@@ -227,6 +243,11 @@ export default function App() {
   }
 
   function applyScanResult(response: ScreenerResponse, source: "fresh" | "restored") {
+    // Sanitize backend response to prevent undefined errors
+    response.shortlisted_symbols = response.shortlisted_symbols || [];
+    response.buy_candidate_symbols = response.buy_candidate_symbols || [];
+    response.watch_candidate_symbols = response.watch_candidate_symbols || [];
+    
     setScreenerResult(response);
     setScanHistory((current) => saveScanHistory(response, current));
     setSelectedSymbol(response.shortlisted_symbols[0] ?? response.buy_candidate_symbols[0] ?? response.watch_candidate_symbols[0] ?? null);
@@ -344,14 +365,13 @@ export default function App() {
             </div>
 
             {isLoading ? (
-              <section className="panel loading-state">
-                <h2>Running scanner</h2>
-                <ol>
-                  <li>Fetching OHLCV for the configured Nifty 500 universe.</li>
-                  <li>Validating data quality and broad trend eligibility.</li>
-                  <li>Scoring the shortlist and running full analysis on the top set.</li>
-                </ol>
-              </section>
+              <ScannerProgress 
+                stage={progressStage}
+                progress={progressPercent}
+                error={error}
+                startTime={scanStartTime}
+                onRetry={handleRunScanner}
+              />
             ) : null}
 
             {error ? (
@@ -518,16 +538,17 @@ function loadScanHistory(): ScanHistoryItem[] {
 }
 
 function saveScanHistory(response: ScreenerResponse, current: ScanHistoryItem[]) {
+  const shortlisted = response.shortlisted_symbols || [];
   const item: ScanHistoryItem = {
-    id: `${response.analysis?.generated_at ?? new Date().toISOString()}-${response.shortlisted_symbols.join("-")}`,
+    id: `${response.analysis?.generated_at ?? new Date().toISOString()}-${shortlisted.join("-")}`,
     generated_at: response.analysis?.generated_at ?? new Date().toISOString(),
-    screener_name: response.screener_name,
-    scanned_symbols: response.scanned_symbols,
-    shortlisted_count: response.shortlisted_symbols.length,
-    buy_symbols: response.buy_candidate_symbols,
-    watch_symbols: response.watch_candidate_symbols,
-    data_source: response.data_source,
-    data_warning: response.data_warning,
+    screener_name: response.screener_name || "Unknown",
+    scanned_symbols: response.scanned_symbols || 0,
+    shortlisted_count: shortlisted.length,
+    buy_symbols: response.buy_candidate_symbols || [],
+    watch_symbols: response.watch_candidate_symbols || [],
+    data_source: response.data_source || "unknown",
+    data_warning: response.data_warning || null,
   };
   const next = [item, ...current.filter((entry) => entry.id !== item.id)].slice(0, 20);
   window.localStorage.setItem("scanHistory", JSON.stringify(next));

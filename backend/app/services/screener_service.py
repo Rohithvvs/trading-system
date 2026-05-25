@@ -49,7 +49,7 @@ class ScreenerService:
         self.technical_service = TechnicalAnalysisService()
         self.logger = get_logger("app.screener")
 
-    def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint] = None) -> ScreenerConditionResult:
+    def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint], technical) -> ScreenerConditionResult:
         """Process a single symbol and return a ScreenerConditionResult.
         This contains the original symbol-level logic extracted from the
         sequential loop. Do NOT change the internal logic here when
@@ -314,6 +314,7 @@ class ScreenerService:
                 async with sem:
                     # Fetch latest missing data incrementally using a thread pool to handle network I/O concurrently
                     new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, cached_candles)
+                    await asyncio.sleep(0.1)
                 
                 combined = self.fyers_service.combine_candles(cached_candles, new_candles)
                 return symbol, combined

@@ -21,10 +21,9 @@ export async function tableDump(request: APIRequestContext, table: string) {
 export async function mockScannerResponse(page: Page) {
   await page.route(`${apiBaseURL}/analysis/screener/full`, async (route) => {
     const generatedAt = new Date().toISOString();
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
+    const payload = JSON.stringify({
+      status: "complete",
+      result: {
         scanned_symbols: 1,
         screener_name: "E2E Mock Scanner",
         data_valid_symbols: ["INFY-EQ"],
@@ -66,15 +65,15 @@ export async function mockScannerResponse(page: Page) {
             best_swing_candidate: null,
             disclaimer: "test",
           },
-          disclaimer: "test",
-          generated_at: generatedAt,
         },
-        disclaimer: "test",
-        data_source: "e2e-mock",
-        market_context: {},
-        scan_stages: [],
-        duplicate_symbols_skipped: 0,
-      }),
+        generated_at: generatedAt,
+      },
+    });
+
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: `event: result\ndata: ${payload}\n\n`,
     });
   });
 }

@@ -70,6 +70,7 @@ try {
   Wait-ForBackendReady "$ApiBase/health" "Backend" 90
 
   $env:VITE_API_BASE_URL = $ApiBase
+  $env:VITE_API_URL = $ApiBase
   $frontendProcess = Start-Process -FilePath $Npm -ArgumentList "run", "dev", "--", "--host", "127.0.0.1", "--port", $FrontendPort -WorkingDirectory $Frontend -RedirectStandardOutput $FrontendLog -RedirectStandardError $FrontendErr -WindowStyle Hidden -PassThru
   Wait-ForUrl $BaseUrl "Frontend"
 
