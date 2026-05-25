@@ -534,7 +534,7 @@ class FyersService:
                 self.logger.warning("CANDLE STORE not available, falling back to live fetch | symbol=%s", symbol)
                 return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
-            candle_store.init_db()
+
             clean_symbol = self._cache_symbol(symbol)
 
             cache_key = (clean_symbol, mode.value, resolution.lower())

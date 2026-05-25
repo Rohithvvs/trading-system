@@ -10,6 +10,7 @@ from .base import Base
 connect_args = {}
 if settings.database_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 15
 else:
     # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
     connect_args["connect_timeout"] = 120
@@ -22,6 +23,7 @@ if settings.database_url.startswith("sqlite"):
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
             cursor.execute("PRAGMA busy_timeout=30000;")
         finally:
             cursor.close()

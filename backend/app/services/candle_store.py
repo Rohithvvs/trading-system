@@ -1,69 +1,75 @@
 import sqlite3
 import os
+import threading
 from datetime import date, timedelta, datetime, timezone
 import pandas as pd
+
+write_lock = threading.Lock()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "candle_cache.db")
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
 def init_db():
     """Create required tables if they don't exist and record schema version."""
-    with get_connection() as conn:
-        # Schema versioning table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY,
-                applied_at TEXT DEFAULT (datetime('now'))
+    with write_lock:
+        with get_connection() as conn:
+            # Schema versioning table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TEXT DEFAULT (datetime('now'))
+                )
+                """
             )
-            """
-        )
 
-        # Main candles table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS candles (
-                symbol     TEXT NOT NULL,
-                date       TEXT NOT NULL,
-                open       REAL,
-                high       REAL,
-                low        REAL,
-                close      REAL,
-                volume     INTEGER,
-                fetched_at TEXT,
-                PRIMARY KEY (symbol, date)
+            # Main candles table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS candles (
+                    symbol     TEXT NOT NULL,
+                    date       TEXT NOT NULL,
+                    open       REAL,
+                    high       REAL,
+                    low        REAL,
+                    close      REAL,
+                    volume     INTEGER,
+                    fetched_at TEXT,
+                    PRIMARY KEY (symbol, date)
+                )
+                """
             )
-            """
-        )
-        # Safe migration for existing DBs that don't have fetched_at yet
-        try:
-            conn.execute("ALTER TABLE candles ADD COLUMN fetched_at TEXT")
-        except Exception:
-            # Column likely already exists; ignore
-            pass
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_symbol ON candles(symbol)")
+            # Safe migration for existing DBs that don't have fetched_at yet
+            try:
+                conn.execute("ALTER TABLE candles ADD COLUMN fetched_at TEXT")
+            except Exception:
+                # Column likely already exists; ignore
+                pass
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_symbol ON candles(symbol)")
 
-        # LTP cache for quick quote persistence (compat with older ohlcv_store)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS ltp_cache (
-                symbol TEXT PRIMARY KEY,
-                ltp REAL,
-                updated_at TEXT
+            # LTP cache for quick quote persistence (compat with older ohlcv_store)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ltp_cache (
+                    symbol TEXT PRIMARY KEY,
+                    ltp REAL,
+                    updated_at TEXT
+                )
+                """
             )
-            """
-        )
 
-        # Ensure a schema_version row exists (v1)
-        conn.execute("INSERT OR IGNORE INTO schema_version(version) VALUES(1)")
-        conn.commit()
+            # Ensure a schema_version row exists (v1)
+            conn.execute("INSERT OR IGNORE INTO schema_version(version) VALUES(1)")
+            conn.commit()
 
 
 def get_last_stored_date(symbol: str) -> str | None:
@@ -108,16 +114,17 @@ def store_candles(symbol: str, df: pd.DataFrame):
         )
         for _, row in df.iterrows()
     ]
-    with get_connection() as conn:
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO candles
-                (symbol, date, open, high, low, close, volume, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-        conn.commit()
+    with write_lock:
+        with get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO candles
+                    (symbol, date, open, high, low, close, volume, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.commit()
 
 
 def load_candles(symbol: str, from_date: str | None = None):
@@ -180,12 +187,13 @@ def get_candle_count(symbol: str) -> int:
 
 def update_ltp(symbol: str, ltp: float) -> None:
     """Insert or replace LTP for a symbol into `ltp_cache`."""
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO ltp_cache (symbol, ltp, updated_at) VALUES (?, ?, datetime('now'))",
-            (symbol, float(ltp)),
-        )
-        conn.commit()
+    with write_lock:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ltp_cache (symbol, ltp, updated_at) VALUES (?, ?, datetime('now'))",
+                (symbol, float(ltp)),
+            )
+            conn.commit()
 
 
 def get_ltp(symbol: str) -> float | None:

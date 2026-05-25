@@ -86,11 +86,7 @@ def rankings(payload: AnalysisRequest, db: Session = Depends(get_db)) -> Ranking
 
 @router.post("/screener/full", response_model=ScreenerResponse)
 def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)) -> ScreenerResponse:
-    # Ensure candle cache DB exists before running a potentially large scan
-    try:
-        candle_store.init_db()
-    except Exception:
-        logger.warning("Failed to initialize candle cache DB (continuing)")
+
 
     logger.info(
         "API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
