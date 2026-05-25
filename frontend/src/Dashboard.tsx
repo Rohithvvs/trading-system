@@ -9,6 +9,7 @@ import { PaperTradingPage } from "./components/PaperTradingPage";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
+import { ScannerProgress } from "./components/ScannerProgress";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -51,6 +52,11 @@ export default function Dashboard() {
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
   const [lastScanLabel, setLastScanLabel] = useState<string | null>(null);
   const [liveTicks, setLiveTicks] = useState<Record<string, number>>({});
+  
+  // Streaming Progress State
+  const [progressStage, setProgressStage] = useState("Initializing...");
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -193,6 +199,9 @@ export default function Dashboard() {
   async function handleRunScanner() {
     setIsLoading(true);
     setError(null);
+    setProgressStage("Authenticating & Waking Agents...");
+    setProgressPercent(0);
+    setScanStartTime(Date.now());
 
     try {
       console.info("[scanner] handleRunScanner triggered", {
@@ -209,6 +218,10 @@ export default function Dashboard() {
         },
         selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
         topN,
+        (stage, progress) => {
+          setProgressStage(stage);
+          setProgressPercent(progress);
+        }
       );
 
       console.info("[scanner] storing scanner result", {
@@ -241,9 +254,11 @@ export default function Dashboard() {
       }
 
       setError(errorMessage);
+      setScanStartTime(null);
     } finally {
       console.info("[scanner] handleRunScanner completed");
       setIsLoading(false);
+      setScanStartTime(null);
     }
   }
 
@@ -402,43 +417,13 @@ export default function Dashboard() {
             </div>
 
             {isLoading ? (
-              <div className="agent-tracker-overlay">
-                <div className="agent-tracker-card">
-                  <h2><span className="pulsing-dot"></span> Multi-Agent Scanner Active</h2>
-                  <p className="agent-tracker-subtitle">Institutional grading in progress across NIFTY 500...</p>
-                  
-                  <div className="agent-status-list">
-                    <div className="agent-status-item">
-                      <div className="agent-status-icon active"></div>
-                      <div className="agent-status-text">
-                        <strong>Technical Analysis Agent</strong>
-                        <span>Vectorizing OHLCV structures and momentum oscillators</span>
-                      </div>
-                    </div>
-                    <div className="agent-status-item">
-                      <div className="agent-status-icon active"></div>
-                      <div className="agent-status-text">
-                        <strong>Fundamental Analysis Agent</strong>
-                        <span>Parsing revenue growth, margins, and debt metrics</span>
-                      </div>
-                    </div>
-                    <div className="agent-status-item">
-                      <div className="agent-status-icon active"></div>
-                      <div className="agent-status-text">
-                        <strong>News & Sentiment Agent</strong>
-                        <span>Scoring qualitative headlines against LLM models</span>
-                      </div>
-                    </div>
-                    <div className="agent-status-item">
-                      <div className="agent-status-icon active"></div>
-                      <div className="agent-status-text">
-                        <strong>Backtest Engine</strong>
-                        <span>Simulating historical trades for dynamic win-rate</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ScannerProgress 
+                stage={progressStage}
+                progress={progressPercent}
+                error={error}
+                startTime={scanStartTime}
+                onRetry={handleRunScanner}
+              />
             ) : null}
 
             {error ? (

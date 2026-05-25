@@ -45,7 +45,7 @@ class OrchestratorAgent:
         self.ranking_agent = RankingAgent()
         self.fundamental_agent = FundamentalAnalysisAgent()
 
-    def run_full(self, request: AnalysisRequest) -> FullAnalysisResponse:
+    def run_full(self, request: AnalysisRequest, progress_callback=None) -> FullAnalysisResponse:
         self.logger.info(
             "Starting full analysis | symbols=%s | mode=%s | intraday=%s | swing=%s | lookback=%s",
             ",".join(request.symbols),
@@ -94,12 +94,16 @@ class OrchestratorAgent:
                 if c_map[mode]:
                     candles_dict_by_mode[mode][symbol] = c_map[mode]
                     
+        if progress_callback:
+            progress_callback({"stage": "Calculating Technical Indicators...", "progress": 55})
         # Execute the vectorized bulk technical analysis once
         bulk_technical_results = {}
         for mode in modes:
             self.logger.info("Executing batched deep analysis | mode=%s | symbols=%s", mode.value, len(candles_dict_by_mode[mode]))
             bulk_technical_results[mode] = self.technical_agent.run_bulk(candles_dict_by_mode[mode], mode)
             
+        if progress_callback:
+            progress_callback({"stage": "Running AI Pattern Recognition...", "progress": 70})
         # Dispatch Backtest and News agents concurrently for the batch
         async def run_remaining_agents():
             return await asyncio.gather(*(
@@ -119,6 +123,8 @@ class OrchestratorAgent:
             items = asyncio.run(run_remaining_agents())
             
 
+        if progress_callback:
+            progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85})
         rankings = self.ranking_agent.run(items)
         self.logger.info(
             "Completed full analysis | analyzed=%s | best_swing=%s | best_intraday=%s",
@@ -135,10 +141,14 @@ class OrchestratorAgent:
 
     def run_partial(self, request: AnalysisRequest) -> AnalysisResponse:
         items = [self._analyze_symbol(symbol, request) for symbol in request.symbols]
+        if progress_callback:
+            progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85})
         rankings = self.ranking_agent.run(items)
         return AnalysisResponse(items=items, rankings=rankings, disclaimer=advisory_payload())
 
-    def run_screener(self, request: ScreenerRequest) -> ScreenerResponse:
+    def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
+        if progress_callback:
+            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 10})
         self.logger.info(
             "Starting screener flow | top_n=%s | mode=%s | lookback=%s | custom_symbol_count=%s",
             request.top_n,
@@ -157,6 +167,7 @@ class OrchestratorAgent:
                 stage_name="Custom symbols",
                 source_universe=request.symbols,
                 duplicate_symbols_skipped=0,
+                progress_callback=progress_callback,
             )
 
         seen_symbols: set[str] = set()
@@ -165,6 +176,8 @@ class OrchestratorAgent:
         final_response: ScreenerResponse | None = None
         stopped_at_stage: str | None = None
 
+        if progress_callback:
+            progress_callback({"stage": "Loading Market Universe...", "progress": 20})
         universes = self._prioritized_universes()
         self.logger.info(
             "Universe scan plan | stages=%s | stage_list=%s",
@@ -204,6 +217,7 @@ class OrchestratorAgent:
                 stage_name=stage_name,
                 source_universe=unique_symbols,
                 duplicate_symbols_skipped=skipped,
+                progress_callback=progress_callback,
             )
             scan_stages.extend(stage_response.scan_stages)
             final_response = stage_response
@@ -249,7 +263,10 @@ class OrchestratorAgent:
         stage_name: str,
         source_universe: list[str],
         duplicate_symbols_skipped: int,
+        progress_callback=None,
     ) -> ScreenerResponse:
+        if progress_callback:
+            progress_callback({"stage": "Fetching Historical OHLCV Data...", "progress": 40})
         screener_results = self.screener_service.screen_symbols_swing(
             source_universe,
             lookback_window=request.timeframe.lookback_window,
@@ -313,7 +330,7 @@ class OrchestratorAgent:
                 timeframe=request.timeframe,
             )
             self.logger.info("STEP 6/8 | Run full analysis only on top set | stage=%s | count=%s", stage_name, len(shortlisted_symbols))
-            shortlist_analysis = self.run_full(analysis_request)
+            shortlist_analysis = self.run_full(analysis_request, progress_callback)
             buy_items = [item for item in shortlist_analysis.items if item.recommendation.action == "BUY"]
             watch_items = [item for item in shortlist_analysis.items if item.recommendation.action == "WATCH"]
             buy_candidate_symbols = [item.symbol for item in buy_items]

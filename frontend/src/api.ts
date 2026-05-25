@@ -59,6 +59,7 @@ export async function runPresetScreener(
   timeframe: TimeframeConfig,
   symbols: string[],
   topN: number,
+  onProgress?: (stage: string, progress: number) => void
 ): Promise<ScreenerResponse> {
   console.info("[scanner] runPresetScreener called", {
     mode,
@@ -66,10 +67,12 @@ export async function runPresetScreener(
     symbolCount: symbols.length,
     topN,
   });
+  
   const response = await fetchWithDiagnostics("/analysis/screener/full", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "Accept": "text/event-stream",
     },
     body: JSON.stringify({ mode, timeframe, symbols, top_n: topN }),
   }, "Scanner request");
@@ -79,7 +82,60 @@ export async function runPresetScreener(
     throw new Error(message || "Failed to run screener");
   }
 
-  const payload = await response.json() as ScreenerResponse;
+  if (!response.body) {
+    throw new Error("No stream body available");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let payload: ScreenerResponse | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      if (!event.trim()) continue;
+
+      const eventMatch = event.match(/event:\s*(.*?)\n/);
+      const dataMatch = event.match(/data:\s*(.*)/);
+
+      const eventType = eventMatch ? eventMatch[1].trim() : "message";
+      const dataRaw = dataMatch ? dataMatch[1].trim() : null;
+
+      if (!dataRaw) continue;
+
+      try {
+        const data = JSON.parse(dataRaw);
+        
+        if (eventType === "progress") {
+          if (onProgress) {
+            onProgress(data.stage, data.progress);
+          }
+        } else if (eventType === "result") {
+          if (data.status === "error") {
+            throw new Error(data.message || "Scanner encountered an internal error");
+          } else if (data.status === "complete") {
+            payload = data.result;
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message !== "Unexpected end of JSON input") {
+          throw err;
+        }
+      }
+    }
+  }
+
+  if (!payload) {
+    throw new Error("Stream closed without sending a result");
+  }
+
   console.info("[scanner] response summary", {
     scanned: payload.scanned_symbols,
     valid: payload.data_valid_symbols.length,

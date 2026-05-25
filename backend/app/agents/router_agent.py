@@ -45,11 +45,11 @@ class RouterAgent:
     def rankings(self, request: AnalysisRequest) -> RankingsResponse:
         return self.orchestrator.run_partial(request).rankings
 
-    def screener_full(self, request: ScreenerRequest) -> ScreenerResponse:
+    def screener_full(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         self.logger.info(
             "Router dispatch | flow=screener_full | custom_symbols=%s | top_n=%s | lookback=%s",
             len(request.symbols),
             request.top_n,
             request.timeframe.lookback_window,
         )
-        return self.orchestrator.run_screener(request)
+        return self.orchestrator.run_screener(request, progress_callback)

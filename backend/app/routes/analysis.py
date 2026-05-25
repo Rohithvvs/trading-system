@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import asyncio
+import json
 from sqlalchemy.orm import Session
 
 from ..agents import RouterAgent
@@ -84,10 +86,8 @@ def rankings(payload: AnalysisRequest, db: Session = Depends(get_db)) -> Ranking
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
-@router.post("/screener/full", response_model=ScreenerResponse)
-def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)) -> ScreenerResponse:
-
-
+@router.post("/screener/full")
+async def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)):
     logger.info(
         "API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
         payload.mode.value,
@@ -96,35 +96,72 @@ def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)) -> Sc
         payload.timeframe.swing,
         len(payload.symbols),
     )
-    response = RouterAgent(db).screener_full(payload)
-    result = sanitize_for_json(response.model_dump(mode="json"))
-    save_latest_scan(result)
-    try:
-        universe = "CUSTOM" if payload.symbols else "NIFTY500"
-        WorkstationService(db).record_scan_history(
-            result,
-            scan_name="Manual Scan",
-            mode=payload.mode.value,
-            timeframe=payload.timeframe.swing,
-            lookback_window=payload.timeframe.lookback_window,
-            top_n=payload.top_n,
-            universe=universe,
-        )
-    except Exception:
-        logger.exception("Failed to persist scan history snapshot")
-    logger.info(
-        "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
-        response.scanned_symbols,
-        len(response.data_valid_symbols),
-        len(response.eligible_symbols),
-        len(response.matched_symbols),
-        len(response.shortlisted_symbols),
-        len(response.buy_candidate_symbols),
-        len(response.watch_candidate_symbols),
-        response.data_source,
-        response.stopped_at_stage,
-    )
-    return JSONResponse(content=result)
+
+    q = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def progress_callback(update_dict: dict):
+        loop.call_soon_threadsafe(q.put_nowait, update_dict)
+
+    async def run_scan_in_background():
+        try:
+            from ..db import SessionLocal
+            
+            def sync_scan():
+                with SessionLocal() as thread_db:
+                    response = RouterAgent(thread_db).screener_full(payload, progress_callback=progress_callback)
+                    result = sanitize_for_json(response.model_dump(mode="json"))
+                    save_latest_scan(result)
+                    try:
+                        universe = "CUSTOM" if payload.symbols else "NIFTY500"
+                        WorkstationService(thread_db).record_scan_history(
+                            result,
+                            scan_name="Manual Scan",
+                            mode=payload.mode.value,
+                            timeframe=payload.timeframe.swing,
+                            lookback_window=payload.timeframe.lookback_window,
+                            top_n=payload.top_n,
+                            universe=universe,
+                        )
+                    except Exception:
+                        logger.exception("Failed to persist scan history snapshot")
+                    
+                    if progress_callback:
+                        progress_callback({"stage": "Persisting Candidates to Database...", "progress": 95})
+                        progress_callback({"stage": "Scan Complete! Rendering Dashboard.", "progress": 100})
+                    
+                    logger.info(
+                        "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
+                        response.scanned_symbols,
+                        len(response.data_valid_symbols),
+                        len(response.eligible_symbols),
+                        len(response.matched_symbols),
+                        len(response.shortlisted_symbols),
+                        len(response.buy_candidate_symbols),
+                        len(response.watch_candidate_symbols),
+                        response.data_source,
+                        response.stopped_at_stage,
+                    )
+                    return result
+
+            result = await asyncio.to_thread(sync_scan)
+            await q.put({"status": "complete", "result": result})
+        except Exception as e:
+            logger.exception("Screener failed")
+            await q.put({"status": "error", "message": str(e)})
+
+    asyncio.create_task(run_scan_in_background())
+
+    async def event_stream():
+        while True:
+            msg = await q.get()
+            if "status" in msg:
+                yield f"event: result\ndata: {json.dumps(msg)}\n\n"
+                break
+            else:
+                yield f"event: progress\ndata: {json.dumps(msg)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/symbol/{symbol}/detail")

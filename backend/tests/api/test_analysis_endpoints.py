@@ -54,7 +54,7 @@ def test_full_analysis_endpoint(mock_router_agent):
     assert data["items"][0]["action"] == "BUY"
 
 def test_screener_full_endpoint(mock_router_agent):
-    # Testing the /analysis/screener/full endpoint behavior
+    # Testing the /analysis/screener/full endpoint behavior as an SSE stream
     mock_instance = mock_router_agent.return_value
     
     mock_response = MagicMock()
@@ -64,24 +64,36 @@ def test_screener_full_endpoint(mock_router_agent):
         ],
         "stage_summaries": []
     }
-    mock_instance.screener_full.return_value = mock_response
+    
+    # We must mock the side effect so it calls progress_callback if provided
+    def side_effect_screener_full(payload, progress_callback=None):
+        if progress_callback:
+            progress_callback({"stage": "Test Stage 1", "progress": 50})
+        return mock_response
+        
+    mock_instance.screener_full.side_effect = side_effect_screener_full
 
     payload = {
-        "universe": "NIFTY50",
+        "symbols": ["INFY-EQ"],
         "mode": "swing",
         "timeframe": {
             "intraday": "5m",
             "swing": "1D",
             "lookback_window": 260
         },
-        "top_n": 5,
-        "custom_symbols": []
+        "top_n": 5
     }
 
-    response = client.post("/analysis/screener/full", json=payload)
+    with client.stream("POST", "/analysis/screener/full", json=payload) as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        content = response.read().decode("utf-8")
+        
+    # Check that progress events were emitted
+    assert 'event: progress' in content
+    assert '"stage": "Test Stage 1"' in content
     
-    assert response.status_code == 200
-    data = response.json()
-    assert "results" in data
-    assert data["results"][0]["symbol"] == "INFY.NS"
-    assert data["results"][0]["matched"] is True
+    # Check that the final result event was emitted
+    assert 'event: result' in content
+    assert '"status": "complete"' in content
+    assert '"INFY.NS"' in content

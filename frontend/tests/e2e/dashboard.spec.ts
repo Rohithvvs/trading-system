@@ -19,12 +19,7 @@ test.describe('Dashboard End-to-End Workflows', () => {
     
     // The new Multi-Agent Tracker should appear instantly
     await expect(page.getByText('Multi-Agent Scanner Active')).toBeVisible();
-    
-    // Verify individual agent tracking elements
-    await expect(page.getByText('Technical Analysis Agent')).toBeVisible();
-    await expect(page.getByText('Fundamental Analysis Agent')).toBeVisible();
-    await expect(page.getByText('News & Sentiment Agent')).toBeVisible();
-    await expect(page.getByText('Backtest Engine')).toBeVisible();
+    await expect(page.getByText(/Elapsed Time: \d+s/)).toBeVisible();
     
     // Wait for scan to complete and table to appear
     // This could take up to 30-60 seconds depending on backend mock
