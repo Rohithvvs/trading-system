@@ -12,6 +12,7 @@ from .stock import WatchedStock
 from .fyers_token import FyersToken
 from .fyers_token_history import FyersTokenHistory
 from .workstation import RiskSettings, SavedScan, ScanHistorySnapshot, WorkstationAlert
+from .system_log import SystemLog
 
 __all__ = [
     "AnalysisHistory",
@@ -30,4 +31,5 @@ __all__ = [
     "SavedScan",
     "ScanHistorySnapshot",
     "WorkstationAlert",
+    "SystemLog",
 ]

@@ -1419,7 +1419,7 @@ function PositionsTable({
         </thead>
         <tbody>
           {positions.map((position) => (
-            <tr key={position.id} className={selectedSymbol === position.symbol ? "is-selected" : ""}>
+            <tr key={position.id} className={selectedSymbol === position.symbol ? "is-selected" : ""} data-testid="position-row">
               <td><button type="button" className="text-button" onClick={() => onSelect(position.symbol)}>{position.symbol}</button></td>
               <td>{position.qty}</td>
               <td className="number-cell">{position.avg_entry_price.toFixed(2)}</td>
@@ -1530,7 +1530,7 @@ function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
         </thead>
         <tbody>
           {trades.map((trade) => (
-            <tr key={trade.id}>
+            <tr key={trade.id} data-testid="history-row">
               <td>{trade.symbol}</td>
               <td>{trade.qty}</td>
               <td className="number-cell">{trade.entry_price.toFixed(2)}</td>
@@ -1886,7 +1886,7 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
         <div className="panel-header"><div><p className="section-label">Account Summary</p><h2>Summary</h2></div></div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <div className="metric-card"><span>Starting Capital</span><strong>₹{(account?.starting_balance ?? starting).toLocaleString()}</strong></div>
-          <div className="metric-card"><span>Current Total Capital</span><strong>₹{((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0)).toFixed(2)}</strong></div>
+          <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0)).toFixed(2)}</strong></div>
           <div className="metric-card"><span>Available Funds</span><strong>₹{(account?.available_cash ?? 0).toFixed(2)}</strong></div>
           <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? 0).toFixed(2)}</strong></div>
           <div className="metric-card"><span>Total Realized P&L</span><strong>₹{(account?.realized_pnl ?? 0).toFixed(2)}</strong></div>

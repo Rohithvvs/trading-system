@@ -16,8 +16,8 @@ import type {
   MarketEngineStatus,
 } from "./types";
 
-const PRIMARY_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://trading-system-1efs.onrender.com";
-const API_BASE_URLS = Array.from(new Set([PRIMARY_API_BASE_URL, "https://trading-system-1efs.onrender.com"]));
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_BASE_URLS = [BASE_URL];
 async function fetchWithDiagnostics(
   path: string,
   init: RequestInit | undefined,
@@ -325,6 +325,14 @@ export async function loadLatestScan(): Promise<ScreenerResponse | null> {
     return null;
   }
   return data as ScreenerResponse;
+}
+
+export async function loadTodayCandidates(): Promise<any[]> {
+  const response = await fetchWithDiagnostics("/analysis/candidates/today", undefined, "Load today candidates");
+  if (!response.ok) {
+    return [];
+  }
+  return response.json() as Promise<any[]>;
 }
 
 export async function fetchAnalytics(): Promise<any> {

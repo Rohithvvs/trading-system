@@ -40,20 +40,20 @@ async def test_websocket_connection_reset_retry(test_engine, caplog):
     test_engine._feed.sync_symbols = MagicMock()
     
     # Manually trigger a ConnectionResetError in the on_feed_error callback
-    test_engine._on_feed_error(ConnectionResetError("Connection reset by peer"))
-    
-    # Verify the status flag reflects websocket drop
-    assert not test_engine._feed.connected
-
-    # Run one loop iteration to simulate the recovery
     with patch("backend.app.services.market_engine_service.SessionLocal") as mock_session_local:
         mock_db = MagicMock()
         mock_session_local.return_value.__enter__.return_value = mock_db
         mock_session = MagicMock()
         test_engine._get_or_create_session = MagicMock(return_value=mock_session)
         
+        test_engine._on_feed_error(ConnectionResetError("Connection reset by peer"))
+        
+        # Verify the status flag reflects websocket drop
+        assert not test_engine._feed.connected
+        
+        # Run one loop iteration to simulate the recovery
         # Call reconcile session which is the retry logic
-        test_engine._reconcile_session(mock_db, mock_session)
+        await test_engine._reconcile_session(mock_db, mock_session)
         
         # Assert feed is restarted
         test_engine._feed.start.assert_called_once()

@@ -211,7 +211,16 @@ class MarketEngineService:
                     commit=False,
                 )
 
-        positions = self._active_positions_cache.get(symbol, [])
+        positions = list(
+            db.scalars(
+                select(PaperPosition).where(
+                    PaperPosition.symbol == symbol,
+                    PaperPosition.status == "OPEN",
+                    PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
+                    PaperPosition.monitor_enabled.is_(True),
+                )
+            )
+        )
         for position in positions:
             if position.target is not None and price >= position.target:
                 self.logger.info("Target hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
@@ -294,8 +303,8 @@ class MarketEngineService:
         )
         self._feed.stop(notify=False)
 
-    def _on_feed_error(self, message: str) -> None:
-        if "expired" in message.lower():
+    def _on_feed_error(self, message: str | Exception) -> None:
+        if "expired" in str(message).lower():
             with SessionLocal() as db:
                 session = self._get_or_create_session(db)
                 self._pause_for_token(db, session)

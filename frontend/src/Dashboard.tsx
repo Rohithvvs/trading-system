@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchSavedScans, fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
+import { fetchSavedScans, fetchUniverses, loadLatestScan, loadTodayCandidates, runPresetScreener, saveScannerPreset } from "./api";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
@@ -58,9 +58,30 @@ export default function Dashboard() {
 
   useEffect(() => {
     function loadAndApply() {
-      void loadLatestScan().then((saved) => {
-        if (!saved) return;
-        applyScanResult(saved, "restored");
+      void loadTodayCandidates().then((candidates) => {
+        if (!candidates || candidates.length === 0) return;
+        
+        const mockResponse: any = {
+          scanned_symbols: candidates.length,
+          screener_name: candidates[0].screener_name || "Daily Scan",
+          data_valid_symbols: [], eligible_symbols: [], buy_candidate_symbols: [], watch_candidate_symbols: [],
+          shortlisted_symbols: candidates.filter((c: any) => c.matched).map((c: any) => c.symbol),
+          matched_symbols: candidates.filter((c: any) => c.matched).map((c: any) => c.symbol),
+          matches: candidates.map((c: any) => ({
+            symbol: c.symbol,
+            screener_score: c.screener_score || 0,
+            technical_signal: c.technical_signal || "Neutral",
+            technical_score: c.technical_score || 0,
+            close: 0, ema_20: 0, sma_30: 0, sma_50: 0, sma_100: 0, sma_200: 0,
+            macd: 0, macd_signal: 0, supertrend: 0, volume: 0, previous_volume: 0,
+            conditions: {},
+            matched: c.matched
+          })),
+          all_analyzed_stocks: [],
+          disclaimer: "Loaded from today's background scan",
+          scanned_at: candidates[0].scanned_at
+        };
+        applyScanResult(mockResponse as ScreenerResponse, "restored");
       });
     }
 

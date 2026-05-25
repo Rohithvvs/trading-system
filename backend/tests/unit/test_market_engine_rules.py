@@ -108,7 +108,8 @@ def test_market_closed_sets_waiting_without_crashing(db_session, monkeypatch):
     order = make_pending_order(db_session)
     session = engine._get_or_create_session(db_session)
     session.status = "STARTING"
-    engine._reconcile_session(db_session, session)
+    import asyncio
+    asyncio.run(engine._reconcile_session(db_session, session))
     db_session.commit()
     db_session.refresh(order)
     assert session.status == "WAITING_MARKET_OPEN"
@@ -120,17 +121,20 @@ def test_symbol_subscriptions_follow_active_state(db_session, engine):
     make_pending_order(db_session)
     session = engine._get_or_create_session(db_session)
     session.status = "STARTING"
-    engine._reconcile_session(db_session, session)
+    import asyncio
+    asyncio.run(engine._reconcile_session(db_session, session))
     assert engine._feed.symbols == {"INFY-EQ"}
 
     engine._process_symbol(db_session, "INFY-EQ", 95.0)
     db_session.commit()
-    engine._reconcile_session(db_session, session)
+    import asyncio
+    asyncio.run(engine._reconcile_session(db_session, session))
     assert engine._feed.symbols == {"INFY-EQ"}
 
     engine._process_symbol(db_session, "INFY-EQ", 105.0)
     db_session.commit()
-    engine._reconcile_session(db_session, session)
+    import asyncio
+    asyncio.run(engine._reconcile_session(db_session, session))
     assert engine._desired_symbols(db_session) == set()
     assert engine._feed.symbols == set()
 

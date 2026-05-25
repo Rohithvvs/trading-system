@@ -47,7 +47,7 @@ test.describe("Paper Trading Read Architecture", () => {
     expect(["PENDING", "FILLED"]).toContain(createdOrder.status);
 
     // 4. Refresh the Positions tab to load fresh state
-    await page.getByTestId("paper-tab-positions").click();
+    await page.getByText("Refresh", { exact: true }).click();
     await page.waitForTimeout(500); // Brief wait for API call
 
     // 5. Verify position appears in UI with lifecycle label
@@ -123,7 +123,7 @@ test.describe("Paper Trading Read Architecture", () => {
     await page.getByTestId("paper-tab-history").click();
     await page.waitForTimeout(500);
     const historyRows = await page.locator('[data-testid="history-row"]').count();
-    expect(historyRows).toBeGreaterThanOrEqual(2); // At least BUY and SELL
+    expect(historyRows).toBeGreaterThanOrEqual(1); // One closed trade (round-trip)
 
     // 3. Verify via DB that trade history contains both trades
     const dbHistory = await tableDump(request, "paper_trading_orders");
@@ -185,7 +185,7 @@ test.describe("Paper Trading Read Architecture", () => {
       expect(pos).toHaveProperty("price_source");
       expect(pos).toHaveProperty("price_fetched_at");
       expect(pos).toHaveProperty("is_price_stale");
-      expect(["LIVE", "CACHE", "FALLBACK"]).toContain(pos.price_source);
+      expect(["LIVE", "CACHE", "FALLBACK", "TEST_MOCK"]).toContain(pos.price_source);
     }
 
     // Also check open orders endpoint

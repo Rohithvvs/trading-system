@@ -15,7 +15,7 @@ class AnalysisMode(str, Enum):
 class TimeframeConfig(BaseModel):
     intraday: str = "5m"
     swing: str = "1d"
-    lookback_window: int = 260
+    lookback_window: int = Field(default=260, ge=1, le=2000)
 
 
 class AnalysisRequest(BaseModel):

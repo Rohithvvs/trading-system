@@ -89,7 +89,8 @@ def test_restart_recovery_and_market_closed_reconcile_do_not_crash(db_session, m
     session = service_engine._get_or_create_session(db_session)
     session.status = "STARTING"
     monkeypatch.setattr(service_engine, "is_market_hours", lambda now=None: False)
-    service_engine._reconcile_session(db_session, session)
+    import asyncio
+    asyncio.run(service_engine._reconcile_session(db_session, session))
     db_session.commit()
     db_session.refresh(order)
     assert session.status == "WAITING_MARKET_OPEN"

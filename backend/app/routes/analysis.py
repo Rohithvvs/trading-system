@@ -372,3 +372,29 @@ def get_latest_scan():
     if data is None:
         return {"available": False}
     return {"available": True, **data}
+
+@router.get("/candidates/today")
+def get_today_candidates(db: Session = Depends(get_db)):
+    from ..models.analysis import ScannedCandidate
+    from sqlalchemy import select
+    from datetime import datetime
+    
+    today = datetime.utcnow().date()
+    start_of_today = datetime.combine(today, datetime.min.time())
+    
+    candidates = db.scalars(
+        select(ScannedCandidate)
+        .where(ScannedCandidate.scanned_at >= start_of_today)
+        .order_by(ScannedCandidate.screener_score.desc())
+    ).all()
+    
+    return JSONResponse(content=[{
+        "id": c.id,
+        "symbol": c.symbol,
+        "scanned_at": c.scanned_at.isoformat(),
+        "screener_name": c.screener_name,
+        "technical_score": c.technical_score,
+        "technical_signal": c.technical_signal,
+        "screener_score": c.screener_score,
+        "matched": c.matched
+    } for c in candidates])

@@ -8,13 +8,11 @@ import datetime
 
 @pytest.fixture
 def test_db():
-    # Use SQLite in-memory for fast integration testing, but configured to test WAL behavior locally
+    # Use SQLite in-memory for testing the CRUD operations deterministically
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False}
     )
-    # Enable WAL mode if it were a file, but for memory it ignores it. 
-    # To truly test WAL concurrency, use a temporary file database.
     Base.metadata.create_all(bind=engine)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = TestingSessionLocal()
@@ -23,41 +21,47 @@ def test_db():
     finally:
         db.close()
 
-def test_strategy_performance_log_schema(test_db):
-    # Insert WatchedStock
-    stock = WatchedStock(symbol="TCS.NS", display_name="TCS")
+def test_strategy_performance_log_crud(test_db):
+    # Create Stock
+    stock = WatchedStock(symbol="INFY.NS", display_name="Infosys")
     test_db.add(stock)
     test_db.commit()
     
-    # Insert AnalysisHistory
+    # Create History
     history = AnalysisHistory(
         stock_id=stock.id,
         mode="swing",
-        technical_score=80.0,
+        technical_score=75.0,
         sentiment_score=0.9,
-        backtest_score=20.0,
+        backtest_score=15.0,
         recommendation="BUY",
-        confidence=0.85,
-        reasoning="Bullish momentum",
-        created_at=datetime.datetime.now() - datetime.timedelta(days=5)
+        confidence=0.82,
+        reasoning="Strong technical breakout.",
+        created_at=datetime.datetime.now() - datetime.timedelta(days=10)
     )
     test_db.add(history)
     test_db.commit()
     
-    # Insert StrategyPerformanceLog
+    # Create Performance Log
     log_entry = StrategyPerformanceLog(
-        symbol="TCS.NS",
+        symbol="INFY.NS",
         screened_date=history.created_at,
         initial_score=history.technical_score,
-        dominant_agent="News/Sentiment Catalyst",
-        realized_return_5d=5.5
+        dominant_agent="Technical Analysis",
+        realized_return_5d=3.2,
+        realized_return_10d=8.4
     )
     test_db.add(log_entry)
     test_db.commit()
     
-    # Validate Schema Query
-    fetched_log = test_db.query(StrategyPerformanceLog).filter(StrategyPerformanceLog.symbol == "TCS.NS").first()
+    # Read & Validate Persistence
+    fetched_log = test_db.query(StrategyPerformanceLog).filter(StrategyPerformanceLog.symbol == "INFY.NS").first()
     assert fetched_log is not None
-    assert fetched_log.realized_return_5d == 5.5
-    assert fetched_log.dominant_agent == "News/Sentiment Catalyst"
-    assert fetched_log.initial_score == 80.0
+    assert fetched_log.realized_return_5d == 3.2
+    assert fetched_log.realized_return_10d == 8.4
+    assert fetched_log.initial_score == 75.0
+
+def test_database_isolation_rollback(test_db):
+    # Ensure this test starts with an empty DB, verifying transaction isolation
+    logs = test_db.query(StrategyPerformanceLog).all()
+    assert len(logs) == 0

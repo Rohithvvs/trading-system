@@ -44,7 +44,7 @@ export default defineConfig({
     {
       command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
       env: {
-        VITE_API_BASE_URL: apiBaseURL,
+        VITE_API_URL: apiBaseURL,
       },
       url: baseURL,
       reuseExistingServer: !process.env.CI,

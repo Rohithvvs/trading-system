@@ -55,17 +55,19 @@ test("scanner Buy action prefills paper trading flow", async ({ page }) => {
   await expect(page.getByTestId("paper-symbol-select")).toHaveValue("INFY-EQ");
 });
 
+
 test("paper trading flow creates an order row that survives page reload", async ({ page, request }) => {
   await page.goto("/");
   await page.getByTestId("nav-paper-trading").click();
   await expect(page.getByTestId("paper-order-ticket")).toBeVisible();
 
   await page.getByTestId("paper-symbol-select").selectOption("INFY-EQ");
-  await page.getByTestId("paper-order-type-select").selectOption("MARKET");
+  await page.getByTestId("paper-order-type-select").selectOption("LIMIT");
   await page.getByTestId("paper-qty-input").fill("1");
+  await page.locator("label:has-text('Limit price') input").fill("1");
 
   const order = await request.post(`${apiBaseURL}/paper-trading/orders`, {
-    data: { symbol: "INFY-EQ", side: "BUY", type: "MARKET", qty: 1, notes: "e2e paper trade" },
+    data: { symbol: "INFY-EQ", side: "BUY", type: "LIMIT", qty: 1, limit_price: 1.0, notes: "e2e paper trade" },
   });
   expect(order.ok()).toBeTruthy();
 

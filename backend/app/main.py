@@ -2,8 +2,14 @@ from datetime import datetime
 from time import perf_counter
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import traceback
+from datetime import date
+from .services.db_logger import log_to_db
+from sqlalchemy import select
+from .models.system_log import SystemLog
 
 from .core.logger import setup_logging
 from .config import settings
@@ -29,7 +35,10 @@ from .schemas import AnalysisMode
 
 setup_logging()
 configure_logging()
-init_db()
+try:
+    init_db()
+except Exception as e:
+    pass # Ignore DB initialization collisions during testing
 from .core import log_manager  # ensure module-level loggers (api/http) are created
 request_logger = get_logger("app.http")
 config_logger = get_logger("app.config")
@@ -286,13 +295,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
+    allow_origins=settings.cors_origins + [
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://trading-system-frontend.vercel.app",
-        "https://trading-system01.vercel.app",
+        "http://127.0.0.1:5173",
     ],
-    allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app)",
+    allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app|https://.*\.onrender\.com)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -300,7 +308,7 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def log_http_requests(request, call_next):
+async def log_http_requests(request: Request, call_next):
     started_at = perf_counter()
     request_logger.info(
         "HTTP request start | method=%s | path=%s | client=%s",
@@ -310,7 +318,7 @@ async def log_http_requests(request, call_next):
     )
     try:
         response = await call_next(request)
-    except Exception:
+    except Exception as exc:
         elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
         request_logger.exception(
             "HTTP request failed | method=%s | path=%s | elapsed_ms=%s",
@@ -318,7 +326,21 @@ async def log_http_requests(request, call_next):
             request.url.path,
             elapsed_ms,
         )
-        raise
+        
+        # Log to DB and return 500 gracefully
+        tb = traceback.format_exc()
+        await log_to_db(
+            level="ERROR",
+            module="http_middleware_exception",
+            message=str(exc),
+            endpoint=request.url.path,
+            tb=tb
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An unexpected system error occurred. This has been logged for our engineers."}
+        )
+
     elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
     request_logger.info(
         "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s",
@@ -327,7 +349,56 @@ async def log_http_requests(request, call_next):
         response.status_code,
         elapsed_ms,
     )
+    
+    # Log critical user actions to DB
+    if request.method in ["POST", "PUT", "DELETE"]:
+        await log_to_db(
+            level="INFO",
+            module="http_middleware",
+            message=f"{request.method} {request.url.path} returned {response.status_code}",
+            endpoint=request.url.path
+        )
     return response
+
+@app.get("/api/logs")
+def get_logs(limit: int = 100, level: str = None):
+    try:
+        with SessionLocal() as db:
+            query = select(SystemLog).order_by(SystemLog.timestamp.desc())
+            if level:
+                query = query.where(SystemLog.level == level)
+            query = query.limit(limit)
+            logs = db.scalars(query).all()
+            return [
+                {
+                    "endpoint": log.endpoint,
+                    "message": log.message,
+                    "traceback": log.traceback,
+                    "timestamp": log.timestamp,
+                    "level": log.level,
+                    "module": log.module
+                }
+                for log in logs
+            ]
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+@app.delete("/api/logs")
+def delete_logs(days_old: int = 7):
+    from sqlalchemy import delete
+    from datetime import timedelta
+    try:
+        with SessionLocal() as db:
+            if days_old == 0:
+                stmt = delete(SystemLog)
+            else:
+                cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+                stmt = delete(SystemLog).where(SystemLog.timestamp < cutoff_date)
+            result = db.execute(stmt)
+            db.commit()
+            return {"detail": f"Deleted {result.rowcount} old logs successfully."}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
 
 app.include_router(api_router)
@@ -375,7 +446,30 @@ async def automated_screening_job():
     
     try:
         logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
-        await asyncio.to_thread(agent.run_screener, request)
+        response = await asyncio.to_thread(agent.run_screener, request)
+        
+        from .db import SessionLocal
+        from .models.analysis import ScannedCandidate
+        db = SessionLocal()
+        try:
+            for item in response.matches:
+                candidate = ScannedCandidate(
+                    symbol=item.symbol,
+                    screener_name=response.screener_name,
+                    technical_score=item.technical_score,
+                    technical_signal=item.technical_signal,
+                    screener_score=item.screener_score,
+                    matched=item.matched
+                )
+                db.add(candidate)
+            db.commit()
+            logger.info("Saved %s candidates to database.", len(response.matches))
+        except Exception as db_e:
+            logger.error("Failed to save scan candidates to DB: %s", db_e)
+            db.rollback()
+        finally:
+            db.close()
+            
         logger.info("AUTOMATED SCREENING job complete")
     except Exception as e:
         logger.exception("AUTOMATED SCREENING failed: %s", e)

@@ -45,7 +45,7 @@ def test_screener_results_are_stable_across_repeated_runs(monkeypatch):
     scores = {"TCS-EQ": 82.0, "INFY-EQ": 82.0, "RELIANCE-EQ": 79.0}
     monkeypatch.setattr(
         service,
-        "_process_symbol_safe",
+        "_process_single_symbol",
         lambda symbol, lookback_window, stage_name, *args, **kwargs: _screen_result(symbol, scores[symbol]),
     )
 
@@ -62,7 +62,7 @@ def test_screener_ignores_future_completion_order(monkeypatch):
     scores = {"TCS-EQ": 82.0, "INFY-EQ": 82.0, "RELIANCE-EQ": 79.0}
     monkeypatch.setattr(
         service,
-        "_process_symbol_safe",
+        "_process_single_symbol",
         lambda symbol, lookback_window, stage_name, *args, **kwargs: _screen_result(symbol, scores[symbol]),
     )
     monkeypatch.setattr(

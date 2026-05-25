@@ -34,6 +34,15 @@ async function setupMocks(
     });
   });
 
+  // Mock account summary payload (uses dashboard.account)
+  await page.route("**/paper-trading/account/summary**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(dashboardPayload.account),
+    });
+  });
+
   // Mock matching engine status
   await page.route("**/paper-trading/engine/status", async (route) => {
     await route.fulfill({

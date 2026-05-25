@@ -56,3 +56,15 @@ class StrategyPerformanceLog(Base):
     realized_return_10d: Mapped[float | None] = mapped_column(Float, nullable=True)
     realized_return_20d: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ScannedCandidate(Base):
+    __tablename__ = "scanned_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol: Mapped[str] = mapped_column(String(25), index=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    screener_name: Mapped[str] = mapped_column(String(100))
+    technical_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    technical_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    screener_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    matched: Mapped[bool] = mapped_column(default=False)

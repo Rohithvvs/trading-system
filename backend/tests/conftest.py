@@ -23,13 +23,14 @@ os.environ.setdefault("RUN_ID", RUN_ID)
 os.environ.setdefault("TEST_ARTIFACT_DIR", str(ARTIFACT_DIR))
 
 os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB_PATH.as_posix()}")
+os.environ.setdefault("DATABASE_URL", "sqlite:///file:testdb?mode=memory&cache=shared&uri=true")
 os.environ.setdefault("NIFTY500_SYMBOLS", "INFY-EQ,TCS-EQ,RELIANCE-EQ")
 os.environ.setdefault("FYERS_ACCESS_TOKEN", "")
 
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import create_engine
+import sqlalchemy.pool
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
 from backend.app.config import settings  # noqa: E402
@@ -49,8 +50,9 @@ def test_settings() -> Generator[None, None, None]:
 @pytest.fixture()
 def test_engine():
     engine = create_engine(
-        f"sqlite:///{TEST_DB_PATH.as_posix()}",
+        "sqlite:///file:testdb?mode=memory&cache=shared&uri=true",
         connect_args={"check_same_thread": False},
+        poolclass=sqlalchemy.pool.StaticPool,
     )
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

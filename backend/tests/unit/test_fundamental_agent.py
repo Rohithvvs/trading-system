@@ -21,30 +21,28 @@ def mock_yfinance():
         }
         yield MockTicker
 
-@pytest.mark.asyncio
-async def test_fundamental_agent_valid_data(mock_yfinance):
+def test_fundamental_agent_valid_data(mock_yfinance):
     agent = FundamentalAnalysisAgent()
-    result = await agent.analyze("RELIANCE.NS")
+    result = agent.run("RELIANCE.NS")
     
     assert isinstance(result, FundamentalAnalysisResult)
-    assert result.revenue_growth == 0.15
-    assert result.profit_margins == 0.12
+    assert result.revenue_growth_pct == 15.0
+    assert result.profit_margin_pct == 12.0
     # Ensure fundamental score is calculated (bounds between 0 and 100, or scaled)
     assert result.fundamental_score > 0.0
 
-@pytest.mark.asyncio
-async def test_fundamental_agent_missing_data_fallback():
+def test_fundamental_agent_missing_data_fallback():
     with patch("backend.app.agents.fundamental_analysis_agent.yf.Ticker") as MockTicker:
         mock_instance = MockTicker.return_value
         # Completely empty info dict representing missing data
         mock_instance.info = {}
         
         agent = FundamentalAnalysisAgent()
-        result = await agent.analyze("RELIANCE.NS")
+        result = agent.run("RELIANCE.NS")
         
         assert isinstance(result, FundamentalAnalysisResult)
         # Should gracefully fallback to neutral scores rather than crashing
-        assert result.revenue_growth is None
-        assert result.profit_margins is None
+        assert result.revenue_growth_pct is None
+        assert result.profit_margin_pct is None
         # Score should be a neutral default
         assert result.fundamental_score == 0.0

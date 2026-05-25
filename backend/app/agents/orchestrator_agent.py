@@ -738,6 +738,7 @@ class OrchestratorAgent:
             symbol=symbol,
             technical_results=technical_results,
             sentiment_score=0.0,
+            fundamental_result=None,
             backtests=backtests,
             candles_by_mode=candles_by_mode,
             llm_reasoning={

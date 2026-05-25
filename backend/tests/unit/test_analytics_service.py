@@ -31,9 +31,13 @@ async def test_track_strategy_drift_alpha_calculation(mock_fyers):
         history_mock.recommendation = "BUY"
         history_mock.sentiment_score = 0.8
         history_mock.technical_score = 65.0
+        history_mock.backtest_score = 20.0
         
         # db.execute(stmt).all() returns list of (history, symbol) tuples
-        mock_db.execute.return_value.all.return_value = [(history_mock, "RELIANCE.NS")]
+        mock_db.execute.return_value.all.side_effect = [[(history_mock, "RELIANCE.NS")], [], []]
+        
+        # Ensure log_entry is not found so db.add is called
+        mock_db.scalar.return_value = None
         
         service = AnalyticsService()
         await service.track_strategy_drift()

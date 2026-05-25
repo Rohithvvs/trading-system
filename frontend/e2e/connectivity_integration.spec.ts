@@ -37,7 +37,7 @@ test.describe("Real Connectivity Integration Tests (Non-Mocked)", () => {
     await page.getByTestId("paper-side-select").selectOption("BUY");
     await page.getByTestId("paper-order-type-select").selectOption("LIMIT");
     await page.getByTestId("paper-qty-input").fill("1");
-    await page.locator("label:has-text('Limit price') input").fill("1000");
+    await page.locator("label:has-text('Limit price') input").fill("1");
 
     // 2. Open confirmation preview and submit order (committing to the real database)
     await page.getByTestId("paper-place-order-button").click();
