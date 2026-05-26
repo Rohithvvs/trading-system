@@ -551,7 +551,7 @@ export async function deleteAlert(alertId: number) {
 
 export async function saveAccessToken(access_token: string) {
   const body = { access_token };
-  const response = await fetchWithDiagnostics('/api/settings/token', {
+  const response = await fetchWithDiagnostics('/settings/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
