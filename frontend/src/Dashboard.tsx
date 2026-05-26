@@ -10,6 +10,7 @@ import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
 import { ScannerProgress } from "./components/ScannerProgress";
+import LiveDataBadge from "./components/LiveDataBadge";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -58,6 +59,10 @@ export default function Dashboard() {
   const [progressPercent, setProgressPercent] = useState(0);
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
+  // WebSocket Live Badge State
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
+  const [lastMessageAt, setLastMessageAt] = useState<Date | null>(null);
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -100,6 +105,7 @@ export default function Dashboard() {
     let retryCount = 0;
 
     const connect = () => {
+      setWsStatus("connecting");
       // Determine base URL dynamically (using VITE env variable to avoid localhost hardcoding)
       const baseHttpUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
       // Convert http:// to ws:// and https:// to wss://
@@ -110,6 +116,7 @@ export default function Dashboard() {
       socket.onopen = () => {
         console.info("[scanner] WebSocket connected for real-time tick stream");
         retryCount = 0;
+        setWsStatus("connected");
       };
 
       socket.onmessage = (event) => {
@@ -117,6 +124,7 @@ export default function Dashboard() {
           const data = JSON.parse(event.data);
           if (data.type === 'TICK_UPDATE' && data.symbol && data.price) {
             setLiveTicks(prev => ({ ...prev, [data.symbol]: data.price }));
+            setLastMessageAt(new Date());
           }
         } catch (err) {
           // Ignore parse errors from non-tick messages
@@ -125,6 +133,7 @@ export default function Dashboard() {
 
       socket.onclose = () => {
         console.info(`[scanner] WebSocket disconnected. Attempting reconnect ${retryCount + 1}...`);
+        setWsStatus("disconnected");
         const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
         reconnectTimer = window.setTimeout(() => {
           retryCount++;
@@ -329,6 +338,9 @@ export default function Dashboard() {
           <button data-testid="nav-paper-trading" type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
             Paper Trading
           </button>
+        </div>
+        <div className="ml-auto pr-4 flex items-center">
+          <LiveDataBadge status={wsStatus} lastMessageAt={lastMessageAt} />
         </div>
       </div>
 

@@ -72,6 +72,84 @@ if not settings.nifty500_symbols:
         "Nifty 500 universe is empty | Check NIFTY500_CSV_PATH, ind_nifty500list.csv, or NIFTY500_SYMBOLS"
     )
 
+async def job_market_engine_spin_up():
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="Market engine spin up triggered.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="job_market_engine_spin_up"
+    )
+    try:
+        from .services.market_engine_service import market_engine
+        market_engine.request_start()
+        logger_service.log_info(
+            message="Market engine spin up completed successfully.",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_market_engine_spin_up"
+        )
+    except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_market_engine_spin_up",
+            exc=e
+        )
+
+async def job_intraday_heartbeat():
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="15-minute market data trigger started.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="job_intraday_heartbeat"
+    )
+    try:
+        from .services.market_engine_service import market_engine
+        market_engine.heartbeat()
+        logger_service.log_info(
+            message="15-minute market data trigger completed successfully.",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_intraday_heartbeat"
+        )
+    except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_intraday_heartbeat",
+            exc=e
+        )
+
+async def job_market_engine_cool_down():
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="Market engine cool down triggered.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="job_market_engine_cool_down"
+    )
+    try:
+        from .services.market_engine_service import market_engine
+        market_engine.request_stop()
+        logger_service.log_info(
+            message="Market engine cool down completed successfully.",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_market_engine_cool_down"
+        )
+    except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_market_engine_cool_down",
+            exc=e
+        )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -98,7 +176,7 @@ async def lifespan(app: FastAPI):
 
     # JOB 1: Market Engine Spin Up
     scheduler.add_job(
-        market_engine.request_start,
+        job_market_engine_spin_up,
         CronTrigger(day_of_week="mon-fri", hour=8, minute=55, timezone="Asia/Kolkata"),
         id="market_engine_spin_up",
         replace_existing=True,
@@ -114,7 +192,7 @@ async def lifespan(app: FastAPI):
 
     # JOB 3: Intraday Engine Heartbeat Loop (09:00 AM to 14:45 PM)
     scheduler.add_job(
-        market_engine.heartbeat,
+        job_intraday_heartbeat,
         CronTrigger(day_of_week="mon-fri", hour="9-14", minute="0,15,30,45", timezone="Asia/Kolkata"),
         id="intraday_heartbeat_1",
         replace_existing=True,
@@ -122,7 +200,7 @@ async def lifespan(app: FastAPI):
 
     # JOB 3 continued: Intraday Engine Heartbeat Loop (15:00 PM to 15:30 PM)
     scheduler.add_job(
-        market_engine.heartbeat,
+        job_intraday_heartbeat,
         CronTrigger(day_of_week="mon-fri", hour=15, minute="0,15,30", timezone="Asia/Kolkata"),
         id="intraday_heartbeat_2",
         replace_existing=True,
@@ -130,7 +208,7 @@ async def lifespan(app: FastAPI):
 
     # JOB 4: Market Engine Cool Down
     scheduler.add_job(
-        market_engine.request_stop,
+        job_market_engine_cool_down,
         CronTrigger(day_of_week="mon-fri", hour=15, minute=30, timezone="Asia/Kolkata"),
         id="market_engine_cool_down",
         replace_existing=True,
@@ -395,6 +473,13 @@ async def nightly_candle_sync():
 # Lifespan managed startup/shutdown is handled by the `lifespan` context manager above.
 
 async def automated_screening_job():
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="Automated screening job started.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="automated_screening_job"
+    )
     logger.info("AUTOMATED SCREENING job triggered")
     from .agents.orchestrator_agent import OrchestratorAgent
     from .schemas import ScreenerRequest, TimeframeMode
@@ -432,18 +517,51 @@ async def automated_screening_job():
         finally:
             db.close()
             
+        logger_service.log_info(
+            message="Automated screening job completed successfully.",
+            source="JOB",
+            module="Scheduler",
+            endpoint="automated_screening_job"
+        )
         logger.info("AUTOMATED SCREENING job complete")
     except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="automated_screening_job",
+            exc=e
+        )
         logger.exception("AUTOMATED SCREENING failed: %s", e)
 
 
 async def track_strategy_drift_job():
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="Strategy drift tracker job started.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="track_strategy_drift_job"
+    )
     logger.info("STRATEGY DRIFT TRACKER job triggered")
     from .services.analytics_service import AnalyticsService
     try:
         service = AnalyticsService()
         await service.track_strategy_drift()
+        logger_service.log_info(
+            message="Strategy drift tracker job completed successfully.",
+            source="JOB",
+            module="Scheduler",
+            endpoint="track_strategy_drift_job"
+        )
         logger.info("STRATEGY DRIFT TRACKER job complete")
     except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="track_strategy_drift_job",
+            exc=e
+        )
         logger.exception("STRATEGY DRIFT TRACKER failed: %s", e)
 
