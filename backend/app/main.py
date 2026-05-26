@@ -482,22 +482,21 @@ async def automated_screening_job():
     )
     logger.info("AUTOMATED SCREENING job triggered")
     from .agents.orchestrator_agent import OrchestratorAgent
-    from .schemas import ScreenerRequest, TimeframeMode
+    from .schemas import ScreenerRequest, AnalysisMode
     import asyncio
     
-    agent = OrchestratorAgent()
+    from .db import SessionLocal
+    from .models.analysis import ScannedCandidate
+    db = SessionLocal()
+    
+    agent = OrchestratorAgent(db)
     request = ScreenerRequest(
-        screener_name="Automated Interval Scan",
-        timeframe=TimeframeMode.swing
+        mode=AnalysisMode.swing
     )
     
     try:
         logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
         response = await asyncio.to_thread(agent.run_screener, request)
-        
-        from .db import SessionLocal
-        from .models.analysis import ScannedCandidate
-        db = SessionLocal()
         try:
             for item in response.matches:
                 candidate = ScannedCandidate(

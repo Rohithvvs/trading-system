@@ -339,7 +339,7 @@ export default function Dashboard() {
             Paper Trading
           </button>
         </div>
-        <div className="ml-auto pr-4 flex items-center">
+        <div className="live-badge-wrapper">
           <LiveDataBadge status={wsStatus} lastMessageAt={lastMessageAt} />
         </div>
       </div>

@@ -7,6 +7,9 @@ import json
 import os
 import threading
 import time
+import re
+import yfinance as yf
+import pandas as pd
 
 from ..schemas import AnalysisMode, OHLCVPoint, ScreenerConditionResult
 from ..utils import get_logger
@@ -251,7 +254,51 @@ class ScreenerService:
 
         return result
 
+    async def fallback_fetch_yfinance(self, symbol: str) -> list[OHLCVPoint]:
+        # Symbol Translation: FYERS format is NSE:HDFCBANK-EQ
+        # Yahoo Finance expects HDFCBANK.NS
+        yf_symbol = symbol.replace("NSE:", "").replace("-EQ", "").strip() + ".NS"
+        
+        df = await asyncio.to_thread(yf.download, yf_symbol, period="1y", interval="1d", progress=False)
+        if df is None or df.empty:
+            return []
+            
+        points = []
+        for index, row in df.iterrows():
+            # If the columns are MultiIndex (newer yfinance), we might need to handle it.
+            # Usually for single ticker it's just 'Open', 'High', 'Low', 'Close', 'Volume'
+            open_val = row['Open'] if 'Open' in df.columns else row.iloc[0]
+            high_val = row['High'] if 'High' in df.columns else row.iloc[1]
+            low_val = row['Low'] if 'Low' in df.columns else row.iloc[2]
+            close_val = row['Close'] if 'Close' in df.columns else row.iloc[3]
+            vol_val = row['Volume'] if 'Volume' in df.columns else row.iloc[4]
+            
+            # Extract scalar values from Series if necessary (yfinance 0.2.x+ can return Series in iterrows)
+            if isinstance(open_val, pd.Series):
+                open_val = open_val.iloc[0]
+                high_val = high_val.iloc[0]
+                low_val = low_val.iloc[0]
+                close_val = close_val.iloc[0]
+                vol_val = vol_val.iloc[0]
+                
+            dt = index
+            if hasattr(dt, "to_pydatetime"):
+                dt = dt.to_pydatetime()
+                
+            # Naive UTC or timezone-aware mapping matching our schema (tz-naive in DB usually)
+            if dt.tzinfo is not None:
+                dt = dt.replace(tzinfo=None)
 
+            points.append(OHLCVPoint(
+                timestamp=dt,
+                open=float(open_val),
+                high=float(high_val),
+                low=float(low_val),
+                close=float(close_val),
+                volume=int(vol_val)
+            ))
+            
+        return points
 
     def screen_symbols_swing(
         self,
@@ -283,9 +330,8 @@ class ScreenerService:
             lookback_window,
         )
 
-        # Batch-load all cached daily candles from local database
-        clean_symbols = [self.fyers_service._cache_symbol(symbol) for symbol in symbols]
-        cached_dfs = candle_store.load_all_cached_candles(clean_symbols)
+        from .market_data_service import MarketDataService
+        md_service = MarketDataService()
 
         precombined_datasets: dict[str, list[OHLCVPoint]] = {}
 
@@ -293,40 +339,116 @@ class ScreenerService:
             sem = asyncio.Semaphore(15)
             
             async def process_symbol(symbol: str):
-                clean = self.fyers_service._cache_symbol(symbol)
-                df = cached_dfs.get(clean)
-                cached_candles: list[OHLCVPoint] = []
-                if df is not None and not df.empty:
-                    # Map cleanly into a light dictionary memory layout to avoid over-instantiating massive object arrays via iterrows
-                    records = df.to_dict('records')
-                    for row in records:
-                        cached_candles.append(
-                            OHLCVPoint(
-                                timestamp=self.fyers_service._parse_timestamp(row["date"]),
+                try:
+                    async with sem:
+                        # 1. Check DB for latest candle time
+                        latest_timestamp = await asyncio.to_thread(md_service.get_latest_candle_time, symbol, '1D')
+                        
+                        dummy_cache = []
+                        if latest_timestamp:
+                            dummy_cache.append(OHLCVPoint(
+                                timestamp=latest_timestamp,
+                                open=0, high=0, low=0, close=0, volume=0
+                            ))
+                            
+                        # 2. Fetch incremental missing data from FYERS
+                        new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, dummy_cache)
+                        await asyncio.sleep(0.1)
+                        
+                        # 3. Save newly fetched delta to DB
+                        if new_candles:
+                            import pandas as pd
+                            df = pd.DataFrame([{
+                                "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
+                            } for c in new_candles], index=[c.timestamp for c in new_candles])
+                            await asyncio.to_thread(md_service.upsert_candles, symbol, '1D', df)
+                        
+                        # 4. Read the full merged history from the DB
+                        full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
+                        
+                        if full_df is None or full_df.empty:
+                            raise ValueError("No data found in DB even after fetching")
+                            
+                        final_candles = []
+                        for index, row in full_df.iterrows():
+                            dt = index
+                            if hasattr(dt, "to_pydatetime"):
+                                dt = dt.to_pydatetime()
+                            if dt.tzinfo is not None:
+                                dt = dt.replace(tzinfo=None)
+                            final_candles.append(OHLCVPoint(
+                                timestamp=dt,
                                 open=float(row["open"]),
                                 high=float(row["high"]),
                                 low=float(row["low"]),
                                 close=float(row["close"]),
-                                volume=int(row["volume"]),
-                            )
-                        )
-                
-                try:
-                    async with sem:
-                        # Fetch latest missing data incrementally using a thread pool to handle network I/O concurrently
-                        new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, cached_candles)
-                        await asyncio.sleep(0.1)
-                    
-                    combined = self.fyers_service.combine_candles(cached_candles, new_candles)
-                    return symbol, combined
+                                volume=int(row["volume"])
+                            ))
+                        return symbol, final_candles
                 except Exception as e:
                     from ..services.logger_service import logger_service
-                    logger_service.log_error(
-                        module="screener_service",
-                        message=f"Failed to fetch data for symbol {symbol}, skipping...",
-                        exc=e
-                    )
-                    return symbol, cached_candles
+                    # TRIGGER yfinance FALLBACK
+                    try:
+                        new_candles = await self.fallback_fetch_yfinance(symbol)
+                        if new_candles:
+                            logger_service.log_warn(
+                                module="screener_service",
+                                message=f"FYERS fetch failed for {symbol}. Successfully recovered via yfinance fallback."
+                            )
+                            # Upsert yfinance full history to DB
+                            import pandas as pd
+                            df = pd.DataFrame([{
+                                "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
+                            } for c in new_candles], index=[c.timestamp for c in new_candles])
+                            await asyncio.to_thread(md_service.upsert_candles, symbol, '1D', df)
+                            
+                            # Reload from DB
+                            full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
+                            final_candles = []
+                            if not full_df.empty:
+                                for index, row in full_df.iterrows():
+                                    dt = index
+                                    if hasattr(dt, "to_pydatetime"):
+                                        dt = dt.to_pydatetime()
+                                    if dt.tzinfo is not None:
+                                        dt = dt.replace(tzinfo=None)
+                                    final_candles.append(OHLCVPoint(
+                                        timestamp=dt,
+                                        open=float(row["open"]),
+                                        high=float(row["high"]),
+                                        low=float(row["low"]),
+                                        close=float(row["close"]),
+                                        volume=int(row["volume"])
+                                    ))
+                            return symbol, final_candles
+                        else:
+                            raise ValueError("yfinance returned empty data")
+                    except Exception as yf_e:
+                        logger_service.log_error(
+                            module="screener_service",
+                            message=f"Both FYERS and yfinance failed to fetch data for symbol {symbol}, skipping...",
+                            exc=yf_e
+                        )
+                        # Try to load whatever we have in the DB as a final fallback
+                        full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
+                        if full_df is not None and not full_df.empty:
+                            final_candles = []
+                            for index, row in full_df.iterrows():
+                                dt = index
+                                if hasattr(dt, "to_pydatetime"):
+                                    dt = dt.to_pydatetime()
+                                if dt.tzinfo is not None:
+                                    dt = dt.replace(tzinfo=None)
+                                final_candles.append(OHLCVPoint(
+                                    timestamp=dt,
+                                    open=float(row["open"]),
+                                    high=float(row["high"]),
+                                    low=float(row["low"]),
+                                    close=float(row["close"]),
+                                    volume=int(row["volume"])
+                                ))
+                            return symbol, final_candles
+                        return symbol, []
 
             tasks = [process_symbol(s) for s in symbols]
             results = await asyncio.gather(*tasks)
