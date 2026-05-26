@@ -73,7 +73,7 @@ export async function mockScannerResponse(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: "text/event-stream",
-      body: `event: result\ndata: ${payload}\n\n`,
+      body: `event: progress\ndata: {"stage": "Initializing Analysis...", "progress": 10}\n\nevent: progress\ndata: {"stage": "Fetching OHLCV Data...", "progress": 50}\n\nevent: progress\ndata: {"stage": "Scan Complete! Rendering Dashboard.", "progress": 100}\n\nevent: result\ndata: ${payload}\n\n`,
     });
   });
 }

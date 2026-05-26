@@ -360,45 +360,7 @@ async def log_http_requests(request: Request, call_next):
         )
     return response
 
-@app.get("/api/logs")
-def get_logs(limit: int = 100, level: str = None):
-    try:
-        with SessionLocal() as db:
-            query = select(SystemLog).order_by(SystemLog.timestamp.desc())
-            if level:
-                query = query.where(SystemLog.level == level)
-            query = query.limit(limit)
-            logs = db.scalars(query).all()
-            return [
-                {
-                    "endpoint": log.endpoint,
-                    "message": log.message,
-                    "traceback": log.traceback,
-                    "timestamp": log.timestamp,
-                    "level": log.level,
-                    "module": log.module
-                }
-                for log in logs
-            ]
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
 
-@app.delete("/api/logs")
-def delete_logs(days_old: int = 7):
-    from sqlalchemy import delete
-    from datetime import timedelta
-    try:
-        with SessionLocal() as db:
-            if days_old == 0:
-                stmt = delete(SystemLog)
-            else:
-                cutoff_date = datetime.utcnow() - timedelta(days=days_old)
-                stmt = delete(SystemLog).where(SystemLog.timestamp < cutoff_date)
-            result = db.execute(stmt)
-            db.commit()
-            return {"detail": f"Deleted {result.rowcount} old logs successfully."}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
 
 
 app.include_router(api_router)

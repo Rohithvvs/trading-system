@@ -87,7 +87,7 @@ def rankings(payload: AnalysisRequest, db: Session = Depends(get_db)) -> Ranking
 
 
 @router.post("/screener/full")
-async def screener_full(payload: ScreenerRequest, db: Session = Depends(get_db)):
+async def screener_full(payload: ScreenerRequest):
     logger.info(
         "API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
         payload.mode.value,

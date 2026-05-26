@@ -311,18 +311,29 @@ class ScreenerService:
                             )
                         )
                 
-                async with sem:
-                    # Fetch latest missing data incrementally using a thread pool to handle network I/O concurrently
-                    new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, cached_candles)
-                    await asyncio.sleep(0.1)
-                
-                combined = self.fyers_service.combine_candles(cached_candles, new_candles)
-                return symbol, combined
+                try:
+                    async with sem:
+                        # Fetch latest missing data incrementally using a thread pool to handle network I/O concurrently
+                        new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, cached_candles)
+                        await asyncio.sleep(0.1)
+                    
+                    combined = self.fyers_service.combine_candles(cached_candles, new_candles)
+                    return symbol, combined
+                except Exception as e:
+                    from ..services.logger_service import logger_service
+                    logger_service.log_error(
+                        module="screener_service",
+                        message=f"Failed to fetch data for symbol {symbol}, skipping...",
+                        exc=e
+                    )
+                    return symbol, cached_candles
 
             tasks = [process_symbol(s) for s in symbols]
             results = await asyncio.gather(*tasks)
-            for s, combined in results:
-                precombined_datasets[s] = combined
+            for res in results:
+                if res is not None:
+                    s, combined = res
+                    precombined_datasets[s] = combined
 
         asyncio.run(fetch_all_symbols())
 
@@ -341,9 +352,10 @@ class ScreenerService:
                 "close": c.close,
                 "volume": c.volume
             } for c in candles])
-            df.set_index("timestamp", inplace=True)
-            df.sort_index(inplace=True)
-            df = df.ffill()
+            if df is not None and not df.empty:
+                df.set_index("timestamp", inplace=True)
+                df.sort_index(inplace=True)
+                df = df.ffill()
             
             filled_candles = []
             for ts, row in df.iterrows():

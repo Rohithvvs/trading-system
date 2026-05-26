@@ -549,18 +549,23 @@ export async function deleteAlert(alertId: number) {
   return response.json();
 }
 
-// Token management API for FYERS refresh flow
-export async function saveAccessToken(access_token: string, note?: string) {
-  const body: any = { access_token };
-  if (note) body.note = note;
-  const response = await fetchWithDiagnostics('/api/token/save-access-token', {
+export async function saveAccessToken(access_token: string) {
+  const body = { access_token };
+  const response = await fetchWithDiagnostics('/api/settings/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }, 'Save access token');
+  }, 'Validate and save access token');
+  
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Failed to save access token');
+    let errorMessage = 'Failed to validate access token';
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = await response.text() || errorMessage;
+    }
+    throw new Error(errorMessage);
   }
   return response.json();
 }

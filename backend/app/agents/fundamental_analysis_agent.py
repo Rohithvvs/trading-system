@@ -61,7 +61,10 @@ class FundamentalAnalysisAgent:
                 summary=summary
             )
         except Exception as e:
-            self.logger.error("Failed to fetch fundamentals for %s: %s", symbol, e)
+            if "404" in str(e):
+                self.logger.warning("Fundamental API HTTP 404 for %s. Symbol may not exist on Yahoo Finance.", symbol)
+            else:
+                self.logger.error("Failed to fetch fundamentals for %s: %s", symbol, e)
             return self._fallback_result()
 
     def _calculate_fundamental_score(

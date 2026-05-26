@@ -124,6 +124,12 @@ abbr {
   background: var(--accent-soft);
 }
 
+.main-nav-spacer {
+  flex: 1;
+  border-left: 1px solid var(--border);
+  min-width: 12px;
+}
+
 .app-main-scroll {
   overflow-y: auto;
   min-height: 0;
@@ -135,6 +141,189 @@ abbr {
   padding: 16px 0 28px;
   display: grid;
   gap: 16px;
+}
+
+.logs-page {
+  width: min(1600px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 16px 0 28px;
+  display: grid;
+  gap: 12px;
+}
+
+.logs-toolbar,
+.logs-actions,
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.logs-toolbar h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.logs-filter-panel {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.logs-terminal {
+  height: min(70vh, 760px);
+  overflow-y: auto;
+  border: 1px solid #263241;
+  background: #080b10;
+  color: #d6e1ef;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.82rem;
+}
+
+.log-line {
+  border-bottom: 1px solid rgba(105, 122, 145, 0.18);
+}
+
+.log-line-main {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 170px 86px 130px 180px minmax(260px, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.log-line-main:hover {
+  background: rgba(83, 107, 139, 0.14);
+}
+
+.log-time,
+.log-source,
+.log-module {
+  color: #8ea0b6;
+  overflow-wrap: anywhere;
+}
+
+.log-level {
+  font-weight: 800;
+}
+
+.log-message {
+  overflow-wrap: anywhere;
+}
+
+.log-details {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px 406px;
+}
+
+.log-details pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid rgba(105, 122, 145, 0.24);
+  background: #10151d;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.logs-empty {
+  padding: 18px;
+  color: #8ea0b6;
+}
+
+.logs-connection {
+  min-width: 108px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.48rem 0.75rem;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+.logs-connection.live {
+  color: var(--positive);
+  border-color: rgba(56, 178, 109, 0.5);
+}
+
+.logs-connection.reconnecting,
+.logs-connection.connecting {
+  color: var(--warning);
+  border-color: rgba(201, 151, 43, 0.5);
+}
+
+.logs-connection.offline,
+.danger-button {
+  color: #ffd8d6;
+  border-color: rgba(192, 92, 84, 0.65);
+  background: rgba(192, 92, 84, 0.18);
+}
+
+.text-red-500 {
+  color: #ef4444;
+}
+
+.text-yellow-500 {
+  color: #eab308;
+}
+
+.text-green-500 {
+  color: #22c55e;
+}
+
+.text-gray-500 {
+  color: #6b7280;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.confirm-modal {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.confirm-modal h2 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.confirm-modal p {
+  color: var(--text-muted);
+}
+
+@media (max-width: 1100px) {
+  .logs-filter-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .log-line-main {
+    grid-template-columns: 1fr;
+  }
+
+  .log-details {
+    padding: 0 10px 10px;
+  }
 }
 
 .detail-screen-layout {
@@ -1177,4 +1366,29 @@ abbr {
   .workstation-summary {
     grid-template-columns: 1fr;
   }
+}
+
+.success-box {
+  background: var(--positive-soft);
+  color: var(--positive);
+  border: 1px solid var(--positive);
+  padding: 12px;
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

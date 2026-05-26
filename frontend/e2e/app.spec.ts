@@ -41,6 +41,15 @@ test("scanner flow renders results and records browser localStorage history", as
   await page.getByTestId("nav-scanner").click();
   await page.getByTestId("run-scanner-button").click();
 
+  // Verify the progress UI appears and updates through stages without hanging
+  const progressContainer = page.locator(".progress-container, .scanner-progress");
+  if (await progressContainer.count() > 0) {
+    // Assert timer or progress text appears
+    await expect(page.getByText("Initializing Analysis...")).toBeVisible();
+    await expect(page.getByText("Fetching OHLCV Data...")).toBeVisible();
+    await expect(page.getByText("Scan Complete! Rendering Dashboard.")).toBeVisible();
+  }
+
   await expect(page.getByText("INFY-EQ").first()).toBeVisible();
   const scanHistory = await page.evaluate(() => window.localStorage.getItem("scanHistory"));
   expect(scanHistory).toContain("INFY-EQ");

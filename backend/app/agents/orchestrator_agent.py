@@ -3,10 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
+import threading
 from typing import Any
+
+_db_lock = threading.Lock()
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from ..config import settings
 from ..models import AnalysisHistory, BacktestHistory, WatchedStock
@@ -482,7 +486,7 @@ class OrchestratorAgent:
         bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]]
     ) -> StockAnalysisResult:
         self.logger.info("Completing post-bulk analysis | symbol=%s", symbol)
-        stock = self._get_or_create_stock(symbol)
+        stock_id = self._get_or_create_stock(symbol)
         modes = self._resolve_modes(request.mode)
         
         if any(not candles for candles in candles_by_mode.values()):
@@ -590,7 +594,7 @@ class OrchestratorAgent:
             data_quality=data_quality,
         )
 
-        self._persist_analysis(stock, request.mode.value, technical_score, sentiment_score, best_backtest, recommendation)
+        self._persist_analysis(stock_id, request.mode.value, technical_score, sentiment_score, best_backtest, recommendation)
         self.logger.info(
             "Completed symbol analysis | symbol=%s | recommendation=%s | confidence=%s | score=%s",
             symbol,
@@ -619,49 +623,62 @@ class OrchestratorAgent:
 
     def _persist_analysis(
         self,
-        stock: WatchedStock,
+        stock_id: int,
         mode: str,
         technical_score: float,
         sentiment_score: float,
         backtest: Any,
         recommendation: Any,
     ) -> None:
-        analysis_entry = AnalysisHistory(
-            stock_id=stock.id,
-            mode=mode,
-            technical_score=technical_score,
-            sentiment_score=sentiment_score,
-            backtest_score=backtest.total_return,
-            recommendation=recommendation.action,
-            confidence=recommendation.confidence,
-            reasoning=recommendation.summary,
-        )
-        self.db.add(analysis_entry)
+        db = Session(self.db.get_bind())
+        try:
+            analysis_entry = AnalysisHistory(
+                stock_id=stock_id,
+                mode=mode,
+                technical_score=technical_score,
+                sentiment_score=sentiment_score,
+                backtest_score=backtest.total_return,
+                recommendation=recommendation.action,
+                confidence=recommendation.confidence,
+                reasoning=recommendation.summary,
+            )
+            db.add(analysis_entry)
 
-        backtest_entry = BacktestHistory(
-            stock_id=stock.id,
-            mode=mode,
-            strategy_name=backtest.strategy_name,
-            total_return=backtest.total_return,
-            cagr=backtest.cagr,
-            max_drawdown=backtest.max_drawdown,
-            win_rate=backtest.win_rate,
-            profit_factor=backtest.profit_factor,
-            trade_count=backtest.trade_count,
-            verdict=backtest.verdict,
-        )
-        self.db.add(backtest_entry)
-        self.db.commit()
+            backtest_entry = BacktestHistory(
+                stock_id=stock_id,
+                mode=mode,
+                strategy_name=backtest.strategy_name,
+                total_return=backtest.total_return,
+                cagr=backtest.cagr,
+                max_drawdown=backtest.max_drawdown,
+                win_rate=backtest.win_rate,
+                profit_factor=backtest.profit_factor,
+                trade_count=backtest.trade_count,
+                verdict=backtest.verdict,
+            )
+            db.add(backtest_entry)
+            db.commit()
+        finally:
+            db.close()
 
-    def _get_or_create_stock(self, symbol: str) -> WatchedStock:
-        existing = self.db.scalar(select(WatchedStock).where(WatchedStock.symbol == symbol))
-        if existing:
-            return existing
+    def _get_or_create_stock(self, symbol: str) -> int:
+        db = Session(self.db.get_bind())
+        try:
+            existing = db.scalar(select(WatchedStock).where(WatchedStock.symbol == symbol))
+            if existing:
+                return existing.id
 
-        stock = WatchedStock(symbol=symbol, display_name=symbol.replace("-EQ", ""))
-        self.db.add(stock)
-        self.db.flush()
-        return stock
+            stock = WatchedStock(symbol=symbol, display_name=symbol.replace("-EQ", ""))
+            db.add(stock)
+            try:
+                db.commit()
+                return stock.id
+            except IntegrityError:
+                db.rollback()
+                existing = db.scalar(select(WatchedStock).where(WatchedStock.symbol == symbol))
+                return existing.id
+        finally:
+            db.close()
 
     def _resolve_modes(self, mode: AnalysisMode) -> list[AnalysisMode]:
         if mode == AnalysisMode.both:

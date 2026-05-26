@@ -9,6 +9,7 @@ import { PaperTradingPage } from "./components/PaperTradingPage";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
+import { SystemLogs } from "./pages/SystemLogs";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -34,7 +35,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
 import { ScannerProgress } from "./components/ScannerProgress";
 
 export default function App() {
-  const [mainView, setMainView] = useState<MainAppView>("home");
+  const [mainView, setMainView] = useState<MainAppView>(() => (window.location.pathname === "/logs" ? "logs" : "home"));
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [timeframe, setTimeframe] = useState("1d");
   const [lookback, setLookback] = useState(180);
@@ -61,6 +62,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const nextPath = mainView === "logs" ? "/logs" : "/";
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(null, "", nextPath);
+    }
+  }, [mainView]);
 
   useEffect(() => {
     function loadAndApply() {
@@ -277,6 +285,10 @@ export default function App() {
           <button data-testid="nav-paper-trading" type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
             Paper Trading
           </button>
+          <span className="main-nav-spacer" />
+          <button data-testid="nav-system-logs" type="button" className={`main-nav-tab ${mainView === "logs" ? "is-active" : ""}`} onClick={() => setMainView("logs")}>
+            System Logs
+          </button>
         </div>
       </div>
 
@@ -304,7 +316,9 @@ export default function App() {
       ) : null}
 
       <div className="app-main-scroll">
-        {mainView === "home" ? (
+        {mainView === "logs" ? (
+          <SystemLogs />
+        ) : mainView === "home" ? (
           <WorkstationPage onLoadSavedScan={loadSavedScan} />
         ) : mainView === "paper-trading" ? (
           <div className="dashboard-grid">

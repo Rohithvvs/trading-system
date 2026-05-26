@@ -45,6 +45,10 @@ class FyersMarketDataFeed:
             return
 
         def on_message(message: dict[str, Any]) -> None:
+            # Silently acknowledge FYERS heartbeat payloads and ignore
+            if isinstance(message, dict) and message.get("s") == "ok" and len(message) == 1:
+                return
+                
             # First try "symbol" and "ltp" keys, otherwise try "s" and "lp" keys
             payload = {}
             if "symbol" in message:

@@ -12,6 +12,7 @@ export default function TokenStatus() {
   const [status, setStatus] = useState<Status | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [accessInput, setAccessInput] = useState("");
 
@@ -20,7 +21,7 @@ export default function TokenStatus() {
       const res = await getTokenStatus();
       setStatus(res);
     } catch (e: any) {
-      setError(e.message || String(e));
+      // Non-critical background load error
     }
   }
 
@@ -56,11 +57,12 @@ export default function TokenStatus() {
   async function handleSave() {
     setSaving(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       await saveAccessToken(accessInput.trim());
       await load();
       await loadHistory();
-      alert("Access token saved.");
+      setSuccessMessage("Token successfully verified and saved.");
       setAccessInput("");
     } catch (e: any) {
       setError(e.message || String(e));
@@ -99,6 +101,10 @@ export default function TokenStatus() {
 
       <div style={{ marginBottom: 12 }}>
         <strong>Update access token</strong>
+        
+        {error && <div className="error-box" style={{ marginTop: 8 }}>{error}</div>}
+        {successMessage && <div className="success-box" style={{ marginTop: 8 }}>{successMessage}</div>}
+
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <input
             data-testid="access-token-input"
@@ -106,9 +112,20 @@ export default function TokenStatus() {
             type="password"
             value={accessInput}
             onChange={(e) => setAccessInput(e.target.value)}
+            disabled={saving}
           />
-          <button data-testid="save-access-token-button" className="button" onClick={handleSave} disabled={saving || !accessInput.trim()}>
-            Save Token
+          <button 
+            data-testid="save-access-token-button" 
+            className="button primary-button" 
+            onClick={handleSave} 
+            disabled={saving || !accessInput.trim()}
+          >
+            {saving ? (
+              <>
+                <span className="spinner"></span>
+                Validating with broker...
+              </>
+            ) : "Save Token"}
           </button>
         </div>
       </div>
@@ -131,8 +148,6 @@ export default function TokenStatus() {
           </tbody>
         </table>
       </div>
-
-      {error ? <div className="error-box">{error}</div> : null}
     </section>
   );
 }
