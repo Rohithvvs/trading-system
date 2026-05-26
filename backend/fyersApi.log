@@ -33855,3 +33855,5 @@
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-05-26 09:55:52,924+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-05-26 09:55:52,946+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-05-26 09:55:52,952+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:183] fyersModel","message":{"API":"/quotes","error":"('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"},"timestamp":"2026-05-26 10:15:59,730+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:183] fyersModel","message":{"API":"/quotes","error":"('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"},"timestamp":"2026-05-26 10:16:01,368+0530","service":"FyersAPI"}
