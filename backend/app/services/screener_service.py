@@ -336,11 +336,11 @@ class ScreenerService:
         precombined_datasets: dict[str, list[OHLCVPoint]] = {}
 
         async def fetch_all_symbols():
-            sem = asyncio.Semaphore(15)
+            sem = asyncio.Semaphore(3)
             
             async def process_symbol(symbol: str):
-                try:
-                    async with sem:
+                async with sem:
+                    try:
                         # 1. Check DB for latest candle time
                         latest_timestamp = await asyncio.to_thread(md_service.get_latest_candle_time, symbol, '1D')
                         
@@ -353,7 +353,6 @@ class ScreenerService:
                             
                         # 2. Fetch incremental missing data from FYERS
                         new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, dummy_cache)
-                        await asyncio.sleep(0.1)
                         
                         # 3. Save newly fetched delta to DB
                         if new_candles:
@@ -385,27 +384,54 @@ class ScreenerService:
                                 volume=int(row["volume"])
                             ))
                         return symbol, final_candles
-                except Exception as e:
-                    from ..services.logger_service import logger_service
-                    # TRIGGER yfinance FALLBACK
-                    try:
-                        new_candles = await self.fallback_fetch_yfinance(symbol)
-                        if new_candles:
-                            logger_service.log_warn(
+                    except Exception as e:
+                        from ..services.logger_service import logger_service
+                        # TRIGGER yfinance FALLBACK
+                        try:
+                            new_candles = await self.fallback_fetch_yfinance(symbol)
+                            if new_candles:
+                                logger_service.log_warn(
+                                    module="screener_service",
+                                    message=f"FYERS fetch failed for {symbol}. Successfully recovered via yfinance fallback."
+                                )
+                                # Upsert yfinance full history to DB
+                                import pandas as pd
+                                df = pd.DataFrame([{
+                                    "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
+                                } for c in new_candles], index=[c.timestamp for c in new_candles])
+                                await asyncio.to_thread(md_service.upsert_candles, symbol, '1D', df)
+                                
+                                # Reload from DB
+                                full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
+                                final_candles = []
+                                if not full_df.empty:
+                                    for index, row in full_df.iterrows():
+                                        dt = index
+                                        if hasattr(dt, "to_pydatetime"):
+                                            dt = dt.to_pydatetime()
+                                        if dt.tzinfo is not None:
+                                            dt = dt.replace(tzinfo=None)
+                                        final_candles.append(OHLCVPoint(
+                                            timestamp=dt,
+                                            open=float(row["open"]),
+                                            high=float(row["high"]),
+                                            low=float(row["low"]),
+                                            close=float(row["close"]),
+                                            volume=int(row["volume"])
+                                        ))
+                                return symbol, final_candles
+                            else:
+                                raise ValueError("yfinance returned empty data")
+                        except Exception as yf_e:
+                            logger_service.log_error(
                                 module="screener_service",
-                                message=f"FYERS fetch failed for {symbol}. Successfully recovered via yfinance fallback."
+                                message=f"Both FYERS and yfinance failed to fetch data for symbol {symbol}, skipping...",
+                                exc=yf_e
                             )
-                            # Upsert yfinance full history to DB
-                            import pandas as pd
-                            df = pd.DataFrame([{
-                                "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
-                            } for c in new_candles], index=[c.timestamp for c in new_candles])
-                            await asyncio.to_thread(md_service.upsert_candles, symbol, '1D', df)
-                            
-                            # Reload from DB
+                            # Try to load whatever we have in the DB as a final fallback
                             full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
-                            final_candles = []
-                            if not full_df.empty:
+                            if full_df is not None and not full_df.empty:
+                                final_candles = []
                                 for index, row in full_df.iterrows():
                                     dt = index
                                     if hasattr(dt, "to_pydatetime"):
@@ -420,35 +446,10 @@ class ScreenerService:
                                         close=float(row["close"]),
                                         volume=int(row["volume"])
                                     ))
-                            return symbol, final_candles
-                        else:
-                            raise ValueError("yfinance returned empty data")
-                    except Exception as yf_e:
-                        logger_service.log_error(
-                            module="screener_service",
-                            message=f"Both FYERS and yfinance failed to fetch data for symbol {symbol}, skipping...",
-                            exc=yf_e
-                        )
-                        # Try to load whatever we have in the DB as a final fallback
-                        full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
-                        if full_df is not None and not full_df.empty:
-                            final_candles = []
-                            for index, row in full_df.iterrows():
-                                dt = index
-                                if hasattr(dt, "to_pydatetime"):
-                                    dt = dt.to_pydatetime()
-                                if dt.tzinfo is not None:
-                                    dt = dt.replace(tzinfo=None)
-                                final_candles.append(OHLCVPoint(
-                                    timestamp=dt,
-                                    open=float(row["open"]),
-                                    high=float(row["high"]),
-                                    low=float(row["low"]),
-                                    close=float(row["close"]),
-                                    volume=int(row["volume"])
-                                ))
-                            return symbol, final_candles
-                        return symbol, []
+                                return symbol, final_candles
+                            return symbol, []
+                    finally:
+                        await asyncio.sleep(0.5)
 
             tasks = [process_symbol(s) for s in symbols]
             results = await asyncio.gather(*tasks)

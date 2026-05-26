@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Any, List
 import os
@@ -9,6 +9,22 @@ from sqlalchemy.orm import Session
 from ..models import FyersToken, FyersTokenHistory
 
 logger = logging.getLogger("app.token")
+
+_CACHED_TOKEN: str | None = None
+_TOKEN_EXPIRY: datetime | None = None
+_TOKEN_CACHE_TTL = timedelta(minutes=int(os.getenv("FYERS_TOKEN_CACHE_MINUTES", "60")))
+
+
+def _clear_token_cache() -> None:
+    global _CACHED_TOKEN, _TOKEN_EXPIRY
+    _CACHED_TOKEN = None
+    _TOKEN_EXPIRY = None
+
+
+def _set_token_cache(access_token: str) -> None:
+    global _CACHED_TOKEN, _TOKEN_EXPIRY
+    _CACHED_TOKEN = access_token
+    _TOKEN_EXPIRY = datetime.utcnow() + _TOKEN_CACHE_TTL
 
 def get_fyers_token_row(db: Session) -> FyersToken | None:
     return db.query(FyersToken).first()
@@ -85,6 +101,7 @@ def save_access_token(access_token: str, db: Session) -> dict:
 
         db.commit()
         db.refresh(row)
+        _set_token_cache(access_token)
         logger.info("STEP 4 RESULT: Commit successful. Final status=%s saved_at=%s", row.status, row.access_token_saved_at)
 
         # POST-COMMIT diagnostics
@@ -113,6 +130,7 @@ def save_access_token(access_token: str, db: Session) -> dict:
         logger.error("Exception message: %s", str(e))
         logger.error("%s", "=" * 60, exc_info=True)
         db.rollback()
+        _clear_token_cache()
         logger.info("DB transaction rolled back")
         return {"status": "error", "message": str(e)}
 
@@ -142,14 +160,19 @@ def get_token_history(db: Session, limit: int = 50) -> List[dict[str, Any]]:
 
 
 def get_current_access_token(db: Session) -> str | None:
+    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+        return _CACHED_TOKEN
+
     logger.info("Reading access token from database")
     row = get_fyers_token_row(db)
     if row is None:
         logger.warning("No FyersToken row found in database")
+        _clear_token_cache()
         return None
     if not row.access_token:
         logger.warning("FyersToken row exists but access_token is empty")
+        _clear_token_cache()
         return None
     logger.info("Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
-    
+    _set_token_cache(row.access_token)
     return row.access_token

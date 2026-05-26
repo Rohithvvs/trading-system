@@ -10,6 +10,7 @@ import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
 import { SystemLogs } from "./pages/SystemLogs";
+import { InfrastructureStatus } from "./components/InfrastructureStatus";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -23,6 +24,8 @@ import type {
   StockAnalysisResult,
   ThemeMode,
 } from "./types";
+
+import { CentralCommand } from "./components/CentralCommand";
 
 const DEFAULT_FILTERS: DashboardFilters = {
   signal: "ALL",
@@ -282,6 +285,9 @@ export default function App() {
           <button data-testid="nav-home" type="button" className={`main-nav-tab ${mainView === "home" ? "is-active" : ""}`} onClick={() => setMainView("home")}>
             Home
           </button>
+          <button data-testid="nav-central-command" type="button" className={`main-nav-tab ${mainView === "central_command" ? "is-active" : ""}`} onClick={() => setMainView("central_command")}>
+            Central Command
+          </button>
           <button data-testid="nav-paper-trading" type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
             Paper Trading
           </button>
@@ -289,10 +295,13 @@ export default function App() {
           <button data-testid="nav-system-logs" type="button" className={`main-nav-tab ${mainView === "logs" ? "is-active" : ""}`} onClick={() => setMainView("logs")}>
             System Logs
           </button>
+          <InfrastructureStatus />
         </div>
       </div>
 
-      {mainView === "scanner" ? (
+      {mainView === "central_command" ? (
+        <CentralCommand />
+      ) : mainView === "scanner" ? (
         <DashboardHeader
           isLoading={isLoading}
           lastScanAt={screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}

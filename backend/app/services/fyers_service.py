@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone, timedelta
+import threading
 import time
 
 try:
@@ -12,6 +13,11 @@ from ..config import settings
 from ..schemas import AnalysisMode, OHLCVPoint
 from ..utils import get_logger
 from ..core.log_manager import fyers_logger
+
+BLACKLISTED_SYMBOLS: set[str] = set()
+_BLACKLIST_LOCK = threading.Lock()
+_FYERS_HISTORY_SEMAPHORE = threading.BoundedSemaphore(3)
+_FYERS_MAX_RETRIES = 3
 
 
 # FYERS-specific exceptions for clearer error handling
@@ -33,6 +39,10 @@ class FyersAPIError(Exception):
 
 class FyersNetworkException(Exception):
     """Raised when FYERS API connection drops or exhausts all retries."""
+
+
+class FyersInvalidSymbolError(Exception):
+    """Raised when FYERS reports an invalid or delisted symbol."""
 
 
 def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
@@ -68,6 +78,9 @@ def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
     # Rate limit — FYERS returns code 429
     if code_int == 429 or "too many requests" in lower_msg:
         raise FyersRateLimitError("Fyers API rate limit hit. Please wait and try again.")
+
+    if code_int == -300 or "invalid symbol" in lower_msg:
+        raise FyersInvalidSymbolError(f"FYERS invalid symbol '{symbol}': code={code} message={message}")
 
     # Any other non-ok response
     if response.get("s") == "error" or (code_int is not None and code_int < 0):
@@ -264,12 +277,11 @@ class FyersService:
             return False
         try:
             from ..db.session import SessionLocal
-            from ..models import FyersToken
+            from .token_service import get_current_access_token
 
             db = SessionLocal()
             try:
-                row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
-                return bool(row and row.access_token)
+                return bool(get_current_access_token(db))
             finally:
                 db.close()
         except Exception:
@@ -281,14 +293,13 @@ class FyersService:
     def has_fyers_credentials(self) -> bool:
         try:
             from ..db.session import SessionLocal
-            from ..models import FyersToken
+            from .token_service import get_current_access_token
 
             if not (settings.fyers_app_id and settings.fyers_app_id.strip()):
                 return False
             db = SessionLocal()
             try:
-                row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
-                return bool(row and row.access_token)
+                return bool(get_current_access_token(db))
             finally:
                 db.close()
         except Exception:
@@ -356,6 +367,11 @@ class FyersService:
         lookback_window: int,
         points: int,
     ) -> list[OHLCVPoint]:
+        clean_symbol = self._cache_symbol(symbol)
+        if self._is_blacklisted(symbol):
+            self.logger.info("Skipping blacklisted symbol: %s", symbol)
+            return []
+
         from .candle_store import (
             get_candle_count,
             get_last_stored_date,
@@ -388,9 +404,7 @@ class FyersService:
                 range_to,
                 payload["resolution"],
             )
-            response = client.history(data=payload)
-            # Check for structured FYERS errors and raise if found
-            _check_fyers_response(response, symbol)
+            response = self._request_history_with_retries(client, payload, symbol)
             candle_rows = response.get("candles", []) if isinstance(response, dict) else []
             if not candle_rows:
                 self.logger.warning(
@@ -425,7 +439,6 @@ class FyersService:
                 return parsed[-points:]
 
             init_db()
-            clean_symbol = self._cache_symbol(symbol)
             db_count = get_candle_count(clean_symbol)
             last_date = get_last_stored_date(clean_symbol)
 
@@ -481,12 +494,27 @@ class FyersService:
                         symbol,
                         len(all_rows),
                     )
+        except FyersInvalidSymbolError as exc:
+            self.logger.warning("FYERS invalid symbol | symbol=%s | error=%s", symbol, exc)
+            self._blacklist_symbol(symbol)
+            return []
         except Exception as exc:  # pragma: no cover - network/provider failure
-            self.logger.warning("FYERS history request failed | symbol=%s | resolution=%s | error=%s", symbol, resolution, exc)
+            self.logger.warning("FYERS history request failed | symbol=%s | resolution=%s | error=%s. Triggering yfinance fallback.", symbol, resolution, exc)
+            fallback = self._fetch_yfinance_candles(symbol, lookback_window, points)
+            if fallback:
+                return fallback
+            if not self._is_rate_limit_error(exc):
+                self._blacklist_symbol(symbol)
             return []
 
         two_years_ago = (today - timedelta(days=730)).isoformat()
         db_rows = load_candles(clean_symbol, two_years_ago)
+        if not db_rows:
+            fallback = self._fetch_yfinance_candles(symbol, lookback_window, points)
+            if fallback:
+                return fallback
+            self._blacklist_symbol(symbol)
+            return []
         self.logger.info(
             "OHLCV SOURCE = SQLITE_DB | symbol=%s | resolution=%s | candles=%s | db_count=%s | last_date=%s",
             symbol,
@@ -671,6 +699,105 @@ class FyersService:
             log_path="",
         )
 
+    def _request_history_with_retries(self, client, payload: dict[str, object], symbol: str) -> dict:
+        last_error: Exception | None = None
+        for attempt in range(1, _FYERS_MAX_RETRIES + 1):
+            with _FYERS_HISTORY_SEMAPHORE:
+                try:
+                    response = client.history(data=payload)
+                    _check_fyers_response(response, symbol)
+                    return response if isinstance(response, dict) else {}
+                except FyersInvalidSymbolError:
+                    raise
+                except FyersRateLimitError as exc:
+                    last_error = exc
+                except Exception as exc:
+                    last_error = exc
+                    if not self._is_rate_limit_error(exc):
+                        break
+
+            if attempt < _FYERS_MAX_RETRIES:
+                wait_seconds = 2 * attempt
+                self.logger.warning(
+                    "FYERS history retry | symbol=%s | attempt=%s/%s | backoff=%ss | error=%s",
+                    symbol,
+                    attempt,
+                    _FYERS_MAX_RETRIES,
+                    wait_seconds,
+                    last_error,
+                )
+                time.sleep(wait_seconds)
+
+        self.logger.error(
+            "FYERS history failed after %s attempts | symbol=%s | error=%s",
+            _FYERS_MAX_RETRIES,
+            symbol,
+            last_error,
+        )
+        raise last_error or FyersNetworkException(f"FYERS history failed for {symbol}")
+
+    def _fetch_yfinance_candles(self, symbol: str, lookback_window: int, points: int) -> list[OHLCVPoint]:
+        try:
+            import pandas as pd
+            import yfinance as yf
+
+            yf_symbol = symbol.replace("NSE:", "").replace("-EQ", "") + ".NS"
+            self.logger.info("YFINANCE FALLBACK | Fetching %s", yf_symbol)
+
+            period_str = "2y" if lookback_window > 365 else "1y"
+            df = yf.download(yf_symbol, period=period_str, interval="1d", progress=False)
+
+            if df is None or df.empty:
+                self.logger.warning("YFINANCE returned empty data for %s", symbol)
+                return []
+
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            parsed: list[OHLCVPoint] = []
+            for index, row in df.iterrows():
+                dt = index
+                if hasattr(dt, "to_pydatetime"):
+                    dt = dt.to_pydatetime()
+                if dt.tzinfo is not None:
+                    dt = dt.replace(tzinfo=None)
+
+                parsed.append(
+                    OHLCVPoint(
+                        timestamp=dt,
+                        open=float(row["Open"]),
+                        high=float(row["High"]),
+                        low=float(row["Low"]),
+                        close=float(row["Close"]),
+                        volume=int(row["Volume"]),
+                    )
+                )
+            self.logger.info("YFINANCE SUCCESS | symbol=%s | candles=%s", symbol, len(parsed))
+            return parsed[-points:] if points else parsed
+        except Exception as exc:
+            if self._is_rate_limit_error(exc):
+                self.logger.error("YFINANCE 429 Rate Limit hit for %s", symbol)
+            else:
+                self.logger.error("YFINANCE fallback failed for %s: %s", symbol, exc)
+            return []
+
+    def _is_blacklisted(self, symbol: str) -> bool:
+        normalized = self._cache_symbol(symbol)
+        with _BLACKLIST_LOCK:
+            return normalized in BLACKLISTED_SYMBOLS
+
+    def _blacklist_symbol(self, symbol: str) -> None:
+        normalized = self._cache_symbol(symbol)
+        with _BLACKLIST_LOCK:
+            if normalized in BLACKLISTED_SYMBOLS:
+                return
+            BLACKLISTED_SYMBOLS.add(normalized)
+        self.logger.warning("Symbol permanently blacklisted: %s", symbol)
+
+    def _is_rate_limit_error(self, error: object) -> bool:
+        error_str = str(error).lower()
+        return isinstance(error, FyersRateLimitError) or "429" in error_str or "rate limit" in error_str or "too many requests" in error_str
+
     def _map_resolution(self, resolution: str) -> str:
         mapping = {
             "1m": "1",
@@ -734,8 +861,7 @@ class FyersService:
                     "range_to": today_str,
                     "cont_flag": "1",
                 }
-                response = client.history(data=payload)
-                _check_fyers_response(response, symbol)
+                response = self._request_history_with_retries(client, payload, symbol)
                 candle_rows = response.get("candles", []) if isinstance(response, dict) else []
                 
                 fetched: list[OHLCVPoint] = []
@@ -773,6 +899,9 @@ class FyersService:
                 return fetched
             except (FyersAuthExpiredError, FyersAuthInvalidError):
                 raise
+            except FyersInvalidSymbolError:
+                self._blacklist_symbol(symbol)
+                return []
             except Exception as exc:
                 wait_time = 2 ** retry_count
                 self.logger.warning("Network drop fetching incremental candle | symbol=%s | attempt=%s | wait=%ss | error=%s", symbol, retry_count + 1, wait_time, exc)
