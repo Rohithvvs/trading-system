@@ -2148,3 +2148,6 @@
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-05-24 18:39:49,821+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-05-24 18:39:49,828+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-05-24 18:39:49,830+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-05-25 16:51:38,461+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/quotes","Error":{"message":"Please provide valid token","code":-15,"s":"error"}},"timestamp":"2026-05-25 16:53:04,059+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/quotes","Error":{"message":"Please provide valid token","code":-15,"s":"error"}},"timestamp":"2026-05-25 16:53:05,909+0530","service":"FyersAPI"}

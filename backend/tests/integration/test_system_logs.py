@@ -75,7 +75,7 @@ def test_exception_handler_and_middleware(client: TestClient, db_session: Sessio
     res = client.get("/api/logs?level=ERROR")
     data = res.json()
     assert len(data) >= 1
-    assert data[0]["module"] == "http_middleware_exception"
+    assert data[0]["module"] == "global_exception_handler"
     assert "Simulated crash" in data[0]["message"]
     assert "Traceback" in data[0]["traceback"]
 

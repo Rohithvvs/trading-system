@@ -1,0 +1,57 @@
+name: Enterprise Testing Matrix
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+        cache: "pip"
+        
+    - name: Install Dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-cov httpx respx hypothesis playwright tracemalloc
+        
+    - name: Phase 0 to 4 (Domain, Foundation, DB, Contracts, Realtime)
+      run: |
+        cd backend
+        pytest tests/unit tests/database tests/integration tests/realtime --maxfail=1 -v
+        
+    - name: Phase 5 & 6 (Integrity, E2E, Regression)
+      run: |
+        cd backend
+        pytest tests/data tests/regression -v
+        
+    - name: Phase 7 (Performance & Load)
+      run: |
+        cd backend
+        pytest tests/performance/test_load.py -v
+        
+    - name: Phase 8 & 9 (Chaos, Security, Longevity)
+      run: |
+        cd backend
+        pytest tests/chaos tests/security tests/performance/test_longevity.py -v
+        
+    - name: Phase 10 & 11 (Observability, Smoke)
+      run: |
+        cd backend
+        pytest tests/observability test_smoke.py -v
+        
+    - name: Phase 12 (Historical Replay)
+      run: |
+        cd backend
+        pytest tests/replay -v

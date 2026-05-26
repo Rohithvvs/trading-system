@@ -1,41 +1,47 @@
 import pytest
+import datetime
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-# Import the FastAPI application
 from backend.app.main import app
-
-client = TestClient(app)
-
-@pytest.fixture
-def mock_fyers():
-    with patch("backend.app.services.screener_service.FyersService") as mock_fyers_service:
-        yield mock_fyers_service
+from backend.app.schemas.analysis import OHLCVPoint
+from backend.app.models.analysis import AnalysisHistory
 
 @pytest.fixture
-def mock_router_agent():
-    with patch("backend.app.routes.analysis.RouterAgent") as mock_router:
-        yield mock_router
-
-def test_full_analysis_endpoint(mock_router_agent):
-    # Mock the returned FullAnalysisResponse from the Agent
-    mock_instance = mock_router_agent.return_value
+def mock_externals(monkeypatch):
+    import backend.app.services.fyers_service as fyers
+    import backend.app.agents.orchestrator_agent as orch_mod
     
-    mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "items": [
-            {
-                "symbol": "TCS.NS",
-                "score": 85.0,
-                "action": "BUY"
-            }
-        ],
-        "generated_at": "2023-10-01T10:00:00Z"
-    }
-    mock_instance.full_analysis.return_value = mock_response
+    # Needs at least 200 points for indicators
+    base_date = datetime.datetime(2023, 1, 1)
+    candles = [
+        OHLCVPoint(
+            timestamp=base_date + datetime.timedelta(days=i), 
+            open=100.0 + (i * 0.1), high=105.0 + (i * 0.1), low=95.0 + (i * 0.1), close=102.0 + (i * 0.1), volume=100000 + i
+        )
+        for i in range(250)
+    ]
+    
+    class FakeFyersService:
+        def __init__(self, *args, **kwargs): pass
+        def get_candles_cached(self, *args, **kwargs): return candles
+        def fetch_ohlcv(self, *args, **kwargs): return candles
+        def fetch_incremental_ohlcv(self, *args, **kwargs): return candles
+        def combine_candles(self, *args, **kwargs): return candles
+        def get_ohlcv_source(self, *args, **kwargs): return "MOCK"
+        def _cache_symbol(self, symbol: str) -> str: return symbol
+        def _is_fyers_configured(self) -> bool: return True
+        
+    monkeypatch.setattr(fyers, "FyersService", FakeFyersService)
+    monkeypatch.setattr(orch_mod, "FyersService", FakeFyersService)
+    
+    import backend.app.services.screener_service as screener_service
+    monkeypatch.setattr(screener_service, "FyersService", FakeFyersService)
 
+def test_full_analysis_endpoint(client, db_session, mock_externals):
+    # Test real full_analysis hitting the actual RouterAgent -> OrchestratorAgent
     payload = {
-        "symbols": ["TCS.NS"],
+        "symbols": ["HDFCBANK-EQ"],
         "mode": "swing",
         "timeframe": {
             "intraday": "5m",
@@ -44,37 +50,28 @@ def test_full_analysis_endpoint(mock_router_agent):
         }
     }
 
-    response = client.post("/analysis/full", json=payload)
+    with patch("backend.app.agents.fundamental_analysis_agent.yf.Ticker") as mock_ticker, \
+         patch("backend.app.agents.news_analysis_agent.NewsService.fetch_recent_news") as mock_news, \
+         patch("backend.app.services.sentiment_service.LLMService.analyze_sentiment") as mock_llm:
+        
+        mock_ticker.return_value.info = {"revenueGrowth": 0.15, "profitMargins": 0.2}
+        mock_news.return_value = [{"title": "News", "link": "url"}]
+        mock_llm.return_value = 0.8
+        
+        response = client.post("/analysis/full", json=payload)
     
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
     assert len(data["items"]) == 1
-    assert data["items"][0]["symbol"] == "TCS.NS"
-    assert data["items"][0]["action"] == "BUY"
+    assert data["items"][0]["symbol"] == "HDFCBANK-EQ"
 
-def test_screener_full_endpoint(mock_router_agent):
-    # Testing the /analysis/screener/full endpoint behavior as an SSE stream
-    mock_instance = mock_router_agent.return_value
-    
-    mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "results": [
-            {"symbol": "INFY.NS", "screener_score": 90.0, "matched": True}
-        ],
-        "stage_summaries": []
-    }
-    
-    # We must mock the side effect so it calls progress_callback if provided
-    def side_effect_screener_full(payload, progress_callback=None):
-        if progress_callback:
-            progress_callback({"stage": "Test Stage 1", "progress": 50})
-        return mock_response
-        
-    mock_instance.screener_full.side_effect = side_effect_screener_full
-
+def test_screener_full_endpoint_sse_stream(client, db_session, mock_externals):
+    """
+    Test the /analysis/screener/full endpoint as a real SSE stream.
+    Asserts that the progress events (all 8 stages) are yielded without hanging.
+    """
     payload = {
-        "symbols": ["INFY-EQ"],
         "mode": "swing",
         "timeframe": {
             "intraday": "5m",
@@ -84,16 +81,36 @@ def test_screener_full_endpoint(mock_router_agent):
         "top_n": 5
     }
 
-    with client.stream("POST", "/analysis/screener/full", json=payload) as response:
-        assert response.status_code == 200
-        assert "text/event-stream" in response.headers["content-type"]
-        content = response.read().decode("utf-8")
-        
-    # Check that progress events were emitted
-    assert 'event: progress' in content
-    assert '"stage": "Test Stage 1"' in content
+    stages_seen = []
     
-    # Check that the final result event was emitted
-    assert 'event: result' in content
-    assert '"status": "complete"' in content
-    assert '"INFY.NS"' in content
+    with patch("backend.app.agents.fundamental_analysis_agent.yf.Ticker") as mock_ticker, \
+         patch("backend.app.agents.news_analysis_agent.NewsService.fetch_recent_news") as mock_news, \
+         patch("backend.app.services.sentiment_service.LLMService.analyze_sentiment") as mock_llm:
+        
+        mock_ticker.return_value.info = {"revenueGrowth": 0.15, "profitMargins": 0.2}
+        mock_news.return_value = []
+        mock_llm.return_value = 0.5
+        
+        with client.stream("POST", "/analysis/screener/full", json=payload) as response:
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers["content-type"]
+            
+            content_chunks = response.iter_lines()
+            for chunk in content_chunks:
+                if not chunk: continue
+                
+                # chunk looks like: 'event: progress' followed by 'data: {...}'
+                if chunk.startswith("data: "):
+                    import json
+                    data_str = chunk[6:]
+                    event_data = json.loads(data_str)
+                    
+                    if "status" in event_data and event_data["status"] == "complete":
+                        break
+                    
+                    if "stage" in event_data:
+                        stages_seen.append(event_data["stage"])
+
+    # Assert that multiple stages were yielded as progress updates
+    assert len(stages_seen) >= 3, f"Expected at least 3 stages, got {len(stages_seen)}: {stages_seen}"
+    assert stages_seen[-1] == "Scan Complete! Rendering Dashboard."

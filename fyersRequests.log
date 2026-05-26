@@ -3672,3 +3672,6 @@
 {"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-05-24 18:39:49,821+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-05-24 18:39:49,828+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-05-24 18:39:49,830+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-05-25 16:51:38,424+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/quotes"},"timestamp":"2026-05-25 16:53:04,059+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/quotes"},"timestamp":"2026-05-25 16:53:05,907+0530","service":"FyersAPIRequest"}

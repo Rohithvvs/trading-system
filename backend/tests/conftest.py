@@ -23,7 +23,7 @@ os.environ.setdefault("RUN_ID", RUN_ID)
 os.environ.setdefault("TEST_ARTIFACT_DIR", str(ARTIFACT_DIR))
 
 os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("DATABASE_URL", "sqlite:///file:testdb?mode=memory&cache=shared&uri=true")
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB_PATH}")
 os.environ.setdefault("NIFTY500_SYMBOLS", "INFY-EQ,TCS-EQ,RELIANCE-EQ")
 os.environ.setdefault("FYERS_ACCESS_TOKEN", "")
 
@@ -49,16 +49,33 @@ def test_settings() -> Generator[None, None, None]:
 
 @pytest.fixture()
 def test_engine():
+    # Ensure fresh DB file for each test
+    if TEST_DB_PATH.exists():
+        try:
+            # Need to close any dangling connections or wait for file lock, but usually fine
+            TEST_DB_PATH.unlink()
+        except OSError:
+            pass
+
     engine = create_engine(
-        "sqlite:///file:testdb?mode=memory&cache=shared&uri=true",
+        f"sqlite:///{TEST_DB_PATH}",
         connect_args={"check_same_thread": False},
-        poolclass=sqlalchemy.pool.StaticPool,
     )
+    
+    with engine.connect() as conn:
+        conn.execute(sqlalchemy.text("PRAGMA journal_mode=WAL"))
+        conn.execute(sqlalchemy.text("PRAGMA synchronous=NORMAL"))
+        conn.commit()
+        
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield engine
-    Base.metadata.drop_all(bind=engine)
     engine.dispose()
+    if TEST_DB_PATH.exists():
+        try:
+            TEST_DB_PATH.unlink()
+        except OSError:
+            pass
 
 
 @pytest.fixture()

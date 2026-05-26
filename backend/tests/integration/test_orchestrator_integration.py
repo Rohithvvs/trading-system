@@ -1,98 +1,77 @@
 import pytest
-from unittest.mock import patch, MagicMock
+import datetime
+import asyncio
+from unittest.mock import patch
 from backend.app.agents.orchestrator_agent import OrchestratorAgent
-from backend.app.schemas.analysis import AnalysisMode, TechnicalAnalysisResult, FundamentalAnalysisResult
+from backend.app.schemas.analysis import AnalysisMode, AnalysisRequest, OHLCVPoint
+from backend.app.models.analysis import AnalysisHistory
+import backend.app.services.fyers_service as fyers
 
 @pytest.mark.asyncio
-@patch("backend.app.agents.orchestrator_agent.TechnicalAnalysisAgent")
-@patch("backend.app.agents.orchestrator_agent.RecommendationAgent")
-@patch("backend.app.agents.orchestrator_agent.FundamentalAnalysisAgent")
-async def test_orchestrator_service_integration(mock_fund_agent, mock_rec_agent, mock_tech_agent):
-    # Setup mocks for internal services communicating with each other
-    mock_tech_instance = mock_tech_agent.return_value
-    mock_tech_instance.run.return_value = TechnicalAnalysisResult(
-        mode=AnalysisMode.swing, score=80.0, signal="BUY", indicators={}, summary=""
-    )
+async def test_orchestrator_service_integration(db_session, monkeypatch):
+    request = AnalysisRequest(symbols=["HDFCBANK.NS"], mode=AnalysisMode.swing)
     
-    mock_fund_instance = mock_fund_agent.return_value
-    mock_fund_instance.run.return_value = FundamentalAnalysisResult(
-        revenue_growth_pct=10.0, profit_margin_pct=20.0, fundamental_score=70.0, summary=""
-    )
-    
-    from backend.app.schemas.analysis import FinalRecommendation, TradePlan, RecommendationReasoning
-    mock_rec_instance = mock_rec_agent.return_value
-    
-    valid_rec = FinalRecommendation(
-        symbol="HDFCBANK.NS",
-        action="BUY",
-        confidence=85.0,
-        score=85.0,
-        summary="",
-        trade_plans=[TradePlan(
-            strategy_name="test",
-            mode="swing",
-            timeframe="1d",
-            setup_type="breakout",
-            setup_quality="HIGH",
-            bias="LONG",
-            entry_low=99.0,
-            entry_high=101.0,
-            stop_loss=95.0,
-            target_1=110.0,
-            target_2=120.0,
-            risk_reward_ratio=2.0,
-            allocation_pct=10.0,
-            conditions=[],
-            notes="Test plan"
-        )],
-        reasoning=RecommendationReasoning(
-            bullets=[],
-            risk_factors=[],
-            invalidation_signals=[],
-            summary="Test reasoning"
+    # We need at least 250 candles so Technical Analysis indicators (like SMA 200, ATR) compute properly
+    base_date = datetime.datetime(2023, 1, 1)
+    candles = [
+        OHLCVPoint(
+            timestamp=base_date + datetime.timedelta(days=i), 
+            open=100.0 + (i * 0.1), 
+            high=105.0 + (i * 0.1), 
+            low=95.0 + (i * 0.1), 
+            close=102.0 + (i * 0.1), 
+            volume=1000 + i
         )
-    )
-    mock_rec_instance.recommendation_service.build.return_value = valid_rec
-    mock_rec_instance.run.return_value = valid_rec
+        for i in range(250)
+    ]
     
-    # Run the orchestrator which integrates all services internally
-    # We are testing that Orchestrator properly calls the sub-services and aggregates data
-    mock_db = MagicMock()
-    orchestrator = OrchestratorAgent(mock_db)
+    # External boundary mock for Fyers
+    class FakeFyersService:
+        def __init__(self, *args, **kwargs): pass
+        def get_candles_cached(self, *args, **kwargs): return candles
+        def fetch_ohlcv(self, *args, **kwargs): return candles
+        def fetch_incremental_ohlcv(self, *args, **kwargs): return candles
+        def combine_candles(self, *args, **kwargs): return candles
+        def get_ohlcv_source(self, *args, **kwargs): return "MOCK"
+        def _cache_symbol(self, symbol: str) -> str: return symbol
+        def _is_fyers_configured(self) -> bool: return True
+        
+    monkeypatch.setattr(fyers, "FyersService", FakeFyersService)
+    # Monkeypatch inside the orchestrator module as well just in case
+    import backend.app.agents.orchestrator_agent as orch_mod
+    monkeypatch.setattr(orch_mod, "FyersService", FakeFyersService)
     
-    # Run the orchestrator which integrates all services internally
-    # We are testing that Orchestrator properly calls the sub-services and aggregates data
-    with patch.object(orchestrator, 'fyers_service'):
-        with patch.object(orchestrator, 'news_agent'):
-            orchestrator.news_agent.run.return_value = ([], 0.5, "Neutral", "")
-            with patch.object(orchestrator, 'backtest_agent'):
-                from backend.app.schemas.analysis import BacktestResult
-                orchestrator.backtest_agent.run.return_value = BacktestResult(
-                    strategy_name="Test",
-                    total_return=15.0,
-                    cagr=5.0,
-                    max_drawdown=-5.0,
-                    win_rate=60.0,
-                    profit_factor=1.5,
-                    trade_count=10,
-                    verdict="PASS",
-                    mode="swing",
-                    equity_curve=[]
-                )
-                orchestrator.fyers_service.get_candles_cached.return_value = []
-                orchestrator.fyers_service.get_ohlcv_source.return_value = "FYERS_API"
-                # analyze_symbol requires asyncio loop (via to_thread in run_full) but is a sync function inside orchestrator
-                import asyncio
-                import datetime
-                from backend.app.schemas.analysis import AnalysisRequest, OHLCVPoint
-                request = AnalysisRequest(symbols=["HDFCBANK.NS"], mode=AnalysisMode.swing)
-                dummy_candle = OHLCVPoint(timestamp=datetime.datetime(2023, 1, 1), open=100.0, high=105.0, low=95.0, close=101.0, volume=1000)
-                bulk_technical = {AnalysisMode.swing: {"HDFCBANK.NS": mock_tech_instance.run.return_value}}
-                result = await asyncio.to_thread(orchestrator._analyze_symbol_post_bulk, "HDFCBANK.NS", request, {AnalysisMode.swing: [dummy_candle]}, bulk_technical)
+    import backend.app.services.screener_service as screener_service
+    monkeypatch.setattr(screener_service, "FyersService", FakeFyersService)
+    
+    # External boundary mock for yfinance (used by FundamentalAnalysisAgent)
+    with patch("backend.app.agents.fundamental_analysis_agent.yf.Ticker") as mock_ticker:
+        mock_ticker.return_value.info = {"revenueGrowth": 0.15, "profitMargins": 0.2}
+        
+        # External boundary mock for News/Sentiment (used by NewsAnalysisAgent)
+        with patch("backend.app.agents.news_analysis_agent.NewsService.fetch_recent_news") as mock_news:
+            mock_news.return_value = [{"title": "Good earnings", "link": "url"}]
+            with patch("backend.app.services.sentiment_service.LLMService.analyze_sentiment") as mock_llm:
+                mock_llm.return_value = 0.8 # Positive sentiment
+                
+                # Instantiate OrchestratorAgent AFTER monkeypatching
+                orchestrator = OrchestratorAgent(db_session)
+                # Execute the real pipeline end-to-end
+                response = orchestrator.run_full(request)
             
-    # Verify service-to-service communication was triggered
-    mock_fund_instance.run.assert_called()
-    mock_rec_instance.run.assert_called()
+    # Assertions on the real pipeline output
+    assert len(response.items) == 1
+    item = response.items[0]
+    assert item.symbol == "HDFCBANK.NS"
+    assert item.technical is not None
+    assert len(item.technical) > 0
+    assert item.technical[0].score > 0  # Should be computed by real TechnicalAnalysisAgent
     
-    # Verify DB save was called
-    assert mock_db.add.called
+    assert item.fundamental is not None
+    assert item.fundamental.fundamental_score > 0 # Computed by real FundamentalAnalysisAgent
+    
+    assert item.news_sentiment_score is not None # Computed by real NewsAnalysisAgent
+    
+    # Ensure persistence ran successfully
+    history_count = db_session.query(AnalysisHistory).count()
+    assert history_count > 0
