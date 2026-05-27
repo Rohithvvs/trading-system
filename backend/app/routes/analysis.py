@@ -31,6 +31,7 @@ from ..services.fyers_service import (
 
 from ..services.market_info_service import MarketInfoService
 from ..services.workstation_service import WorkstationService
+from ..db.locks import transaction_advisory_lock
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -109,40 +110,43 @@ async def screener_full(payload: ScreenerRequest):
             
             def sync_scan():
                 with SessionLocal() as thread_db:
-                    response = RouterAgent(thread_db).screener_full(payload, progress_callback=progress_callback)
-                    result = sanitize_for_json(response.model_dump(mode="json"))
-                    save_latest_scan(result)
-                    try:
-                        universe = "CUSTOM" if payload.symbols else "NIFTY500"
-                        WorkstationService(thread_db).record_scan_history(
-                            result,
-                            scan_name="Manual Scan",
-                            mode=payload.mode.value,
-                            timeframe=payload.timeframe.swing,
-                            lookback_window=payload.timeframe.lookback_window,
-                            top_n=payload.top_n,
-                            universe=universe,
+                    with transaction_advisory_lock(thread_db, "scanner:full") as acquired:
+                        if not acquired:
+                            raise RuntimeError("A full scanner run is already active.")
+                        response = RouterAgent(thread_db).screener_full(payload, progress_callback=progress_callback)
+                        result = sanitize_for_json(response.model_dump(mode="json"))
+                        save_latest_scan(result)
+                        try:
+                            universe = "CUSTOM" if payload.symbols else "NIFTY500"
+                            WorkstationService(thread_db).record_scan_history(
+                                result,
+                                scan_name="Manual Scan",
+                                mode=payload.mode.value,
+                                timeframe=payload.timeframe.swing,
+                                lookback_window=payload.timeframe.lookback_window,
+                                top_n=payload.top_n,
+                                universe=universe,
+                            )
+                        except Exception:
+                            logger.exception("Failed to persist scan history snapshot")
+                        
+                        if progress_callback:
+                            progress_callback({"stage": "Persisting Candidates to Database...", "progress": 95})
+                            progress_callback({"stage": "Scan Complete! Rendering Dashboard.", "progress": 100})
+                        
+                        logger.info(
+                            "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
+                            response.scanned_symbols,
+                            len(response.data_valid_symbols),
+                            len(response.eligible_symbols),
+                            len(response.matched_symbols),
+                            len(response.shortlisted_symbols),
+                            len(response.buy_candidate_symbols),
+                            len(response.watch_candidate_symbols),
+                            response.data_source,
+                            response.stopped_at_stage,
                         )
-                    except Exception:
-                        logger.exception("Failed to persist scan history snapshot")
-                    
-                    if progress_callback:
-                        progress_callback({"stage": "Persisting Candidates to Database...", "progress": 95})
-                        progress_callback({"stage": "Scan Complete! Rendering Dashboard.", "progress": 100})
-                    
-                    logger.info(
-                        "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
-                        response.scanned_symbols,
-                        len(response.data_valid_symbols),
-                        len(response.eligible_symbols),
-                        len(response.matched_symbols),
-                        len(response.shortlisted_symbols),
-                        len(response.buy_candidate_symbols),
-                        len(response.watch_candidate_symbols),
-                        response.data_source,
-                        response.stopped_at_stage,
-                    )
-                    return result
+                        return result
 
             result = await asyncio.to_thread(sync_scan)
             await q.put({"status": "complete", "result": result})

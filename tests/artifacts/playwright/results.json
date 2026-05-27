@@ -10,18 +10,14 @@
     "grep": {},
     "grepInvert": null,
     "maxFailures": 0,
-    "metadata": {
-      "actualWorkers": 1
-    },
+    "metadata": {},
     "preserveOutput": "always",
     "projects": [
       {
         "outputDir": "F:/trading system01/trading system/tests/artifacts/playwright/test-results",
         "repeatEach": 1,
         "retries": 0,
-        "metadata": {
-          "actualWorkers": 1
-        },
+        "metadata": {},
         "id": "chromium",
         "name": "chromium",
         "testDir": "F:/trading system01/trading system/frontend/e2e",
@@ -64,68 +60,17 @@
     "workers": 1,
     "webServer": null
   },
-  "suites": [
+  "suites": [],
+  "errors": [
     {
-      "title": "workflow.spec.ts",
-      "file": "workflow.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "E2E: Settings & Token Workflow",
-          "file": "workflow.spec.ts",
-          "line": 3,
-          "column": 6,
-          "specs": [
-            {
-              "title": "frontend loads and displays navigation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 45000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 13089,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "Vite server not running, skipping live DOM check\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-26T03:32:58.037Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c601ceb5ecfc8efa4a14-e94047f6815136ef6978",
-              "file": "workflow.spec.ts",
-              "line": 4,
-              "column": 3
-            }
-          ]
-        }
-      ]
+      "message": "Error: Process from config.webServer was not able to start. Exit code: 3",
+      "stack": "Error: Process from config.webServer was not able to start. Exit code: 3"
     }
   ],
-  "errors": [],
   "stats": {
-    "startTime": "2026-05-26T03:32:50.730Z",
-    "duration": 31675.505999999998,
-    "expected": 1,
+    "startTime": "2026-05-27T15:24:29.104Z",
+    "duration": 15514.976,
+    "expected": 0,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

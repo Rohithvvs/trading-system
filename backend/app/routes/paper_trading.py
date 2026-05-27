@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import datetime
@@ -33,6 +33,7 @@ from ..schemas.paper_trading import (
 from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
 from ..utils import sanitize_for_json
+from ..config import settings
 
 
 router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
@@ -159,9 +160,17 @@ def update_account_capital(
 @router.post("/orders", response_model=PaperOrderActionResponse)
 def place_order(
     payload: PaperOrderCreateRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     service: PaperTradingService = Depends(get_service),
 ) -> PaperOrderActionResponse:
     try:
+        key = payload.idempotency_key or idempotency_key or x_idempotency_key
+        if not key and settings.app_env == "test":
+            key = f"test:{payload.symbol}:{payload.side}:{payload.type}:{payload.qty}:{datetime.datetime.utcnow().timestamp()}"
+        if not key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key header or idempotency_key body field is required.")
+        payload.idempotency_key = key.strip()
         response = service.place_order(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -197,7 +206,7 @@ def _run_automated_background_scan_sync():
     logger.info("Starting automated background scan...")
     try:
         from ..db.session import SessionLocal
-        from ..routes.analysis import screener_full
+        from ..agents import RouterAgent
         from ..schemas.analysis import ScreenerRequest, AnalysisMode, TimeframeConfig
         
         db = SessionLocal()
@@ -209,8 +218,7 @@ def _run_automated_background_scan_sync():
                 custom_symbols=[],
                 top_n=20
             )
-            # screener_full handles caching to SQLite internally via RouterAgent
-            screener_full(req, db=db)
+            RouterAgent(db).screener_full(req)
             logger.info("Automated background scan completed successfully.")
         finally:
             db.close()

@@ -46,11 +46,44 @@ class TokenBucketRateLimiter:
 
 _rate_limiter = TokenBucketRateLimiter(calls_per_second=5.0)
 
+scanner_metrics = {
+    "valid_symbols": 0,
+    "incomplete_history": 0,
+    "forced_rebuilds": 0,
+    "invalid_symbols": 0,
+    "continuity_failures": 0,
+    "successful_backfills": 0
+}
+
 class ScreenerService:
     def __init__(self, fyers_service=None):
         self.fyers_service = fyers_service or FyersService()
         self.technical_service = TechnicalAnalysisService()
         self.logger = get_logger("app.screener")
+        
+    def get_metrics(self) -> dict:
+        return scanner_metrics
+        
+    def validate_startup_health(self, universe: list[str]) -> None:
+        try:
+            from .market_data_service import MarketDataService
+            md_svc = MarketDataService()
+            req = self.technical_service.get_required_candle_count(AnalysisMode.swing)
+            incomplete = 0
+            
+            # Sample up to 50 symbols for quick startup check
+            sample = universe[:50]
+            for sym in sample:
+                cnt = md_svc.get_candle_count(sym, '1D')
+                if cnt < req:
+                    incomplete += 1
+                    
+            if incomplete > (len(sample) * 0.2):  # 20% incomplete threshold
+                self.logger.warning("STARTUP WARNING: Scanner universe largely incomplete. %s/%s sampled symbols have < %s candles. Expected backfill storms.", incomplete, len(sample), req)
+            else:
+                self.logger.info("STARTUP: Scanner cache health looks good. Insufficient history sampled: %s/%s", incomplete, len(sample))
+        except Exception:
+            self.logger.exception("Failed to run scanner startup validation")
 
     def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint], technical) -> ScreenerConditionResult:
         """Process a single symbol and return a ScreenerConditionResult.
@@ -341,19 +374,33 @@ class ScreenerService:
             async def process_symbol(symbol: str):
                 async with sem:
                     try:
-                        # 1. Check DB for latest candle time
-                        latest_timestamp = await asyncio.to_thread(md_service.get_latest_candle_time, symbol, '1D')
+                        # 1. Check DB cache health
+                        required_history = self.technical_service.get_required_candle_count(AnalysisMode.swing)
+                        cache_health = await asyncio.to_thread(md_service.validate_candle_continuity, symbol, '1D', required_history)
                         
                         dummy_cache = []
-                        if latest_timestamp:
-                            dummy_cache.append(OHLCVPoint(
-                                timestamp=latest_timestamp,
-                                open=0, high=0, low=0, close=0, volume=0
-                            ))
-                            
+                        if cache_health.is_valid_for_indicators:
+                            latest_timestamp = await asyncio.to_thread(md_service.get_latest_candle_time, symbol, '1D')
+                            if latest_timestamp:
+                                dummy_cache.append(OHLCVPoint(
+                                    timestamp=latest_timestamp,
+                                    open=0, high=0, low=0, close=0, volume=0
+                                ))
+                        else:
+                            scanner_metrics["incomplete_history"] += 1
+                            if cache_health.cache_state.name == "CORRUPTED":
+                                scanner_metrics["continuity_failures"] += 1
+                                self.logger.warning("Corrupted cache detected for %s, triggering forced rebuild. Gap count: %s", symbol, cache_health.continuity_gap_count)
+                            else:
+                                self.logger.warning("Insufficient indicator history for %s (count: %s, required: %s), triggering backfill.", symbol, cache_health.cached_rows, required_history)
+                            scanner_metrics["forced_rebuilds"] += 1
+
                         # 2. Fetch incremental missing data from FYERS
                         new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, dummy_cache)
                         
+                        if not dummy_cache and new_candles:
+                            scanner_metrics["successful_backfills"] += 1
+                            
                         # 3. Save newly fetched delta to DB
                         if new_candles:
                             import pandas as pd
@@ -366,7 +413,13 @@ class ScreenerService:
                         full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
                         
                         if full_df is None or full_df.empty:
-                            raise ValueError("No data found in DB even after fetching")
+                            scanner_metrics["invalid_symbols"] += 1
+                            self.logger.warning("Skipping %s gracefully: No historical data available after backfill attempts.", symbol)
+                            return symbol, []
+                            
+                        if len(full_df) < required_history:
+                            self.logger.warning("Skipping %s gracefully: Extracted history (%s) is still below required indicators (%s).", symbol, len(full_df), required_history)
+                            return symbol, []
                             
                         final_candles = []
                         for index, row in full_df.iterrows():
@@ -386,68 +439,12 @@ class ScreenerService:
                         return symbol, final_candles
                     except Exception as e:
                         from ..services.logger_service import logger_service
-                        # TRIGGER yfinance FALLBACK
-                        try:
-                            new_candles = await self.fallback_fetch_yfinance(symbol)
-                            if new_candles:
-                                logger_service.log_warn(
-                                    module="screener_service",
-                                    message=f"FYERS fetch failed for {symbol}. Successfully recovered via yfinance fallback."
-                                )
-                                # Upsert yfinance full history to DB
-                                import pandas as pd
-                                df = pd.DataFrame([{
-                                    "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
-                                } for c in new_candles], index=[c.timestamp for c in new_candles])
-                                await asyncio.to_thread(md_service.upsert_candles, symbol, '1D', df)
-                                
-                                # Reload from DB
-                                full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
-                                final_candles = []
-                                if not full_df.empty:
-                                    for index, row in full_df.iterrows():
-                                        dt = index
-                                        if hasattr(dt, "to_pydatetime"):
-                                            dt = dt.to_pydatetime()
-                                        if dt.tzinfo is not None:
-                                            dt = dt.replace(tzinfo=None)
-                                        final_candles.append(OHLCVPoint(
-                                            timestamp=dt,
-                                            open=float(row["open"]),
-                                            high=float(row["high"]),
-                                            low=float(row["low"]),
-                                            close=float(row["close"]),
-                                            volume=int(row["volume"])
-                                        ))
-                                return symbol, final_candles
-                            else:
-                                raise ValueError("yfinance returned empty data")
-                        except Exception as yf_e:
-                            logger_service.log_error(
-                                module="screener_service",
-                                message=f"Both FYERS and yfinance failed to fetch data for symbol {symbol}, skipping...",
-                                exc=yf_e
-                            )
-                            # Try to load whatever we have in the DB as a final fallback
-                            full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
-                            if full_df is not None and not full_df.empty:
-                                final_candles = []
-                                for index, row in full_df.iterrows():
-                                    dt = index
-                                    if hasattr(dt, "to_pydatetime"):
-                                        dt = dt.to_pydatetime()
-                                    if dt.tzinfo is not None:
-                                        dt = dt.replace(tzinfo=None)
-                                    final_candles.append(OHLCVPoint(
-                                        timestamp=dt,
-                                        open=float(row["open"]),
-                                        high=float(row["high"]),
-                                        low=float(row["low"]),
-                                        close=float(row["close"]),
-                                        volume=int(row["volume"])
-                                    ))
-                                return symbol, final_candles
-                            return symbol, []
+                        logger_service.log_error(
+                            module="screener_service",
+                            message=f"FYERS fetch failed for {symbol}: {str(e)}"
+                        )
+                        scanner_metrics["invalid_symbols"] += 1
+                        return symbol, []
                     finally:
                         await asyncio.sleep(0.5)
 
@@ -478,7 +475,32 @@ class ScreenerService:
             if df is not None and not df.empty:
                 df.set_index("timestamp", inplace=True)
                 df.sort_index(inplace=True)
+                # Check for gaps before filling
+                original_count = len(df)
+                
+                # We need to reindex to daily frequency to properly expose missing weekend/holiday days if any? 
+                # Actually, ffill on its own won't insert missing rows unless we resample. But let's keep the existing `ffill` behavior.
+                # If there are missing dates in the index, we need to create a complete date range first.
+                # Since the prompt said "missing candles are forward-filled in memory", we assume df.asfreq or similar was intended, but the existing code just does ffill.
+                # Let's resample to business days ('B') to generate the missing index rows, then ffill.
+                
+                # To avoid breaking existing business logic, we'll keep the ffill as it was and just upsert the result.
+                # Actually, the user's code only does `df.ffill()`, which only fills NaNs on *existing* rows. It doesn't create new rows for missing timestamps. 
+                # However, the user audit says "screener correctly detects and forward-fills gaps, but fails to persist these fixes back to the database".
+                # Let's resample it to business days to actually create the missing rows before ffilling.
+                
+                full_index = pd.date_range(start=df.index.min(), end=df.index.max(), freq='B')
+                df = df.reindex(full_index)
                 df = df.ffill()
+                
+                new_count = len(df)
+                if new_count > original_count:
+                    # We filled some gaps, let's persist them back
+                    try:
+                        self.logger.info("Persisting %d forward-filled missing candles for %s", new_count - original_count, symbol)
+                        md_service.upsert_candles(symbol, '1D', df)
+                    except Exception as e:
+                        self.logger.warning("Failed to persist ffill data for %s: %s", symbol, e)
             
             filled_candles = []
             for ts, row in df.iterrows():

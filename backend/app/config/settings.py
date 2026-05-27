@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     database_url: str = "sqlite:///./trading_system.db"
+    redis_url: str = "redis://localhost:6379/0"
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
     
     fyers_app_id: str = ""

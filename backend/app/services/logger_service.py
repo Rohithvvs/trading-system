@@ -15,6 +15,7 @@ from typing import Any
 
 from ..db.session import SessionLocal
 from ..models.system_log import SystemLog
+from ..observability.metrics import LOGGER_QUEUE_DEPTH, WS_CLIENTS
 
 SENSITIVE_FIELDS = {
     "access_token",
@@ -42,6 +43,8 @@ _ws_clients: list[asyncio.Queue[dict[str, Any]]] = []
 
 def register_ws_client(queue: asyncio.Queue[dict[str, Any]]) -> None:
     _ws_clients.append(queue)
+    if WS_CLIENTS:
+        WS_CLIENTS.labels(stream="logs").set(len(_ws_clients))
 
 
 def unregister_ws_client(queue: asyncio.Queue[dict[str, Any]]) -> None:
@@ -49,6 +52,8 @@ def unregister_ws_client(queue: asyncio.Queue[dict[str, Any]]) -> None:
         _ws_clients.remove(queue)
     except ValueError:
         pass
+    if WS_CLIENTS:
+        WS_CLIENTS.labels(stream="logs").set(len(_ws_clients))
 
 
 def utc_now() -> datetime:
@@ -182,6 +187,8 @@ class LoggingService:
 
         try:
             self._queue.put_nowait(entry)
+            if LOGGER_QUEUE_DEPTH:
+                LOGGER_QUEUE_DEPTH.set(self._queue.qsize())
         except asyncio.QueueFull:
             self._write_fallback(entry)
 

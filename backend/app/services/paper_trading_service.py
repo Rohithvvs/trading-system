@@ -3,17 +3,19 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from math import isfinite
 
 import pandas as pd
 from sqlalchemy import delete, select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from ta.trend import EMAIndicator
 
 _account_creation_lock = threading.Lock()
 
 from ..config import settings
-from ..models.paper_trading import PaperOrder, PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperNotification, PaperTransaction, PaperAlert
+from ..models.paper_trading import ExecutionEvent, PaperOrder, PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperNotification, PaperTransaction, PaperAlert
 from ..schemas import AnalysisMode, OHLCVPoint
 from ..schemas.paper_trading import (
     PaperAccountSummary,
@@ -33,6 +35,8 @@ from ..schemas.paper_trading import (
 from ..services.fyers_service import FyersService
 from ..utils import get_logger
 from ..core.log_manager import trading_logger
+from ..utils.money import as_float, dec, q_pnl, q_price, q_qty
+from ..observability.metrics import DUPLICATE_EXECUTIONS, ORDER_EXECUTIONS
 
 
 
@@ -138,8 +142,30 @@ class PaperTradingService:
         return self.get_dashboard()
 
     def place_order(self, payload: PaperOrderCreateRequest) -> PaperOrderActionResponse:
+        if not payload.idempotency_key:
+            raise ValueError("Idempotency key is required.")
         account = self._get_or_create_account(for_update=True)
         self._validate_symbol(payload.symbol)
+        existing = self.db.scalar(
+            select(PaperOrder).where(
+                PaperOrder.account_id == account.id,
+                PaperOrder.idempotency_key == payload.idempotency_key,
+            )
+        )
+        if existing:
+            position = self.db.scalar(
+                select(PaperPosition).where(
+                    PaperPosition.account_id == account.id,
+                    PaperPosition.symbol == existing.symbol,
+                    PaperPosition.status == "OPEN",
+                )
+            )
+            return PaperOrderActionResponse(
+                account=self.get_dashboard(selected_symbol=existing.symbol).account,
+                order=self._serialize_order(existing),
+                position=self._serialize_position(position) if position else None,
+                message="Idempotent retry: existing order returned.",
+            )
         self._refresh_pending_orders(account.id)
         price = self._price_snapshot(payload.symbol)
         trigger_price = self._requested_price(payload, price.current_price)
@@ -161,9 +187,26 @@ class PaperTradingService:
             source_confidence=payload.source_confidence,
             status="PENDING",
             lifecycle_state="PENDING_ENTRY",
+            idempotency_key=payload.idempotency_key,
         )
         self.db.add(order)
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            existing = self.db.scalar(
+                select(PaperOrder).where(
+                    PaperOrder.account_id == account.id,
+                    PaperOrder.idempotency_key == payload.idempotency_key,
+                )
+            )
+            if existing:
+                return PaperOrderActionResponse(
+                    account=self.get_dashboard(selected_symbol=existing.symbol).account,
+                    order=self._serialize_order(existing),
+                    message="Idempotent retry: existing order returned.",
+                )
+            raise
         try:
             trading_logger.info(
                 "ORDER_PLACED | account=%s | order_id=%s | symbol=%s | side=%s | qty=%s | order_type=%s | order_price=%s | stop_loss=%s | target=%s | source_signal=%s | source_score=%s | source_confidence=%s",
@@ -447,6 +490,15 @@ class PaperTradingService:
         order: PaperOrder,
         current_price: float,
     ) -> tuple[PaperOrder, PaperPosition | None, PaperTradeHistory | None, str]:
+        if order.status in {"FILLED", "CANCELLED", "REJECTED"}:
+            position = self.db.scalar(
+                select(PaperPosition).where(
+                    PaperPosition.account_id == account.id,
+                    PaperPosition.symbol == order.symbol,
+                    PaperPosition.status == "OPEN",
+                )
+            )
+            return order, position, None, "Order is already terminal."
         if current_price <= 0:
             order.status = "PENDING"
             if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
@@ -485,13 +537,14 @@ class PaperTradingService:
                 order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Order placed and kept pending."
 
-        fill_price = current_price
+        fill_price = q_price(current_price)
+        order_qty = q_qty(order.qty)
         if order.side == "BUY":
-            estimated_cost = fill_price * order.qty
+            estimated_cost = q_pnl(fill_price * order_qty)
             # compute available cash using current open positions/orders
-            available_cash = self._build_account_summary(
+            available_cash = dec(self._build_account_summary(
                 account, self._position_models(account.id), self._order_models(account.id), self._trade_models(account.id), {}
-            ).available_cash
+            ).available_cash)
             if estimated_cost > available_cash:
                 order.status = "REJECTED"
                 try:
@@ -511,7 +564,7 @@ class PaperTradingService:
             order.filled_at = datetime.utcnow()
             order.filled_price = fill_price
             # Deduct funds and create/update OPEN position
-            account.cash_balance -= estimated_cost
+            account.cash_balance = q_pnl(dec(account.cash_balance) - estimated_cost)
             position = self.db.scalar(
                 select(PaperPosition).where(
                     PaperPosition.account_id == account.id,
@@ -520,9 +573,9 @@ class PaperTradingService:
                 )
             )
             if position:
-                total_cost = (position.avg_entry_price * position.qty) + estimated_cost
-                position.qty += order.qty
-                position.avg_entry_price = total_cost / position.qty
+                total_cost = (dec(position.avg_entry_price) * dec(position.qty)) + estimated_cost
+                position.qty = q_qty(dec(position.qty) + order_qty)
+                position.avg_entry_price = q_price(total_cost / dec(position.qty))
                 position.current_price = fill_price
                 position.stop_loss = order.stop_loss
                 position.target = order.target
@@ -557,6 +610,16 @@ class PaperTradingService:
                 except Exception:
                     pass
             account.updated_at = datetime.utcnow()
+            self._record_execution_event(
+                "ENTRY_FILLED",
+                order.symbol,
+                getattr(order, "id", None),
+                getattr(position, "id", None),
+                "PENDING_ENTRY",
+                "ENTRY_FILLED",
+                as_float(fill_price),
+                f"entry-filled:{getattr(order, 'id', None) or order.idempotency_key}",
+            )
             try:
                 trading_logger.info(
                     "ORDER_FILLED | order_id=%s | account=%s | symbol=%s | side=BUY | qty=%s | filled_price=%s | position_id=%s",
@@ -571,8 +634,8 @@ class PaperTradingService:
                 pass
             return order, position, None, "Buy order filled."
 
-        position = self.db.scalar(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.symbol == order.symbol))
-        if not position or position.qty < order.qty:
+        position = self.db.scalar(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.symbol == order.symbol, PaperPosition.status == "OPEN"))
+        if not position or dec(position.qty) < order_qty:
             order.status = "REJECTED"
             try:
                 trading_logger.warning(
@@ -591,9 +654,9 @@ class PaperTradingService:
         order.lifecycle_state = "EXIT_FILLED"
         order.filled_at = datetime.utcnow()
         order.filled_price = fill_price
-        account.cash_balance += fill_price * order.qty
-        pnl = (fill_price - position.avg_entry_price) * order.qty
-        pnl_percent = ((fill_price - position.avg_entry_price) / position.avg_entry_price) * 100 if position.avg_entry_price else 0.0
+        account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price * order_qty))
+        pnl = q_pnl((fill_price - dec(position.avg_entry_price)) * order_qty)
+        pnl_percent = q_pnl(((fill_price - dec(position.avg_entry_price)) / dec(position.avg_entry_price)) * Decimal("100")) if position.avg_entry_price else Decimal("0.00")
         trade = PaperTradeHistory(
             account_id=account.id,
             symbol=position.symbol,
@@ -627,11 +690,11 @@ class PaperTradingService:
         except Exception as e:
             print(f"ERROR in _try_fill_order (SELL tx): {e}")
             self.logger.exception("Failed to write SELL transaction to SQLite")
-        if position.qty == order.qty:
+        if dec(position.qty) == order_qty:
             self.db.delete(position)
             updated_position = None
         else:
-            position.qty -= order.qty
+            position.qty = q_qty(dec(position.qty) - order_qty)
             position.current_price = fill_price
             position.updated_at = datetime.utcnow()
             updated_position = position
@@ -649,7 +712,55 @@ class PaperTradingService:
         except Exception:
             pass
         account.updated_at = datetime.utcnow()
+        self._record_execution_event(
+            "EXIT_FILLED",
+            order.symbol,
+            getattr(order, "id", None),
+            getattr(position, "id", None),
+            "OPEN_POSITION",
+            "EXIT_FILLED",
+            as_float(fill_price),
+            f"exit-filled:order:{getattr(order, 'id', None) or order.idempotency_key}",
+        )
         return order, updated_position, trade, "Sell order filled."
+
+    def _record_execution_event(
+        self,
+        event_type: str,
+        symbol: str | None,
+        order_id: int | None,
+        position_id: int | None,
+        from_state: str | None,
+        to_state: str | None,
+        price: float | None,
+        dedupe_key: str,
+        message: str | None = None,
+    ) -> None:
+        if not dedupe_key:
+            raise ValueError("Execution event dedupe key is required.")
+        for pending in self.db.new:
+            if isinstance(pending, ExecutionEvent) and pending.dedupe_key == dedupe_key:
+                return
+        existing = self.db.scalar(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == dedupe_key))
+        if existing:
+            if DUPLICATE_EXECUTIONS:
+                DUPLICATE_EXECUTIONS.labels(kind=event_type).inc()
+            return
+        if ORDER_EXECUTIONS:
+            ORDER_EXECUTIONS.labels(event_type=event_type, symbol=symbol or "UNKNOWN").inc()
+        self.db.add(
+            ExecutionEvent(
+                event_type=event_type,
+                symbol=symbol,
+                order_id=order_id,
+                position_id=position_id,
+                from_state=from_state,
+                to_state=to_state,
+                price=price,
+                message=message,
+                dedupe_key=dedupe_key,
+            )
+        )
 
     def add_notification(
         self,
@@ -690,7 +801,7 @@ class PaperTradingService:
 
     def get_unread_notifications(self) -> list[PaperNotification]:
         account = self._get_or_create_account()
-        items = list(self.db.scalars(select(PaperNotification).where(PaperNotification.account_id == account.id, not PaperNotification.is_read).order_by(PaperNotification.created_at.desc())))
+        items = list(self.db.scalars(select(PaperNotification).where(PaperNotification.account_id == account.id, PaperNotification.is_read.is_(False)).order_by(PaperNotification.created_at.desc())))
         return items
 
     def mark_notifications_read(self, ids: list[int]) -> None:
@@ -706,14 +817,14 @@ class PaperTradingService:
         account = self._get_or_create_account()
         q = select(PaperNotification).where(PaperNotification.account_id == account.id)
         if unread is True:
-            q = q.where(not PaperNotification.is_read)
+            q = q.where(PaperNotification.is_read.is_(False))
         q = q.order_by(PaperNotification.created_at.desc()).limit(limit)
         items = list(self.db.scalars(q))
         return items
 
     def mark_all_notifications_read(self) -> int:
         account = self._get_or_create_account()
-        rows = list(self.db.scalars(select(PaperNotification).where(PaperNotification.account_id == account.id, not PaperNotification.is_read)))
+        rows = list(self.db.scalars(select(PaperNotification).where(PaperNotification.account_id == account.id, PaperNotification.is_read.is_(False))))
         for r in rows:
             r.is_read = True
         self.db.commit()
@@ -766,9 +877,20 @@ class PaperTradingService:
 
     def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL") -> PaperOrderActionResponse:
         account = self._get_or_create_account(for_update=True)
-        position = self.db.scalar(select(PaperPosition).where(PaperPosition.id == position_id, PaperPosition.account_id == account.id))
+        query = select(PaperPosition).where(
+            PaperPosition.id == position_id,
+            PaperPosition.account_id == account.id,
+            PaperPosition.status == "OPEN",
+        )
+        if self.db.bind and self.db.bind.dialect.name == "postgresql":
+            query = query.with_for_update()
+        position = self.db.scalar(query)
         if not position:
             raise ValueError("Position not found.")
+        dedupe_key = f"exit-filled:{position.id}:{reason}"
+        if self.db.scalar(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == dedupe_key)):
+            raise ValueError("Position exit has already been processed.")
+        fill_price_dec = q_price(fill_price)
 
         # Create a filled sell order representing the exit
         order = PaperOrder(
@@ -778,27 +900,27 @@ class PaperTradingService:
             order_type="MARKET",
             product_type="CNC",
             qty=position.qty,
-            order_price=fill_price,
+            order_price=fill_price_dec,
             stop_price=None,
             stop_loss=None,
             target=None,
             status="FILLED",
             lifecycle_state="EXIT_FILLED",
             notes=f"Auto exit: {reason}",
-            filled_price=fill_price,
+            filled_price=fill_price_dec,
             filled_at=datetime.utcnow(),
         )
         self.db.add(order)
         self.db.flush()
 
-        pnl = (fill_price - position.avg_entry_price) * position.qty
-        pnl_percent = ((fill_price - position.avg_entry_price) / position.avg_entry_price) * 100 if position.avg_entry_price else 0.0
+        pnl = q_pnl((fill_price_dec - dec(position.avg_entry_price)) * dec(position.qty))
+        pnl_percent = q_pnl(((fill_price_dec - dec(position.avg_entry_price)) / dec(position.avg_entry_price)) * Decimal("100")) if position.avg_entry_price else Decimal("0.00")
         trade = PaperTradeHistory(
             account_id=account.id,
             symbol=position.symbol,
             qty=position.qty,
             entry_price=position.avg_entry_price,
-            exit_price=fill_price,
+            exit_price=fill_price_dec,
             pnl=pnl,
             pnl_percent=pnl_percent,
             notes=position.notes,
@@ -812,8 +934,19 @@ class PaperTradingService:
         self.db.add(trade)
 
         # Credit account and remove position
-        account.cash_balance += fill_price * position.qty
+        account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))
         account.updated_at = datetime.utcnow()
+        self._record_execution_event(
+            "EXIT_FILLED",
+            position.symbol,
+            order.id,
+            position.id,
+            "OPEN_POSITION",
+            "EXIT_FILLED",
+            as_float(fill_price_dec),
+            dedupe_key,
+            message=f"Auto exit: {reason}",
+        )
         self.db.delete(position)
         self.db.commit()
 
@@ -991,56 +1124,66 @@ class PaperTradingService:
         trades: list[PaperTradeHistory],
         price_cache: dict[str, PriceSnapshot],
     ) -> PaperAccountSummary:
-        realized = round(sum(item.pnl for item in trades), 2)
-        invested = 0.0
-        unrealized = 0.0
+        realized_dec = q_pnl(sum((dec(item.pnl) for item in trades), Decimal("0")))
+        invested = Decimal("0")
+        unrealized = Decimal("0")
         for position in positions:
-            current_price = price_cache.get(position.symbol).current_price if position.symbol in price_cache else position.current_price
-            invested += position.avg_entry_price * position.qty
-            unrealized += (current_price - position.avg_entry_price) * position.qty
-        reserved_cash = 0.0
+            current_price = dec(price_cache.get(position.symbol).current_price if position.symbol in price_cache else position.current_price)
+            invested += dec(position.avg_entry_price) * dec(position.qty)
+            unrealized += (current_price - dec(position.avg_entry_price)) * dec(position.qty)
+        reserved_cash = Decimal("0")
         for order in orders:
             if order.status == "PENDING" and order.side == "BUY" and order.order_type in ["LIMIT", "GTT"]:
                 order_price = order.order_price or price_cache.get(order.symbol, self._price_snapshot(order.symbol)).current_price
-                reserved_cash += order_price * order.qty
-        equity = round(account.cash_balance + sum((price_cache.get(item.symbol).current_price if item.symbol in price_cache else item.current_price) * item.qty for item in positions), 2)
+                reserved_cash += dec(order_price) * dec(order.qty)
+        position_value = sum(
+            (
+                dec(price_cache.get(item.symbol).current_price if item.symbol in price_cache else item.current_price) * dec(item.qty)
+                for item in positions
+            ),
+            Decimal("0"),
+        )
+        equity = q_pnl(dec(account.cash_balance) + position_value)
         return PaperAccountSummary(
             account_id=account.id,
             account_name=account.name,
             base_currency=account.base_currency,
-            starting_balance=round(account.starting_balance, 2),
-            balance=round(account.cash_balance, 2),
-            equity=equity,
-            realized_pnl=realized,
-            unrealized_pnl=round(unrealized, 2),
-            total_invested=round(invested, 2),
-            reserved_cash=round(reserved_cash, 2),
-            available_cash=round(account.cash_balance - reserved_cash, 2),
+            starting_balance=as_float(q_pnl(account.starting_balance)),
+            balance=as_float(q_pnl(account.cash_balance)),
+            equity=as_float(equity),
+            realized_pnl=as_float(realized_dec),
+            unrealized_pnl=as_float(q_pnl(unrealized)),
+            total_invested=as_float(q_pnl(invested)),
+            reserved_cash=as_float(q_pnl(reserved_cash)),
+            available_cash=as_float(q_pnl(dec(account.cash_balance) - reserved_cash)),
             open_positions_count=len(positions),
             open_orders_count=len([item for item in orders if item.status == "PENDING"]),
-            max_risk_per_trade=account.max_risk_per_trade,
+            max_risk_per_trade=as_float(account.max_risk_per_trade),
             updated_at=datetime.now(timezone.utc),
         )
 
     def _serialize_position(self, position: PaperPosition, snapshot: PriceSnapshot | None = None) -> PaperPositionResponse:
-        unrealized = (position.current_price - position.avg_entry_price) * position.qty
-        unrealized_pct = ((position.current_price - position.avg_entry_price) / position.avg_entry_price) * 100 if position.avg_entry_price else 0.0
+        current_price = dec(position.current_price)
+        avg_entry = dec(position.avg_entry_price)
+        qty = dec(position.qty)
+        unrealized = q_pnl((current_price - avg_entry) * qty)
+        unrealized_pct = q_pnl(((current_price - avg_entry) / avg_entry) * Decimal("100")) if avg_entry else Decimal("0.00")
         risk_reward = None
         if position.stop_loss and position.target:
-            risk = abs(position.avg_entry_price - position.stop_loss)
-            reward = abs(position.target - position.avg_entry_price)
-            risk_reward = round(reward / risk, 2) if risk else None
+            risk = abs(avg_entry - dec(position.stop_loss))
+            reward = abs(dec(position.target) - avg_entry)
+            risk_reward = as_float(q_pnl(reward / risk)) if risk else None
         return PaperPositionResponse(
             id=position.id,
             symbol=position.symbol,
-            qty=position.qty,
-            avg_entry_price=round(position.avg_entry_price, 2),
-            current_price=round(position.current_price, 2),
-            unrealized_pnl=round(unrealized, 2),
-            unrealized_pnl_percent=round(unrealized_pct, 2),
-            invested_value=round(position.avg_entry_price * position.qty, 2),
-            stop_loss=round(position.stop_loss, 2) if position.stop_loss else None,
-            target=round(position.target, 2) if position.target else None,
+            qty=int(qty),
+            avg_entry_price=as_float(q_price(avg_entry)),
+            current_price=as_float(q_price(current_price)),
+            unrealized_pnl=as_float(unrealized),
+            unrealized_pnl_percent=as_float(unrealized_pct),
+            invested_value=as_float(q_pnl(avg_entry * qty)),
+            stop_loss=as_float(q_price(position.stop_loss)) if position.stop_loss else None,
+            target=as_float(q_price(position.target)) if position.target else None,
             lifecycle_state=position.lifecycle_state,
             monitor_enabled=bool(position.monitor_enabled),
             paused_reason=position.paused_reason,
@@ -1061,14 +1204,14 @@ class PaperTradingService:
             symbol=order.symbol,
             side=order.side,  # type: ignore[arg-type]
             type=order.order_type,  # type: ignore[arg-type]
-            qty=order.qty,
-            price=round(order.order_price, 2) if order.order_price is not None else None,
-            stop_price=round(order.stop_price, 2) if getattr(order, "stop_price", None) is not None else None,
-            stop_loss=round(order.stop_loss, 2) if order.stop_loss is not None else None,
-            target=round(order.target, 2) if order.target is not None else None,
+            qty=int(dec(order.qty)),
+            price=as_float(q_price(order.order_price)) if order.order_price is not None else None,
+            stop_price=as_float(q_price(order.stop_price)) if getattr(order, "stop_price", None) is not None else None,
+            stop_loss=as_float(q_price(order.stop_loss)) if order.stop_loss is not None else None,
+            target=as_float(q_price(order.target)) if order.target is not None else None,
             status=order.status,  # type: ignore[arg-type]
             lifecycle_state=order.lifecycle_state,  # type: ignore[arg-type]
-            requested_entry_price=round(order.requested_entry_price, 2) if order.requested_entry_price is not None else None,
+            requested_entry_price=as_float(q_price(order.requested_entry_price)) if order.requested_entry_price is not None else None,
             monitor_enabled=bool(order.monitor_enabled),
             paused_reason=order.paused_reason,
             notes=order.notes,
@@ -1076,13 +1219,13 @@ class PaperTradingService:
             source_score=order.source_score,
             source_confidence=order.source_confidence,
             last_evaluated_at=order.last_evaluated_at,
-            last_seen_ltp=round(order.last_seen_ltp, 2) if order.last_seen_ltp is not None else None,
+            last_seen_ltp=as_float(q_price(order.last_seen_ltp)) if order.last_seen_ltp is not None else None,
             price_source=snapshot.source if snapshot else None,
             price_fetched_at=snapshot.fetched_at if snapshot else None,
             is_price_stale=(snapshot.source != "FYERS_QUOTE") if snapshot else False,
             created_at=order.created_at,
             filled_at=order.filled_at,
-            filled_price=round(order.filled_price, 2) if order.filled_price is not None else None,
+            filled_price=as_float(q_price(order.filled_price)) if order.filled_price is not None else None,
             product_type=getattr(order, "product_type", None),
         )
 
@@ -1091,11 +1234,11 @@ class PaperTradingService:
         return PaperTradeHistoryItem(
             id=trade.id,
             symbol=trade.symbol,
-            qty=trade.qty,
-            entry_price=round(trade.entry_price, 2),
-            exit_price=round(trade.exit_price, 2),
-            pnl=round(trade.pnl, 2),
-            pnl_percent=round(trade.pnl_percent, 2),
+            qty=int(dec(trade.qty)),
+            entry_price=as_float(q_price(trade.entry_price)),
+            exit_price=as_float(q_price(trade.exit_price)),
+            pnl=as_float(q_pnl(trade.pnl)),
+            pnl_percent=as_float(q_pnl(trade.pnl_percent)),
             notes=trade.notes,
             source_signal=trade.source_signal,
             source_score=trade.source_score,

@@ -14,8 +14,10 @@ from sqlalchemy.orm import Session
 
 from .server_state import read_last_shutdown, write_startup_time
 from ..models.paper_trading import (
+    ExecutionEvent,
     PaperOrder,
     PaperPosition,
+    ReplaySession,
     PaperTradingAccount,
     PaperTradeHistory,
     PaperTransaction,
@@ -72,8 +74,24 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
 
     gap_start = last_shutdown
     gap_end = now
+    replay_key = f"{gap_start.isoformat()}:{gap_end.isoformat()}"
     summary["gap_start"] = gap_start.isoformat()
     summary["gap_end"] = gap_end.isoformat()
+
+    existing_replay = db.query(ReplaySession).filter(ReplaySession.replay_key == replay_key).first()
+    if existing_replay and existing_replay.status == "COMPLETED":
+        summary["skipped_reason"] = "Replay window already completed."
+        write_startup_time()
+        return summary
+    if existing_replay is None:
+        existing_replay = ReplaySession(replay_key=replay_key, gap_start=gap_start, gap_end=gap_end, status="RUNNING")
+        db.add(existing_replay)
+        try:
+            db.flush()
+        except Exception as e:
+            db.rollback()
+            summary["warnings"].append(f"Failed to create replay session: {e}")
+            return summary
 
     logger.info("[GAP_REPLAY] Gap detected: %s → %s (%s minutes)", gap_start.isoformat(), gap_end.isoformat(), int(gap_minutes))
 
@@ -119,6 +137,9 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
 
                 # Replay pending LIMIT BUY orders
                 for order in [o for o in pending_orders if o.symbol == symbol and o.side == "BUY"]:
+                    fill_dedupe = f"replay-fill:{replay_key}:{order.id}"
+                    if db.query(ExecutionEvent).filter(ExecutionEvent.dedupe_key == fill_dedupe).first():
+                        continue
                     for candle in market_candles:
                         candle_low = float(candle.low)
                         candle_time = candle.timestamp
@@ -129,6 +150,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                             cost = fill_price * int(order.qty)
                             if account.cash_balance >= cost:
                                 order.status = "FILLED"
+                                order.lifecycle_state = "ENTRY_FILLED"
                                 order.filled_price = fill_price
                                 order.filled_at = candle_time
 
@@ -178,6 +200,18 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                                 except Exception:
                                     logger.exception("[GAP_REPLAY] Failed to add BUY transaction for %s", symbol)
 
+                                db.add(ExecutionEvent(
+                                    event_type="REPLAY_ENTRY_FILLED",
+                                    symbol=symbol,
+                                    order_id=order.id,
+                                    position_id=getattr(existing_pos, "id", None),
+                                    from_state="PENDING_ENTRY",
+                                    to_state="ENTRY_FILLED",
+                                    price=fill_price,
+                                    message=f"Replay fill in session {replay_key}",
+                                    dedupe_key=fill_dedupe,
+                                ))
+
                                 msg = f"OFFLINE_FILL | symbol={symbol} | side=BUY | qty={order.qty} | fill_price={fill_price} | candle_time={candle_time.isoformat()}"
                                 summary["orders_filled"].append(msg)
                                 logger.info("[GAP_REPLAY] %s", msg)
@@ -216,7 +250,12 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                         exit_time, exit_price, exit_reason = stop_hit[0], stop_hit[1], "STOPLOSS_HIT"
 
                     if exit_price is not None:
-                        pnl = (exit_price - pos.avg_entry_price) * pos.qty
+                        exit_dedupe = f"replay-exit:{replay_key}:{pos.id}:{exit_reason}"
+                        if db.query(ExecutionEvent).filter(ExecutionEvent.dedupe_key == exit_dedupe).first():
+                            continue
+                        entry_price = float(pos.avg_entry_price)
+                        qty = float(pos.qty)
+                        pnl = (float(exit_price) - entry_price) * qty
                         # create a filled SELL order representing the exit
                         try:
                             exit_order = PaperOrder(
@@ -233,6 +272,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                                 filled_at=exit_time,
                             )
                             db.add(exit_order)
+                            db.flush()
                         except Exception:
                             logger.exception("[GAP_REPLAY] Failed to add exit order for %s", pos.symbol)
 
@@ -242,10 +282,10 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                                 account_id=account.id,
                                 symbol=pos.symbol,
                                 qty=pos.qty,
-                                entry_price=pos.avg_entry_price,
+                                entry_price=entry_price,
                                 exit_price=exit_price,
                                 pnl=pnl,
-                                pnl_percent=((exit_price - pos.avg_entry_price) / pos.avg_entry_price * 100) if pos.avg_entry_price else 0.0,
+                                pnl_percent=((float(exit_price) - entry_price) / entry_price * 100) if entry_price else 0.0,
                                 notes=pos.notes,
                                 source_signal=pos.source_signal,
                                 source_score=pos.source_score,
@@ -281,6 +321,17 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                             logger.exception("[GAP_REPLAY] Failed to add AUTO_EXIT transaction for %s", pos.symbol)
 
                         try:
+                            db.add(ExecutionEvent(
+                                event_type="REPLAY_EXIT_FILLED",
+                                symbol=pos.symbol,
+                                order_id=getattr(exit_order, "id", None) if "exit_order" in locals() else None,
+                                position_id=pos.id,
+                                from_state="OPEN_POSITION",
+                                to_state="EXIT_FILLED",
+                                price=exit_price,
+                                message=f"Replay exit in session {replay_key}",
+                                dedupe_key=exit_dedupe,
+                            ))
                             db.delete(pos)
                         except Exception:
                             logger.exception("[GAP_REPLAY] Failed to delete position %s after offline exit", pos.symbol)
@@ -293,12 +344,29 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                 warning = f"{symbol}: Gap replay failed — {e}"
                 summary["warnings"].append(warning)
                 logger.error("[GAP_REPLAY] ERROR for %s: %s", symbol, e)
+            finally:
+                try:
+                    existing_replay.checkpoint_symbol = symbol
+                    existing_replay.updated_at = datetime.utcnow()
+                    db.flush()
+                except Exception:
+                    pass
 
     try:
+        existing_replay.status = "COMPLETED"
+        existing_replay.completed_at = datetime.utcnow()
         db.commit()
         logger.info("[GAP_REPLAY] Committed. Filled=%s Exited=%s Warnings=%s", len(summary["orders_filled"]), len(summary["positions_exited"]), len(summary["warnings"]))
     except Exception as e:
         db.rollback()
+        try:
+            retry_replay = db.query(ReplaySession).filter(ReplaySession.replay_key == replay_key).first()
+            if retry_replay:
+                retry_replay.status = "FAILED"
+                retry_replay.error_message = str(e)
+                db.commit()
+        except Exception:
+            db.rollback()
         logger.error("[GAP_REPLAY] Commit failed: %s", e)
         summary["warnings"].append(f"Commit failed: {e}")
 

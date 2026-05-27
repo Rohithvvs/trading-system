@@ -198,6 +198,7 @@ class TransactionPageResponse(BaseModel):
 
 
 class PaperOrderCreateRequest(BaseModel):
+    idempotency_key: str | None = Field(default=None, min_length=16, max_length=128)
     symbol: str
     side: Literal["BUY", "SELL"] = "BUY"
     type: Literal["MARKET", "LIMIT", "STOP", "STOP_LIMIT", "GTT"] = "MARKET"
@@ -219,6 +220,16 @@ class PaperOrderCreateRequest(BaseModel):
         if not symbol:
             raise ValueError("Symbol is required.")
         return symbol
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def validate_idempotency_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        key = value.strip()
+        if not key:
+            return None
+        return key
 
 
 class PaperOrderUpdateRequest(BaseModel):

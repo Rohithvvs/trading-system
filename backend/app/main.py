@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.responses import Response
 import traceback
 from datetime import date
 from .services.db_logger import log_to_db
@@ -12,7 +13,15 @@ from sqlalchemy import select
 from .models.system_log import SystemLog
 
 from .core.logger import setup_logging
-from .config import settings
+import sys
+import logging
+
+# Fail-fast config validation
+try:
+    from .config import settings
+except ImportError as e:
+    logging.critical(f"STARTUP FATAL: Missing or corrupted settings/config module. Diagnostic: {e}")
+    sys.exit(1)
 from .db import init_db
 from .routes import api_router
 from .routes.fyers import router as fyers_router
@@ -28,6 +37,8 @@ from .db.session import SessionLocal
 from .services.paper_trading_service import PaperTradingService
 from .services.fyers_service import FyersService
 from .services.market_engine_service import market_engine
+from .db.locks import acquire_singleton_lease
+from .core.task_supervisor import TaskSupervisor
 # token_service refresh automation removed — manual access-token workflow only
 import asyncio
 from .schemas import AnalysisMode
@@ -150,8 +161,19 @@ async def job_market_engine_cool_down():
             exc=e
         )
 
+async def job_retention_cleanup():
+    try:
+        from .services.retention_service import RetentionService
+
+        with SessionLocal() as db:
+            deleted = RetentionService(db).cleanup()
+        logger.info("Retention cleanup complete | deleted=%s", deleted)
+    except Exception:
+        logger.exception("Retention cleanup failed")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .config import settings
     # Startup
     if settings.app_env == "test":
         logger.info("Test environment detected; skipping scheduler and background monitors.")
@@ -159,20 +181,36 @@ async def lifespan(app: FastAPI):
         # Shutdown for test env: no scheduler running
         try:
             from .core.server_state import write_shutdown_time
-
             write_shutdown_time()
             print("[server_state] Shutdown time saved.")
         except Exception:
             logger.exception("Failed to write shutdown time on shutdown")
         return
 
+    worker_lease = acquire_singleton_lease("trading-system:singleton-workers")
+    app.state.singleton_worker_lease = worker_lease
+    app.state.task_supervisor = TaskSupervisor()
+    if not worker_lease.acquired:
+        logger.warning("Another instance owns singleton workers; API-only mode enabled for this pod.")
+        yield
+        return
+
     # Ensure the candle cache DB exists before scheduling jobs
     try:
         from .services import candle_store
-
+        from .services.screener_service import ScreenerService
+        from .config import settings
+        
         candle_store.init_db()
+        logger.info("STARTUP PROGRESS: settings module loaded and db initialized successfully.")
+        
+        # Run startup validation for screener health
+        screener_svc = ScreenerService()
+        screener_svc.validate_startup_health(list(settings.nifty500_symbols))
+        logger.info("STARTUP SUCCESS: Scanner health bootstrap completed successfully.")
     except Exception:
-        logger.exception("Failed to init candle_store DB on startup")
+        logger.exception("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan.")
+        sys.exit(1)
 
     # JOB 1: Market Engine Spin Up
     scheduler.add_job(
@@ -219,6 +257,13 @@ async def lifespan(app: FastAPI):
         track_strategy_drift_job,
         CronTrigger(day_of_week="fri", hour=16, minute=0, timezone="Asia/Kolkata"),
         id="track_strategy_drift_job",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        job_retention_cleanup,
+        CronTrigger(hour=2, minute=15, timezone="Asia/Kolkata"),
+        id="retention_cleanup",
         replace_existing=True,
     )
 
@@ -323,7 +368,7 @@ async def lifespan(app: FastAPI):
 
     # Create background task but don't await it
     try:
-        asyncio.create_task(_monitor_positions_background())
+        app.state.task_supervisor.start("legacy-alert-monitor", _monitor_positions_background)
     except Exception:
         logger.exception("Failed to start position monitor task")
 
@@ -346,14 +391,13 @@ async def lifespan(app: FastAPI):
             print(f"  Orders filled:     {len(summary.get('orders_filled', []))}")
             print(f"  Positions exited:  {len(summary.get('positions_exited', []))}")
             for w in summary.get("warnings", []):
-                print(f"  ⚠️  {w}")
+                print(f"  [WARNING]  {w}")
     except Exception as e:
         logger.exception("GAP_REPLAY startup failed: %s", e)
         print(f"[GAP_REPLAY] Startup replay failed: {e}")
 
     # yield control to the application
     yield
-
     # Shutdown
     if settings.app_env != "test" and scheduler.running:
         scheduler.shutdown()
@@ -362,12 +406,20 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to stop market engine loop")
     try:
+        await app.state.task_supervisor.shutdown()
+    except Exception:
+        logger.exception("Failed to stop supervised tasks")
+    try:
         from .core.server_state import write_shutdown_time
 
         write_shutdown_time()
         print("[server_state] Shutdown time saved.")
     except Exception:
         logger.exception("Failed to write shutdown time on shutdown")
+    try:
+        worker_lease.release()
+    except Exception:
+        logger.exception("Failed to release singleton worker lease")
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -383,6 +435,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/scanner/health")
+def scanner_health():
+    from .services.screener_service import ScreenerService
+    svc = ScreenerService()
+    return svc.get_metrics()
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    from .observability import render_metrics
+
+    payload, content_type = render_metrics()
+    return Response(content=payload, media_type=content_type)
 
 
 @app.middleware("http")

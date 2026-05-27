@@ -20,6 +20,14 @@ class SupertrendPoint:
 class TechnicalAnalysisService:
     def __init__(self) -> None:
         self.logger = get_logger("app.technical")
+        
+    def get_required_candle_count(self, mode: AnalysisMode) -> int:
+        if mode == AnalysisMode.intraday:
+            # 26 (MACD) + warmup
+            return 40
+        else:
+            # 200 (SMA200) + warmup
+            return 260
 
     def analyze_bulk(self, universe_candles: dict[str, list[OHLCVPoint]], mode: AnalysisMode) -> dict[str, TechnicalAnalysisResult]:
         self.logger.info("TECHNICAL | Start bulk analysis | mode=%s | symbols=%s", mode.value, len(universe_candles))

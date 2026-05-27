@@ -15,8 +15,8 @@ from ..utils import get_logger
 
 
 IST = ZoneInfo("Asia/Kolkata")
-ACTIVE_ORDER_STATES = {"PENDING_ENTRY", "MARKET_CLOSED_WAITING", "ERROR_RETRYING", "TOKEN_EXPIRED_PAUSED"}
-ACTIVE_POSITION_STATES = {"OPEN_POSITION", "MARKET_CLOSED_WAITING", "ERROR_RETRYING", "TOKEN_EXPIRED_PAUSED"}
+ACTIVE_ORDER_STATES = {"PENDING_ENTRY"}
+ACTIVE_POSITION_STATES = {"OPEN_POSITION"}
 
 
 class MarketEngineService:
@@ -168,16 +168,15 @@ class MarketEngineService:
 
     def _process_symbol(self, db, symbol: str, price: float) -> None:
         service = PaperTradingService(db)
-        orders = list(
-            db.scalars(
-                select(PaperOrder).where(
-                    PaperOrder.symbol == symbol,
-                    PaperOrder.lifecycle_state.in_(ACTIVE_ORDER_STATES),
-                    PaperOrder.status == "PENDING",
-                    PaperOrder.monitor_enabled.is_(True),
-                )
-            )
+        order_query = select(PaperOrder).where(
+            PaperOrder.symbol == symbol,
+            PaperOrder.lifecycle_state.in_(ACTIVE_ORDER_STATES),
+            PaperOrder.status == "PENDING",
+            PaperOrder.monitor_enabled.is_(True),
         )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            order_query = order_query.with_for_update(skip_locked=True)
+        orders = list(db.scalars(order_query))
         for order in orders:
             prior = order.lifecycle_state
             order.last_seen_ltp = price
@@ -211,24 +210,29 @@ class MarketEngineService:
                     commit=False,
                 )
 
-        positions = list(
-            db.scalars(
-                select(PaperPosition).where(
-                    PaperPosition.symbol == symbol,
-                    PaperPosition.status == "OPEN",
-                    PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
-                    PaperPosition.monitor_enabled.is_(True),
-                )
-            )
+        position_query = select(PaperPosition).where(
+            PaperPosition.symbol == symbol,
+            PaperPosition.status == "OPEN",
+            PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
+            PaperPosition.monitor_enabled.is_(True),
         )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            position_query = position_query.with_for_update(skip_locked=True)
+        positions = list(db.scalars(position_query))
         for position in positions:
             if position.target is not None and price >= position.target:
                 self.logger.info("Target hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
-                service.auto_exit(position.id, price, "TARGET_HIT")
+                try:
+                    service.auto_exit(position.id, price, "TARGET_HIT")
+                except ValueError as exc:
+                    self.logger.warning("Target exit skipped | position_id=%s reason=%s", position.id, exc)
                 self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:TARGET_HIT")
             elif position.stop_loss is not None and price <= position.stop_loss:
                 self.logger.info("Stop loss hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
-                service.auto_exit(position.id, price, "STOPLOSS_HIT")
+                try:
+                    service.auto_exit(position.id, price, "STOPLOSS_HIT")
+                except ValueError as exc:
+                    self.logger.warning("Stop-loss exit skipped | position_id=%s reason=%s", position.id, exc)
                 self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:STOPLOSS_HIT")
 
     def _desired_symbols(self, db) -> set[str]:

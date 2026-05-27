@@ -27,7 +27,7 @@ def _set_token_cache(access_token: str) -> None:
     _TOKEN_EXPIRY = datetime.utcnow() + _TOKEN_CACHE_TTL
 
 def get_fyers_token_row(db: Session) -> FyersToken | None:
-    return db.query(FyersToken).first()
+    return db.query(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()).first()
 
 
 def _mask_token(token: str | None) -> str | None:

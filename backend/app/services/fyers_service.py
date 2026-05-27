@@ -14,7 +14,7 @@ from ..schemas import AnalysisMode, OHLCVPoint
 from ..utils import get_logger
 from ..core.log_manager import fyers_logger
 
-BLACKLISTED_SYMBOLS: set[str] = set()
+QUARANTINED_SYMBOLS: dict[str, datetime] = {}
 _BLACKLIST_LOCK = threading.Lock()
 _FYERS_HISTORY_SEMAPHORE = threading.BoundedSemaphore(3)
 _FYERS_MAX_RETRIES = 3
@@ -88,38 +88,42 @@ def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
 
 
 class FyersService:
+    _ltp_cache: dict[str, tuple[float | None, float]] = {}
+    _ltp_source_cache: dict[str, str] = {}
+    _ohlcv_cache: dict[tuple[str, str, str], tuple[int, list[OHLCVPoint], float]] = {}
+    _ohlcv_source_cache: dict[tuple[str, str, str], str] = {}
+
     def __init__(self) -> None:
         self.logger = get_logger("app.fyers")
-        self._ltp_cache: dict[str, float | None] = {}
-        self._ltp_source_cache: dict[str, str] = {}
-        self._ohlcv_cache: dict[tuple[str, str, str], tuple[int, list[OHLCVPoint]]] = {}
-        self._ohlcv_source_cache: dict[tuple[str, str, str], str] = {}
 
     def fetch_ltp(self, symbol: str) -> float | None:
         cache_key = self._cache_symbol(symbol)
-        if cache_key in self._ltp_cache:
-            # Memory cache hit - record to fyers_api log
-            try:
-                fyers_logger.info("QUOTES CACHE_HIT | symbol=%s | ltp=%s | source=MEMORY_CACHE", symbol, self._ltp_cache[cache_key])
-            except Exception:
-                pass
-            return self._ltp_cache[cache_key]
+        now = time.time()
+        
+        # 15 second TTL for quotes
+        if cache_key in FyersService._ltp_cache:
+            cached_ltp, expiry = FyersService._ltp_cache[cache_key]
+            if now < expiry:
+                try:
+                    fyers_logger.info("QUOTES CACHE_HIT | symbol=%s | ltp=%s | source=MEMORY_CACHE", symbol, cached_ltp)
+                except Exception:
+                    pass
+                return cached_ltp
 
         if self._is_fyers_configured():
             ltp = self._fetch_fyers_ltp(symbol)
             if ltp is not None:
-                # Record structured FYERS quote event
                 try:
                     fyers_logger.info("QUOTES | symbol=%s | ltp=%s | source=FYERS_PRIMARY", symbol, ltp)
                 except Exception:
                     pass
                 self.logger.info("Fetched live quote from FYERS | symbol=%s", symbol)
-                self._ltp_cache[cache_key] = ltp
-                self._ltp_source_cache[cache_key] = "FYERS_PRIMARY"
+                FyersService._ltp_cache[cache_key] = (ltp, now + 15.0)
+                FyersService._ltp_source_cache[cache_key] = "FYERS_PRIMARY"
                 return ltp
 
-        self._ltp_cache[cache_key] = None
-        self._ltp_source_cache[cache_key] = "NO_DATA"
+        FyersService._ltp_cache[cache_key] = (None, now + 15.0)
+        FyersService._ltp_source_cache[cache_key] = "NO_DATA"
         return None
 
     def fetch_quote_profile(self, symbol: str) -> dict[str, object]:
@@ -175,9 +179,11 @@ class FyersService:
     ) -> list[OHLCVPoint]:
         points = 40 if mode == AnalysisMode.intraday else max(lookback_window, 260)
         cache_key = (self._cache_symbol(symbol), mode.value, resolution.lower())
-        cached = self._ohlcv_cache.get(cache_key)
-        if cached and cached[0] >= lookback_window and len(cached[1]) >= points:
-            cached_source = self._ohlcv_source_cache.get(cache_key, "unknown")
+        cached = FyersService._ohlcv_cache.get(cache_key)
+        now = time.time()
+        # 300 second TTL for OHLCV memory cache
+        if cached and cached[0] >= lookback_window and len(cached[1]) >= points and now < cached[2]:
+            cached_source = FyersService._ohlcv_source_cache.get(cache_key, "unknown")
             self.logger.info(
                 "OHLCV SOURCE = MEMORY_CACHE | symbol=%s | mode=%s | resolution=%s | candles=%s",
                 symbol,
@@ -257,7 +263,7 @@ class FyersService:
         return []
 
     def get_ltp_source(self, symbol: str) -> str:
-        return self._ltp_source_cache.get(self._cache_symbol(symbol), "unknown")
+        return FyersService._ltp_source_cache.get(self._cache_symbol(symbol), "unknown")
 
     def get_ohlcv_source(
         self,
@@ -266,7 +272,7 @@ class FyersService:
         resolution: str,
     ) -> str:
         cache_key = (self._cache_symbol(symbol), mode.value, resolution.lower())
-        return self._ohlcv_source_cache.get(cache_key, "unknown")
+        return FyersService._ohlcv_source_cache.get(cache_key, "unknown")
 
     def _is_fyers_configured(self) -> bool:
         # Consider FYERS configured only when the SDK is available, app id is set,
@@ -416,8 +422,9 @@ class FyersService:
             return candle_rows
 
         try:
+            import pytz
             client = self._client()
-            today = date.today()
+            today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
             mapped_resolution = self._map_resolution(resolution)
             if mapped_resolution != "1D":
                 start_date = today - timedelta(days=max(lookback_window, 260))
@@ -659,10 +666,10 @@ class FyersService:
         candles: list[OHLCVPoint],
         source: str,
     ) -> None:
-        cached = self._ohlcv_cache.get(cache_key)
+        cached = FyersService._ohlcv_cache.get(cache_key)
         if not cached or lookback_window >= cached[0]:
-            self._ohlcv_cache[cache_key] = (lookback_window, candles)
-            self._ohlcv_source_cache[cache_key] = source
+            FyersService._ohlcv_cache[cache_key] = (lookback_window, candles, time.time() + 300.0)
+            FyersService._ohlcv_source_cache[cache_key] = source
 
     def _client(self):
         # Normalize client_id and token to avoid common mistakes where
@@ -784,15 +791,18 @@ class FyersService:
     def _is_blacklisted(self, symbol: str) -> bool:
         normalized = self._cache_symbol(symbol)
         with _BLACKLIST_LOCK:
-            return normalized in BLACKLISTED_SYMBOLS
+            if normalized in QUARANTINED_SYMBOLS:
+                if datetime.now(timezone.utc) < QUARANTINED_SYMBOLS[normalized]:
+                    return True
+                else:
+                    del QUARANTINED_SYMBOLS[normalized]
+            return False
 
     def _blacklist_symbol(self, symbol: str) -> None:
         normalized = self._cache_symbol(symbol)
         with _BLACKLIST_LOCK:
-            if normalized in BLACKLISTED_SYMBOLS:
-                return
-            BLACKLISTED_SYMBOLS.add(normalized)
-        self.logger.warning("Symbol permanently blacklisted: %s", symbol)
+            QUARANTINED_SYMBOLS[normalized] = datetime.now(timezone.utc) + timedelta(hours=24)
+        self.logger.warning("Symbol quarantined for 24h: %s", symbol)
 
     def _is_rate_limit_error(self, error: object) -> bool:
         error_str = str(error).lower()
@@ -847,17 +857,18 @@ class FyersService:
         if days_diff > 5:
             return self.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
 
-        self.logger.info("INCREMENTAL FETCH | symbol=%s | last_cached=%s | fetching today's single live candle", symbol, last_cached_dt)
+        self.logger.info("INCREMENTAL FETCH | symbol=%s | last_cached=%s | fetching missing candles", symbol, last_cached_dt)
         
         for retry_count in range(3):
             try:
                 client = self._client()
+                range_from_str = (last_cached_dt + timedelta(days=1)).isoformat()
                 today_str = today_dt.isoformat()
                 payload = {
                     "symbol": self._normalize_symbol(symbol),
                     "resolution": "1D",
                     "date_format": "1",
-                    "range_from": today_str,
+                    "range_from": range_from_str,
                     "range_to": today_str,
                     "cont_flag": "1",
                 }

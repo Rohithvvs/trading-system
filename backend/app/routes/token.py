@@ -64,7 +64,7 @@ def token_diagnostic(db: Session = Depends(get_db)):
     from ..models import FyersToken
 
     db_path = str(engine.url).replace("sqlite:///", "")
-    row = db.query(FyersToken).filter(FyersToken.id == 1).one_or_none()
+    row = db.query(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()).first()
     return {
         "db_file_path": db_path,
         "db_file_exists": os.path.exists(db_path),

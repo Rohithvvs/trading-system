@@ -8,14 +8,33 @@ from .base import Base
 
 
 connect_args = {}
+pool_kwargs = {"pool_pre_ping": True}
+
 if settings.database_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
     connect_args["timeout"] = 15
 else:
     # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
     connect_args["connect_timeout"] = 120
+    # Connection Pooling Limits for Neon Serverless
+    if "pgbouncer" in settings.database_url.lower():
+        from sqlalchemy import NullPool
+        pool_kwargs["poolclass"] = NullPool
+    else:
+        pool_kwargs["pool_size"] = 5
+        pool_kwargs["max_overflow"] = 10
+        pool_kwargs["pool_timeout"] = 30
 
-engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
+engine = create_engine(settings.database_url, connect_args=connect_args, **pool_kwargs)
+
+if not settings.database_url.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def set_postgres_timeouts(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("SET statement_timeout = '30s'")
+        cursor.execute("SET lock_timeout = '5s'")
+        cursor.execute("SET idle_in_transaction_session_timeout = '30s'")
+        cursor.close()
 
 if settings.database_url.startswith("sqlite"):
     @event.listens_for(engine, "connect")
@@ -26,6 +45,26 @@ if settings.database_url.startswith("sqlite"):
         cursor.execute("PRAGMA busy_timeout=30000")
         cursor.execute("PRAGMA cache_size=-64000")
         cursor.execute("PRAGMA temp_store=MEMORY")
+        
+        # Verify and log WAL mode enforcement
+        try:
+            from ..utils import get_logger
+            logger = get_logger("app.db.session")
+            
+            cursor.execute("PRAGMA journal_mode")
+            jm = cursor.fetchone()
+            if jm and jm[0].lower() != "wal":
+                logger.warning("SQLITE_WAL_WARNING", extra={"expected": "wal", "actual": jm[0]})
+                # Attempt correction
+                cursor.execute("PRAGMA journal_mode=WAL")
+                
+            cursor.execute("PRAGMA synchronous")
+            sync = cursor.fetchone()
+            if sync and str(sync[0]) not in ("1", "NORMAL"):
+                logger.warning("SQLITE_SYNC_WARNING", extra={"expected": "NORMAL (1)", "actual": sync[0]})
+        except Exception as e:
+            print(f"Error verifying pragmas: {e}")
+            
         cursor.close()
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -45,6 +84,8 @@ def init_db() -> None:
     from ..models import stock as stock_models  # noqa: F401
     from ..models import fyers_token as fyers_token_models  # noqa: F401
     from ..models import workstation as workstation_models  # noqa: F401
+    from ..models import market_data as market_data_models  # noqa: F401
+    from ..models import system_log as system_log_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     # Ensure new schema changes are applied for existing SQLite DBs.
@@ -77,6 +118,7 @@ def init_db() -> None:
                     'filled_price': "REAL",
                     'filled_at': "TEXT",
                     'cancelled_at': "TEXT",
+                    'idempotency_key': "TEXT",
                 }
                 for col, col_def in expected_cols.items():
                     if col not in cols2:
@@ -133,6 +175,30 @@ def init_db() -> None:
                         conn.exec_driver_sql("ALTER TABLE paper_trading_trade_history ADD COLUMN exit_reason TEXT")
                     except Exception:
                         pass
+                for table_name, col_defs in {
+                    "paper_trading_execution_events": {
+                        "event_id": "TEXT",
+                        "dedupe_key": "TEXT",
+                    },
+                    "market_replay_sessions": {
+                        "replay_key": "TEXT",
+                        "status": "TEXT",
+                        "gap_start": "TEXT",
+                        "gap_end": "TEXT",
+                        "checkpoint_symbol": "TEXT",
+                        "started_at": "TEXT",
+                        "completed_at": "TEXT",
+                        "error_message": "TEXT",
+                    },
+                }.items():
+                    res_extra = conn.exec_driver_sql(f"PRAGMA table_info('{table_name}')").mappings().all()
+                    extra_cols = {r.get("name") for r in res_extra} if res_extra else set()
+                    for col, col_def in col_defs.items():
+                        if col not in extra_cols:
+                            try:
+                                conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {col} {col_def}")
+                            except Exception:
+                                pass
                 # Best-effort: ensure any other missing columns present in SQLAlchemy models
                 try:
                     from sqlalchemy import Integer, Float, String, Text, DateTime, Boolean
