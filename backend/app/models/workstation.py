@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import text, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
@@ -20,9 +20,9 @@ class SavedScan(Base):
     universe: Mapped[str] = mapped_column(String(80), default="NIFTY500")
     symbols_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     filters_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
 
 class ScanHistorySnapshot(Base):
@@ -42,7 +42,7 @@ class ScanHistorySnapshot(Base):
     watch_count: Mapped[int] = mapped_column(Integer, default=0)
     data_source: Mapped[str | None] = mapped_column(String(80), nullable=True)
     payload_json: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
 
 
 class WorkstationAlert(Base):
@@ -56,10 +56,10 @@ class WorkstationAlert(Base):
     target_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     scan_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE", index=True)
-    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
 
 class RiskSettings(Base):
@@ -69,4 +69,4 @@ class RiskSettings(Base):
     profile: Mapped[str] = mapped_column(String(24), default="moderate")
     default_position_size_pct: Mapped[float] = mapped_column(Float, default=10.0)
     max_risk_per_trade_pct: Mapped[float] = mapped_column(Float, default=2.0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

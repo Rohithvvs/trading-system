@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from math import ceil
 from typing import Dict
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from .server_state import read_last_shutdown, write_startup_time
 from ..models.paper_trading import (
@@ -47,7 +48,7 @@ def _is_market_hours(dt: datetime) -> bool:
     return time(MARKET_OPEN_HOUR, MARKET_OPEN_MIN) <= t <= time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MIN)
 
 
-def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
+async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
     summary: Dict = {
         "gap_start": None,
         "gap_end": None,
@@ -78,7 +79,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
     summary["gap_start"] = gap_start.isoformat()
     summary["gap_end"] = gap_end.isoformat()
 
-    existing_replay = db.query(ReplaySession).filter(ReplaySession.replay_key == replay_key).first()
+    existing_replay = (await db.scalars(select(ReplaySession).where(ReplaySession.replay_key == replay_key))).first()
     if existing_replay and existing_replay.status == "COMPLETED":
         summary["skipped_reason"] = "Replay window already completed."
         write_startup_time()
@@ -87,25 +88,41 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
         existing_replay = ReplaySession(replay_key=replay_key, gap_start=gap_start, gap_end=gap_end, status="RUNNING")
         db.add(existing_replay)
         try:
-            db.flush()
+            await db.flush()
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             summary["warnings"].append(f"Failed to create replay session: {e}")
             return summary
 
     logger.info("[GAP_REPLAY] Gap detected: %s → %s (%s minutes)", gap_start.isoformat(), gap_end.isoformat(), int(gap_minutes))
 
     try:
-        accounts = list(db.query(PaperTradingAccount).all())
+        accounts = list((await db.scalars(select(PaperTradingAccount))).all())
     except Exception as e:
         logger.error("[GAP_REPLAY] Failed to load accounts: %s", e)
         summary["warnings"].append(f"Failed to load accounts: {e}")
         write_startup_time()
         return summary
 
+    import asyncio
+    all_symbols = set()
     for account in accounts:
-        open_positions = list(db.query(PaperPosition).filter(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN").all())
-        pending_orders = list(db.query(PaperOrder).filter(PaperOrder.account_id == account.id, PaperOrder.status == "PENDING").all())
+        open_positions = list((await db.scalars(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN"))).all())
+        pending_orders = list((await db.scalars(select(PaperOrder).where(PaperOrder.account_id == account.id, PaperOrder.status == "PENDING"))).all())
+        all_symbols.update({p.symbol for p in open_positions} | {o.symbol for o in pending_orders})
+    
+    # Pre-fetch all candles
+    lookback_days = max(1, ceil(gap_minutes / (60 * 24)) + 1)
+    pre_fetched_candles = {}
+    for symbol in all_symbols:
+        try:
+            pre_fetched_candles[symbol] = await asyncio.to_thread(fyers_service.fetch_ohlcv, symbol, AnalysisMode.intraday, "1m", lookback_days, allow_mock=False)
+        except Exception as e:
+            logger.error("[GAP_REPLAY] Failed to fetch candles for %s: %s", symbol, e)
+
+    for account in accounts:
+        open_positions = list((await db.scalars(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN"))).all())
+        pending_orders = list((await db.scalars(select(PaperOrder).where(PaperOrder.account_id == account.id, PaperOrder.status == "PENDING"))).all())
 
         if not open_positions and not pending_orders:
             continue
@@ -116,9 +133,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
 
         for symbol in symbols:
             try:
-                # Determine lookback days — fetch at least 1-2 days so FYERS history returns intraday candles
-                lookback_days = max(1, ceil(gap_minutes / (60 * 24)) + 1)
-                candles = fyers_service.fetch_ohlcv(symbol, AnalysisMode.intraday, "1m", lookback_days, allow_mock=False)
+                candles = pre_fetched_candles.get(symbol)
 
                 if not candles:
                     warning = f"{symbol}: No candle data for gap period — verify manually"
@@ -138,7 +153,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                 # Replay pending LIMIT BUY orders
                 for order in [o for o in pending_orders if o.symbol == symbol and o.side == "BUY"]:
                     fill_dedupe = f"replay-fill:{replay_key}:{order.id}"
-                    if db.query(ExecutionEvent).filter(ExecutionEvent.dedupe_key == fill_dedupe).first():
+                    if (await db.scalars(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == fill_dedupe))).first():
                         continue
                     for candle in market_candles:
                         candle_low = float(candle.low)
@@ -154,7 +169,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                                 order.filled_price = fill_price
                                 order.filled_at = candle_time
 
-                                existing_pos = db.query(PaperPosition).filter(PaperPosition.account_id == account.id, PaperPosition.symbol == symbol, PaperPosition.status == "OPEN").first()
+                                existing_pos = (await db.scalars(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.symbol == symbol, PaperPosition.status == "OPEN"))).first()
                                 if existing_pos:
                                     total_cost = (existing_pos.avg_entry_price * existing_pos.qty) + cost
                                     existing_pos.qty = existing_pos.qty + order.qty
@@ -216,7 +231,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                                 summary["orders_filled"].append(msg)
                                 logger.info("[GAP_REPLAY] %s", msg)
                                 # refresh open_positions list
-                                open_positions = list(db.query(PaperPosition).filter(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN").all())
+                                open_positions = list((await db.scalars(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN"))).all())
                             else:
                                 order.status = "REJECTED"
                                 logger.warning("[GAP_REPLAY] %s: Offline fill rejected — insufficient funds", symbol)
@@ -251,7 +266,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
 
                     if exit_price is not None:
                         exit_dedupe = f"replay-exit:{replay_key}:{pos.id}:{exit_reason}"
-                        if db.query(ExecutionEvent).filter(ExecutionEvent.dedupe_key == exit_dedupe).first():
+                        if (await db.scalars(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == exit_dedupe))).first():
                             continue
                         entry_price = float(pos.avg_entry_price)
                         qty = float(pos.qty)
@@ -272,7 +287,7 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                                 filled_at=exit_time,
                             )
                             db.add(exit_order)
-                            db.flush()
+                            await db.flush()
                         except Exception:
                             logger.exception("[GAP_REPLAY] Failed to add exit order for %s", pos.symbol)
 
@@ -348,25 +363,25 @@ def run_gap_replay(db: Session, fyers_service: FyersService) -> Dict:
                 try:
                     existing_replay.checkpoint_symbol = symbol
                     existing_replay.updated_at = datetime.utcnow()
-                    db.flush()
+                    await db.flush()
                 except Exception:
                     pass
 
     try:
         existing_replay.status = "COMPLETED"
         existing_replay.completed_at = datetime.utcnow()
-        db.commit()
+        await db.commit()
         logger.info("[GAP_REPLAY] Committed. Filled=%s Exited=%s Warnings=%s", len(summary["orders_filled"]), len(summary["positions_exited"]), len(summary["warnings"]))
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         try:
-            retry_replay = db.query(ReplaySession).filter(ReplaySession.replay_key == replay_key).first()
+            retry_replay = (await db.scalars(select(ReplaySession).where(ReplaySession.replay_key == replay_key))).first()
             if retry_replay:
                 retry_replay.status = "FAILED"
                 retry_replay.error_message = str(e)
-                db.commit()
+                await db.commit()
         except Exception:
-            db.rollback()
+            await db.rollback()
         logger.error("[GAP_REPLAY] Commit failed: %s", e)
         summary["warnings"].append(f"Commit failed: {e}")
 

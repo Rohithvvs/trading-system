@@ -63,13 +63,13 @@
   "suites": [],
   "errors": [
     {
-      "message": "Error: Process from config.webServer was not able to start. Exit code: 3",
-      "stack": "Error: Process from config.webServer was not able to start. Exit code: 3"
+      "message": "Error: Process from config.webServer was not able to start. Exit code: 1",
+      "stack": "Error: Process from config.webServer was not able to start. Exit code: 1"
     }
   ],
   "stats": {
-    "startTime": "2026-05-27T15:24:29.104Z",
-    "duration": 15514.976,
+    "startTime": "2026-05-30T12:02:32.371Z",
+    "duration": 3380.9689999999996,
     "expected": 0,
     "skipped": 0,
     "unexpected": 0,

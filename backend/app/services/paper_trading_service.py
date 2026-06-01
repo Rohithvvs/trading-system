@@ -1033,12 +1033,24 @@ class PaperTradingService:
         )
         if not pending_orders:
             return
+            
+        symbols = {o.symbol for o in pending_orders}
+        self.db.commit()  # Release connection before network I/O
+        price_cache = self._load_price_cache(symbols)
+        
+        # Re-fetch since we committed
         account = self._get_or_create_account()
+        pending_orders = list(
+            self.db.scalars(
+                select(PaperOrder).where(PaperOrder.account_id == account_id, PaperOrder.status == "PENDING")
+            )
+        )
         for order in pending_orders:
-            price = self._price_snapshot(order.symbol)
-            order.last_evaluated_at = datetime.utcnow()
-            order.last_seen_ltp = price.current_price
-            self._try_fill_order(account, order, price.current_price)
+            price = price_cache.get(order.symbol)
+            if price:
+                order.last_evaluated_at = datetime.utcnow()
+                order.last_seen_ltp = price.current_price
+                self._try_fill_order(account, order, price.current_price)
 
     def _load_price_cache(self, symbols: set[str]) -> dict[str, PriceSnapshot]:
         cache: dict[str, PriceSnapshot] = {}
@@ -1061,7 +1073,14 @@ class PaperTradingService:
         if candles:
             low_level_price = candles[-1].close
 
-        ltp = self.fyers_service.fetch_ltp(symbol)
+        import asyncio; from ..db.session import main_event_loop
+        try:
+            future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(symbol), main_event_loop)
+            ltp = future.result(timeout=2)
+        except Exception as e:
+            self.logger.error(f'Error fetching ltp: {e}')
+            ltp = None
+
         source = "FYERS_QUOTE"
         current_price = ltp
         if current_price is None:

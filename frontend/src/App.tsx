@@ -141,8 +141,8 @@ export default function App() {
 
     return [
       { label: "Total scanned", value: screenerResult?.scanned_symbols ?? "--", helper: "Stocks checked in the Nifty 500 universe." },
-      { label: "Data valid", value: screenerResult?.data_valid_symbols.length ?? "--", helper: "Names with enough clean OHLCV history for scoring." },
-      { label: "Broad trend matched", value: screenerResult?.eligible_symbols.length ?? "--", helper: "Names passing the broad trend gate.", tone: "positive" as const },
+      { label: "Data valid", value: screenerResult?.data_valid_symbols?.length ?? "--", helper: "Names with enough clean OHLCV history for scoring." },
+      { label: "Broad trend matched", value: screenerResult?.eligible_symbols?.length ?? "--", helper: "Names passing the broad trend gate.", tone: "positive" as const },
       { label: "Shortlisted", value: shortlistedCount || "--", helper: "Top set moved into deeper analysis." },
       { label: "BUY candidates", value: buyCount || "--", helper: "Actionable swing ideas right now.", tone: "positive" as const },
       { label: "WATCH candidates", value: watchCount || "--", helper: "Promising names needing cleaner confirmation.", tone: "warning" as const },
@@ -499,13 +499,13 @@ function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateR
   const matchBySymbol = new Map<string, ScreenerConditionResult>();
   const rankingBySymbol = new Map<string, RankingItem>();
 
-  screenerResult.analysis?.items.forEach((item) => {
+  screenerResult.analysis?.items?.forEach((item) => {
     analysisBySymbol.set(item.symbol, item);
   });
-  screenerResult.matches.forEach((match) => {
+  screenerResult.matches?.forEach((match) => {
     matchBySymbol.set(match.symbol, match);
   });
-  screenerResult.analysis?.rankings.rankings.forEach((ranking) => {
+  screenerResult.analysis?.rankings?.rankings?.forEach((ranking) => {
     rankingBySymbol.set(ranking.symbol, ranking);
   });
 

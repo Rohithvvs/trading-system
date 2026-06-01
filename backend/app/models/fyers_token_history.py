@@ -7,6 +7,6 @@ class FyersTokenHistory(Base):
     __tablename__ = "fyers_token_history"
     id = Column(Integer, primary_key=True, autoincrement=True)
     access_token_masked = Column(String)
-    saved_at = Column(DateTime, default=datetime.utcnow)
+    saved_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     status = Column(String, default="active")
     note = Column(String, nullable=True)

@@ -37,3 +37,10 @@ build/
 # Local state files
 server_state.json
 backend/server_state.json
+*.db
+*.db.bak
+*.sqlite
+*.sqlite3
+
+backend/tests/data/*.db
+backend/tests/data/*.bak

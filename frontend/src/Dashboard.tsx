@@ -69,30 +69,53 @@ export default function Dashboard() {
 
   useEffect(() => {
     function loadAndApply() {
-      void loadTodayCandidates().then((candidates) => {
-        if (!candidates || candidates.length === 0) return;
-        
-        const mockResponse: any = {
-          scanned_symbols: candidates.length,
-          screener_name: candidates[0].screener_name || "Daily Scan",
-          data_valid_symbols: [], eligible_symbols: [], buy_candidate_symbols: [], watch_candidate_symbols: [],
-          shortlisted_symbols: candidates.filter((c: any) => c.matched).map((c: any) => c.symbol),
-          matched_symbols: candidates.filter((c: any) => c.matched).map((c: any) => c.symbol),
-          matches: candidates.map((c: any) => ({
-            symbol: c.symbol,
-            screener_score: c.screener_score || 0,
-            technical_signal: c.technical_signal || "Neutral",
-            technical_score: c.technical_score || 0,
-            close: 0, ema_20: 0, sma_30: 0, sma_50: 0, sma_100: 0, sma_200: 0,
-            macd: 0, macd_signal: 0, supertrend: 0, volume: 0, previous_volume: 0,
-            conditions: {},
-            matched: c.matched
-          })),
-          all_analyzed_stocks: [],
-          disclaimer: "Loaded from today's background scan",
-          scanned_at: candidates[0].scanned_at
-        };
-        applyScanResult(mockResponse as ScreenerResponse, "restored");
+      import("./api").then(({ getLatestScan }) => {
+        getLatestScan().then((data) => {
+          if (!data || !data.scan_timestamp) return;
+
+          const buySyms = (data.buy_candidates || []).map((c: any) => c.symbol);
+          const watchSyms = (data.watch_candidates || []).map((c: any) => c.symbol);
+          const allCandidates = [
+            ...(data.buy_candidates || []),
+            ...(data.watch_candidates || []),
+            ...(data.rejected_candidates || [])
+          ];
+          const short_syms = [...buySyms, ...watchSyms];
+
+          const mockResponse: any = {
+            scanned_symbols: data.total_scanned,
+            screener_name: "Latest Scan Snapshot",
+            data_valid_symbols: new Array(data.valid_symbols).fill("DUMMY"),
+            eligible_symbols: new Array(allCandidates.length).fill("DUMMY"),
+            shortlisted_symbols: short_syms,
+            buy_candidate_symbols: buySyms,
+            watch_candidate_symbols: watchSyms,
+            matched_symbols: allCandidates.map((c: any) => c.symbol),
+            matches: allCandidates.map((c: any) => ({
+              symbol: c.symbol,
+              screener_score: c.score || 0,
+              technical_signal: c.recommendation,
+              technical_score: c.score || 0,
+              close: c.close_price || 0,
+              ema_20: 0, sma_30: 0, sma_50: c.sma50 || 0, sma_100: 0, sma_200: c.sma200 || 0,
+              macd: c.macd || 0, macd_signal: 0, supertrend: 0, volume: c.volume || 0, previous_volume: 0,
+              conditions: {},
+              matched: c.recommendation !== "REJECTED"
+            })),
+            analysis: {
+              items: allCandidates.filter((c: any) => c.recommendation !== "REJECTED").map((c: any) => ({
+                symbol: c.symbol,
+                recommendation: { action: c.recommendation, score: c.score, summary: c.reason },
+                current_price: c.close_price,
+                technical_indicators: { sma_50: c.sma50, sma_200: c.sma200, rsi_14: c.rsi, macd: c.macd },
+              }))
+            },
+            all_analyzed_stocks: [],
+            disclaimer: "Loaded from latest snapshot",
+            scanned_at: data.scan_timestamp
+          };
+          applyScanResult(mockResponse as ScreenerResponse, "restored");
+        }).catch(err => console.warn("Failed to load latest scan", err));
       });
     }
 

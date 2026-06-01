@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import RouterAgent
 from ..db import get_db
@@ -10,5 +10,5 @@ router = APIRouter(prefix="/stocks", tags=["stocks"])
 
 
 @router.post("/analyze", response_model=AnalysisResponse)
-def analyze_stocks(payload: AnalysisRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
+def analyze_stocks(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> AnalysisResponse:
     return RouterAgent(db).analyze_stocks(payload)

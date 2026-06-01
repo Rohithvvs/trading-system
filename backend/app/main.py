@@ -33,7 +33,7 @@ from .services.candle_store import (
     is_cache_fresh,
     get_last_stored_date,
 )
-from .db.session import SessionLocal
+from .db.session import AsyncSessionLocal, SessionLocal
 from .services.paper_trading_service import PaperTradingService
 from .services.fyers_service import FyersService
 from .services.market_engine_service import market_engine
@@ -46,18 +46,61 @@ from .schemas import AnalysisMode
 
 setup_logging()
 configure_logging()
-try:
-    init_db()
-except Exception as e:
-    pass # Ignore DB initialization collisions during testing
+# DB init moved or handled by alembic
 from .core import log_manager  # ensure module-level loggers (api/http) are created
 request_logger = get_logger("app.http")
 config_logger = get_logger("app.config")
 logger = get_logger("app.scheduler")
 
 
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED, EVENT_JOB_SUBMITTED
+
 # Scheduler for background jobs (nightly tasks)
 scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
+
+_job_starts = {}
+def _scheduler_listener(event):
+    from .services.diagnostics_service import diagnostics
+    import time
+    import datetime
+    if event.code == EVENT_JOB_SUBMITTED:
+        _job_starts[event.job_id] = time.perf_counter()
+        return
+
+    now = datetime.datetime.utcnow().isoformat()
+    duration_ms = 0
+    if event.job_id in _job_starts:
+        duration_ms = int((time.perf_counter() - _job_starts[event.job_id]) * 1000)
+        del _job_starts[event.job_id]
+
+    status = "success"
+    if event.code == EVENT_JOB_ERROR:
+        status = "error"
+    elif event.code == EVENT_JOB_MISSED:
+        status = "skipped"
+
+    scheduled_time = None
+    if hasattr(event, "scheduled_run_time") and event.scheduled_run_time:
+        scheduled_time = event.scheduled_run_time.isoformat()
+
+    success = status == "success"
+    failure_reason = ""
+    if status == "error":
+        failure_reason = str(getattr(event, "exception", "Unknown Error"))
+    elif status == "skipped":
+        failure_reason = "Missed schedule"
+
+    diagnostics.record_scheduler_run({
+        "job_name": event.job_id,
+        "scheduled_time": scheduled_time,
+        "actual_time": now,
+        "duration_ms": duration_ms,
+        "success": success,
+        "failure_reason": failure_reason
+    })
+
+scheduler.add_listener(_scheduler_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED | EVENT_JOB_SUBMITTED)
+
 
 # Log configuration at startup
 config_logger.info(
@@ -93,7 +136,7 @@ async def job_market_engine_spin_up():
     )
     try:
         from .services.market_engine_service import market_engine
-        market_engine.request_start()
+        await market_engine.request_start()
         logger_service.log_info(
             message="Market engine spin up completed successfully.",
             source="JOB",
@@ -119,7 +162,7 @@ async def job_intraday_heartbeat():
     )
     try:
         from .services.market_engine_service import market_engine
-        market_engine.heartbeat()
+        await market_engine.heartbeat()
         logger_service.log_info(
             message="15-minute market data trigger completed successfully.",
             source="JOB",
@@ -145,7 +188,7 @@ async def job_market_engine_cool_down():
     )
     try:
         from .services.market_engine_service import market_engine
-        market_engine.request_stop()
+        await market_engine.request_stop()
         logger_service.log_info(
             message="Market engine cool down completed successfully.",
             source="JOB",
@@ -165,8 +208,8 @@ async def job_retention_cleanup():
     try:
         from .services.retention_service import RetentionService
 
-        with SessionLocal() as db:
-            deleted = RetentionService(db).cleanup()
+        async with AsyncSessionLocal() as db:
+            deleted = await RetentionService(db).cleanup()
         logger.info("Retention cleanup complete | deleted=%s", deleted)
     except Exception:
         logger.exception("Retention cleanup failed")
@@ -174,6 +217,18 @@ async def job_retention_cleanup():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .config import settings
+    import asyncio
+    from .db import session as session_module
+    import anyio
+    session_module.main_event_loop = asyncio.get_running_loop()
+    
+    # Configure AnyIO thread pool for high concurrency (Phase E4.1)
+    try:
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = 100
+        logger.info("AnyIO default thread limiter set to 100")
+    except Exception as e:
+        logger.warning(f"Failed to set AnyIO thread limiter: {e}")
     # Startup
     if settings.app_env == "test":
         logger.info("Test environment detected; skipping scheduler and background monitors.")
@@ -187,29 +242,38 @@ async def lifespan(app: FastAPI):
             logger.exception("Failed to write shutdown time on shutdown")
         return
 
-    worker_lease = acquire_singleton_lease("trading-system:singleton-workers")
+    worker_lease = await acquire_singleton_lease("trading-system:singleton-workers")
     app.state.singleton_worker_lease = worker_lease
     app.state.task_supervisor = TaskSupervisor()
+    
+    from .services.partition_manager import verify_and_create_partitions
+    try:
+        await verify_and_create_partitions()
+    except Exception as e:
+        logger.error(f"Failed to verify partitions: {e}")
+
     if not worker_lease.acquired:
         logger.warning("Another instance owns singleton workers; API-only mode enabled for this pod.")
         yield
         return
-
-    # Ensure the candle cache DB exists before scheduling jobs
     try:
-        from .services import candle_store
         from .services.screener_service import ScreenerService
         from .config import settings
+        from .db.session import check_alembic_head
         
-        candle_store.init_db()
-        logger.info("STARTUP PROGRESS: settings module loaded and db initialized successfully.")
+        # Enforce Alembic Migration Gate
+        logger.info("STARTUP PROGRESS: Validating database schema lineage...")
+        check_alembic_head()
+        logger.info("STARTUP PROGRESS: Database schema is up-to-date.")
+        
+        logger.info("STARTUP PROGRESS: settings module loaded successfully.")
         
         # Run startup validation for screener health
         screener_svc = ScreenerService()
-        screener_svc.validate_startup_health(list(settings.nifty500_symbols))
+        await screener_svc.validate_startup_health(list(settings.nifty500_symbols))
         logger.info("STARTUP SUCCESS: Scanner health bootstrap completed successfully.")
-    except Exception:
-        logger.exception("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan.")
+    except Exception as e:
+        logger.exception("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan: %s", e)
         sys.exit(1)
 
     # JOB 1: Market Engine Spin Up
@@ -228,11 +292,19 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
-    # JOB 3: Intraday Engine Heartbeat Loop (09:00 AM to 14:45 PM)
+    # JOB 3a: Intraday Engine Heartbeat Loop (09:15 AM to 09:45 AM)
     scheduler.add_job(
         job_intraday_heartbeat,
-        CronTrigger(day_of_week="mon-fri", hour="9-14", minute="0,15,30,45", timezone="Asia/Kolkata"),
-        id="intraday_heartbeat_1",
+        CronTrigger(day_of_week="mon-fri", hour=9, minute="15,30,45", timezone="Asia/Kolkata"),
+        id="intraday_heartbeat_1a",
+        replace_existing=True,
+    )
+
+    # JOB 3b: Intraday Engine Heartbeat Loop (10:00 AM to 14:45 PM)
+    scheduler.add_job(
+        job_intraday_heartbeat,
+        CronTrigger(day_of_week="mon-fri", hour="10-14", minute="0,15,30,45", timezone="Asia/Kolkata"),
+        id="intraday_heartbeat_1b",
         replace_existing=True,
     )
 
@@ -268,22 +340,23 @@ async def lifespan(app: FastAPI):
     )
 
     # FYERS refresh automation removed. Manual access-token workflow only.
-    scheduler.start()
-    logger.info("Scheduler started — nightly sync at 18:30 IST")
+    if not settings.quarantine_mode:
+        scheduler.start()
+        logger.info("Scheduler started — nightly sync at 18:30 IST")
+    else:
+        logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 
-    # Log DB path and check for FYERS access token in DB
+    # Log DB path
     try:
-        import os
         from .db.session import engine
         from .services.token_service import get_current_access_token
 
-        config_logger.info("DATABASE FILE PATH: %s", engine.url)
-        config_logger.info("DATABASE FILE EXISTS: %s", os.path.exists(str(engine.url).replace("sqlite:///", "")))
+        config_logger.info("DATABASE URL: %s", engine.url)
 
         # Verify token is present
         try:
-            with SessionLocal() as db:
-                token = get_current_access_token(db)
+            async with AsyncSessionLocal() as db:
+                token = await get_current_access_token(db)
                 if token:
                     logger.info("STARTUP: FYERS access token loaded from DB successfully")
                 else:
@@ -295,10 +368,13 @@ async def lifespan(app: FastAPI):
 
     # Start the backend-driven market engine. The service boundary is intentionally
     # separate so the same loop can later be hosted in a dedicated worker process.
-    try:
-        await market_engine.start_loop()
-    except Exception:
-        logger.exception("Failed to start market engine loop")
+    if not settings.quarantine_mode:
+        try:
+            await market_engine.start_loop()
+        except Exception:
+            logger.exception("Failed to start market engine loop")
+    else:
+        logger.info("QUARANTINE MODE: Market engine loop bypassed.")
 
     # Legacy monitor kept only for alert checks; position/order automation now
     # belongs to market_engine so it can survive browser closure cleanly.
@@ -307,30 +383,43 @@ async def lifespan(app: FastAPI):
         fyers = FyersService()
         while True:
             try:
-                db = SessionLocal()
-                try:
+                async with AsyncSessionLocal() as db:
                     service = PaperTradingService(db)
                     # Check price alerts as well
                     try:
-                        alerts = service.get_active_alerts()
+                        def _get_alerts():
+                            with SessionLocal() as s:
+                                # We map the sqlalchemy models to dictionaries so we don't hold the session
+                                return [{"id": x.id, "symbol": x.symbol, "condition": x.condition, "target_price": x.target_price} for x in PaperTradingService(s).get_active_alerts()]
+                        
+                        alerts = await asyncio.to_thread(_get_alerts)
                         for a in alerts:
                             try:
-                                ltp = await asyncio.to_thread(fyers.fetch_ltp, a.symbol)
+                                ltp_coro = fyers.fetch_ltp(a["symbol"])
+                                if asyncio.iscoroutine(ltp_coro): ltp = await ltp_coro
+                                else: ltp = ltp_coro
+
                                 if ltp is None:
                                     candles = await asyncio.to_thread(
-                                        fyers.fetch_ohlcv, a.symbol, AnalysisMode.swing, "1d", 2
+                                        fyers.fetch_ohlcv, a["symbol"], AnalysisMode.swing, "1d", 2
                                     )
                                     if candles and len(candles) > 0:
                                         ltp = candles[-1].close
                                     else:
-                                        logger.warning("No price data available for alert %s; skipping", a.symbol)
+                                        logger.warning("No price data available for alert %s; skipping", a["symbol"])
                                         continue
-                                if a.condition == ">=" and ltp >= a.target_price:
-                                    await asyncio.to_thread(service.trigger_alert, a.id, ltp)
-                                elif a.condition == "<=" and ltp <= a.target_price:
-                                    await asyncio.to_thread(service.trigger_alert, a.id, ltp)
+                                if a["condition"] == ">=" and ltp >= a["target_price"]:
+                                    def _trigger(aid, val):
+                                        with SessionLocal() as s:
+                                            PaperTradingService(s).trigger_alert(aid, val)
+                                    await asyncio.to_thread(_trigger, a["id"], ltp)
+                                elif a["condition"] == "<=" and ltp <= a["target_price"]:
+                                    def _trigger(aid, val):
+                                        with SessionLocal() as s:
+                                            PaperTradingService(s).trigger_alert(aid, val)
+                                    await asyncio.to_thread(_trigger, a["id"], ltp)
                             except Exception:
-                                logger.exception("Error monitoring alert %s", a.symbol)
+                                logger.exception("Error monitoring alert %s", a["symbol"])
                     except Exception:
                         logger.exception("Failed to check price alerts")
                     try:
@@ -338,17 +427,17 @@ async def lifespan(app: FastAPI):
                         from .models.workstation import WorkstationAlert
 
                         app_alerts = list(
-                            db.scalars(
+                            (await db.scalars(
                                 select(WorkstationAlert).where(
                                     WorkstationAlert.alert_type == "PRICE",
                                     WorkstationAlert.status == "ACTIVE",
                                 )
-                            )
+                            )).all()
                         )
                         for alert in app_alerts:
                             if not alert.symbol or not alert.condition or not alert.target_price:
                                 continue
-                            ltp = await asyncio.to_thread(fyers.fetch_ltp, alert.symbol)
+                            ltp = await fyers.fetch_ltp(alert.symbol)
                             if ltp is None:
                                 continue
                             triggered = (alert.condition == ">=" and ltp >= alert.target_price) or (
@@ -357,44 +446,45 @@ async def lifespan(app: FastAPI):
                             if triggered:
                                 alert.last_triggered_at = datetime.utcnow()
                                 alert.last_message = f"{alert.symbol} {alert.condition} {alert.target_price} hit at {round(ltp, 2)}"
-                        db.commit()
+                        await db.commit()
                     except Exception:
                         logger.exception("Failed to check workstation price alerts")
-                finally:
-                    db.close()
             except Exception:
                 logger.exception("Position monitor loop failed")
             await asyncio.sleep(5)
 
     # Create background task but don't await it
-    try:
-        app.state.task_supervisor.start("legacy-alert-monitor", _monitor_positions_background)
-    except Exception:
-        logger.exception("Failed to start position monitor task")
+    if not settings.quarantine_mode:
+        try:
+            app.state.task_supervisor.start("legacy-alert-monitor", _monitor_positions_background)
+        except Exception:
+            logger.exception("Failed to start position monitor task")
+    else:
+        logger.info("QUARANTINE MODE: Legacy alert monitor bypassed.")
 
     # ADD: Run offline gap replay on startup to handle fills/exits while server was down
-    try:
-        from .core.gap_replay import run_gap_replay
-
-        db = SessionLocal()
-        fyers = FyersService()
+    if not settings.quarantine_mode:
         try:
-            summary = run_gap_replay(db, fyers)
-        finally:
-            db.close()
+            from .core.gap_replay import run_gap_replay
 
-        app.state.last_gap_replay = summary
-        if summary.get("skipped_reason"):
-            print(f"[GAP_REPLAY] Skipped: {summary['skipped_reason']}")
-        else:
-            print("[GAP_REPLAY] Complete!")
-            print(f"  Orders filled:     {len(summary.get('orders_filled', []))}")
-            print(f"  Positions exited:  {len(summary.get('positions_exited', []))}")
-            for w in summary.get("warnings", []):
-                print(f"  [WARNING]  {w}")
-    except Exception as e:
-        logger.exception("GAP_REPLAY startup failed: %s", e)
-        print(f"[GAP_REPLAY] Startup replay failed: {e}")
+            async with AsyncSessionLocal() as db:
+                fyers = FyersService()
+                summary = await run_gap_replay(db, fyers)
+
+            app.state.last_gap_replay = summary
+            if summary.get("skipped_reason"):
+                print(f"[GAP_REPLAY] Skipped: {summary['skipped_reason']}")
+            else:
+                print("[GAP_REPLAY] Complete!")
+                print(f"  Orders filled:     {len(summary.get('orders_filled', []))}")
+                print(f"  Positions exited:  {len(summary.get('positions_exited', []))}")
+                for w in summary.get("warnings", []):
+                    print(f"  [WARNING]  {w}")
+        except Exception as e:
+            logger.exception("GAP_REPLAY startup failed: %s", e)
+            print(f"[GAP_REPLAY] Startup replay failed: {e}")
+    else:
+        logger.info("QUARANTINE MODE: Offline gap replay bypassed.")
 
     # yield control to the application
     yield
@@ -417,7 +507,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to write shutdown time on shutdown")
     try:
-        worker_lease.release()
+        await worker_lease.release()
     except Exception:
         logger.exception("Failed to release singleton worker lease")
 
@@ -551,44 +641,90 @@ async def automated_screening_job():
     from .schemas import ScreenerRequest, AnalysisMode
     import asyncio
     
-    from .db import SessionLocal
+    from .db.session import AsyncSessionLocal, SessionLocal
     from .models.analysis import ScannedCandidate
-    db = SessionLocal()
-    
-    agent = OrchestratorAgent(db)
-    request = ScreenerRequest(
-        mode=AnalysisMode.swing
-    )
-    
     try:
-        logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
-        response = await asyncio.to_thread(agent.run_screener, request)
-        try:
-            for item in response.matches:
-                candidate = ScannedCandidate(
-                    symbol=item.symbol,
-                    screener_name=response.screener_name,
-                    technical_score=item.technical_score,
-                    technical_signal=item.technical_signal,
-                    screener_score=item.screener_score,
-                    matched=item.matched
-                )
-                db.add(candidate)
-            db.commit()
-            logger.info("Saved %s candidates to database.", len(response.matches))
-        except Exception as db_e:
-            logger.error("Failed to save scan candidates to DB: %s", db_e)
-            db.rollback()
-        finally:
-            db.close()
+        async with AsyncSessionLocal() as db:
+            agent = OrchestratorAgent(db)
+            request = ScreenerRequest(
+                mode=AnalysisMode.swing
+            )
             
-        logger_service.log_info(
-            message="Automated screening job completed successfully.",
-            source="JOB",
-            module="Scheduler",
-            endpoint="automated_screening_job"
-        )
-        logger.info("AUTOMATED SCREENING job complete")
+            logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
+            import datetime, os
+            try:
+                import psutil
+            except ImportError:
+                psutil = None
+            start_t_iso = datetime.datetime.utcnow().isoformat()
+            
+            # Record scanner memory before run
+            from .services.diagnostics_service import diagnostics
+            mem_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
+            
+            diagnostics.set_scanner_running()
+            start_t = perf_counter()
+            response = await agent.run_screener(request)
+            duration_ms = int((perf_counter() - start_t) * 1000)
+            
+            # Record scanner memory after run
+            mem_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
+            diagnostics.set_scanner_memory(mem_before, mem_after)
+            
+            # Record scanner execution log
+            diagnostics.record_scanner_run({
+                "scan_id": response.screener_name or f"scan-{start_t_iso}",
+                "start_time": start_t_iso,
+                "end_time": datetime.datetime.utcnow().isoformat(),
+                "duration_ms": duration_ms,
+                "requested_symbols": response.scanned_symbols,
+                "valid_symbols": len(response.data_valid_symbols),
+                "buy_count": len(response.buy_candidate_symbols),
+                "watch_count": len(response.watch_candidate_symbols),
+                "rejected_count": response.scanned_symbols - len(response.matched_symbols),
+                "exception_count": response.duplicate_symbols_skipped
+            })
+            
+            try:
+                # Still add to ScannedCandidate if it's used elsewhere
+                for item in response.matches:
+                    candidate = ScannedCandidate(
+                        symbol=item.symbol,
+                        screener_name=response.screener_name,
+                        technical_score=item.technical_score,
+                        technical_signal=item.technical_signal,
+                        screener_score=item.screener_score,
+                        matched=item.matched
+                    )
+                    db.add(candidate)
+                    
+                # New logic for PHASE S1: Persist full scan snapshot
+                from .services.latest_scan_service import LatestScanService
+                scan_service = LatestScanService(db)
+                await scan_service.persist_successful_scan(response, duration_ms)
+                
+                await db.commit()
+                logger.info("Saved scan candidates and latest scan snapshot to database.")
+                
+                diagnostics.set_scanner_success(response.screener_name or f"scan-{start_t_iso}")
+                logger_service.log_info(
+                    message="Automated screening job completed successfully.",
+                    source="JOB",
+                    module="Scheduler",
+                    endpoint="automated_screening_job"
+                )
+                logger.info("AUTOMATED SCREENING job complete")
+            except Exception as db_e:
+                logger.error("Failed to save scan candidates to DB: %s", db_e)
+                await db.rollback()
+                diagnostics.set_scanner_failed(str(db_e))
+                logger_service.log_error(
+                    message=f"Scheduled job failed to persist: {str(db_e)}",
+                    source="JOB",
+                    module="Scheduler",
+                    endpoint="automated_screening_job",
+                    exc=db_e
+                )
     except Exception as e:
         logger_service.log_error(
             message=f"Scheduled job failed: {str(e)}",
@@ -598,6 +734,8 @@ async def automated_screening_job():
             exc=e
         )
         logger.exception("AUTOMATED SCREENING failed: %s", e)
+        from .services.diagnostics_service import diagnostics
+        diagnostics.set_scanner_failed(str(e))
 
 
 async def track_strategy_drift_job():

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..db.session import SessionLocal
+
 from ..models.system_log import SystemLog
 from ..observability.metrics import LOGGER_QUEUE_DEPTH, WS_CLIENTS
 
@@ -85,7 +85,7 @@ def generate_error_hash(traceback_str: str | None, endpoint: str | None = None) 
     return hashlib.sha256(fingerprint).hexdigest()[:16]
 
 
-def _json_default(value: Any) -> str:
+async def _json_default(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
@@ -111,7 +111,7 @@ class LoggingService:
         self._fallback_path = Path(__file__).resolve().parents[2] / "fallback_logs.jsonl"
 
     @property
-    def queue(self) -> asyncio.Queue[dict[str, Any]]:
+    async def queue(self) -> asyncio.Queue[dict[str, Any]]:
         return self._queue
 
     async def start(self) -> None:
@@ -241,7 +241,7 @@ class LoggingService:
         if bound_loop is not None and bound_loop is not current_loop and self._queue.empty():
             self._queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 
-    def _write_fallback(self, entry: dict[str, Any]) -> None:
+    async def _write_fallback(self, entry: dict[str, Any]) -> None:
         try:
             self._fallback_path.parent.mkdir(parents=True, exist_ok=True)
             with self._fallback_path.open("a", encoding="utf-8") as handle:
@@ -265,7 +265,7 @@ class LoggingService:
             for _ in batch:
                 self._queue.task_done()
 
-    def _drain_batch(self, limit: int) -> list[dict[str, Any]]:
+    async def _drain_batch(self, limit: int) -> list[dict[str, Any]]:
         batch: list[dict[str, Any]] = []
         while len(batch) < limit:
             try:
@@ -276,39 +276,39 @@ class LoggingService:
 
     async def _persist_batch(self, entries: list[dict[str, Any]]) -> None:
         try:
-            await asyncio.to_thread(self._sync_persist, entries)
-        except Exception:
+            await self._async_persist(entries)
+        except Exception as e:
+            self.logger.error(f"Failed to async persist log batch: {e}")
             for entry in entries:
                 self._write_fallback(entry)
 
-    def _sync_persist(self, entries: list[dict[str, Any]]) -> None:
-        db = SessionLocal()
+    async def _async_persist(self, entries: list[dict[str, Any]]) -> None:
+        from ..db.session import AsyncSessionLocal
         try:
-            for entry in entries:
-                db.add(
-                    SystemLog(
-                        timestamp=datetime.fromisoformat(entry["timestamp"]),
-                        level=entry["level"],
-                        source=entry["source"],
-                        module=entry["module"],
-                        endpoint=entry.get("endpoint"),
-                        message=entry["message"],
-                        error_hash=entry.get("error_hash"),
-                        traceback=entry.get("traceback"),
-                        structured_data=entry.get("structured_data"),
-                        correlationId=entry.get("correlationId"),
-                        userId=entry.get("userId"),
-                        symbol=entry.get("symbol"),
-                        orderId=entry.get("orderId"),
-                        environment=entry.get("environment"),
-                    )
-                )
-            db.commit()
+            # Transaction context standardization: async with db.begin()
+            async with AsyncSessionLocal() as db:
+                async with db.begin():
+                    for entry in entries:
+                        db.add(
+                            SystemLog(
+                                timestamp=datetime.fromisoformat(entry["timestamp"]),
+                                level=entry["level"],
+                                source=entry["source"],
+                                module=entry["module"],
+                                endpoint=entry.get("endpoint"),
+                                message=entry["message"],
+                                error_hash=entry.get("error_hash"),
+                                traceback=entry.get("traceback"),
+                                structured_data=entry.get("structured_data"),
+                                correlationId=entry.get("correlationId"),
+                                userId=entry.get("userId"),
+                                symbol=entry.get("symbol"),
+                                orderId=entry.get("orderId"),
+                                environment=entry.get("environment"),
+                            )
+                        )
         except Exception:
-            db.rollback()
             raise
-        finally:
-            db.close()
 
     def _emergency_snapshot(self) -> dict[str, Any]:
         return {

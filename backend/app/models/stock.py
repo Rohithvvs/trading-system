@@ -14,7 +14,7 @@ class WatchedStock(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     symbol: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(80))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
 
     analyses = relationship("AnalysisHistory", back_populates="stock", cascade="all, delete-orphan")
     backtests = relationship("BacktestHistory", back_populates="stock", cascade="all, delete-orphan")

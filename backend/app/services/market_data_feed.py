@@ -5,7 +5,7 @@ from threading import Lock, Thread
 from typing import Any
 
 from ..services.token_service import get_current_access_token
-from ..db.session import SessionLocal
+
 from ..utils import get_logger
 
 try:
@@ -33,11 +33,10 @@ class FyersMarketDataFeed:
         self._lock = Lock()
         self.connected = False
 
-    def start(self) -> None:
+    def start(self, token: str) -> None:
         if data_ws is None:
             self.on_error("FYERS websocket SDK unavailable.")
             return
-        token = self._read_token()
         if not token:
             self.on_error("No FYERS token configured.")
             return
@@ -130,11 +129,6 @@ class FyersMarketDataFeed:
             self._socket.subscribe(symbols=[self._normalize_symbol(s) for s in to_add], data_type="SymbolUpdate")
         if to_remove:
             self._socket.unsubscribe(symbols=[self._normalize_symbol(s) for s in to_remove], data_type="SymbolUpdate")
-
-    def _read_token(self) -> str | None:
-        with SessionLocal() as db:
-            token = get_current_access_token(db)
-        return str(token) if token else None
 
     def _normalize_symbol(self, symbol: str) -> str:
         normalized = symbol.strip().upper()

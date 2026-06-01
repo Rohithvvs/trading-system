@@ -1,0 +1,2928 @@
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1937, in _run_once
+    handle = None  # Needed to break cycles when an exception occurs.
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 451, in select
+    tmp = None
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 867, in _poll
+    self._unregistered.clear()
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    with _account_creation_lock:
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    with _account_creation_lock:
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    with _account_creation_lock:
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    with _account_creation_lock:
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    with _account_creation_lock:
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    with _account_creation_lock:
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 28136:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 10304:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1936, in _run_once
+    handle._run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\starlette\routing.py", line 75, in app
+    response = await f(request)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\fastapi\routing.py", line 213, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\trading system01\trading system\backend\app\routes\paper_trading.py", line 51, in get_dashboard
+    response = await service.get_dashboard(selected_symbol=selected_symbol)
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 63, in get_dashboard
+    account = await self._get_or_create_account()
+  File "F:\trading system01\trading system\backend\app\services\paper_trading_service.py", line 553, in _get_or_create_account
+    global _account_creation_lock
+
+--- STACK DUMP ---
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1937, in _run_once
+    handle = None  # Needed to break cycles when an exception occurs.
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 451, in select
+    tmp = None
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 867, in _poll
+    self._unregistered.clear()
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)
+
+--- STACK DUMP ---
+
+Thread 10092:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 991, in run
+    item = self.queue.get()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\queue.py", line 171, in get
+    self.not_empty.wait()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 327, in wait
+    waiter.acquire()
+
+Thread 23588:
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "F:\trading system01\trading system\backend\app\stack_dumper.py", line 13, in dump_stacks
+    traceback.print_stack(frame, file=f)
+
+Thread 15448:
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "F:\trading system01\trading system\venv\Scripts\uvicorn.exe\__main__.py", line 5, in <module>
+    sys.exit(main())
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1514, in __call__
+    return self.main(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1435, in main
+    rv = self.invoke(ctx)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 1298, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\click\core.py", line 853, in invoke
+    return callback(*args, **kwargs)
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 413, in main
+    run(
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\main.py", line 580, in run
+    server.run()
+  File "F:\trading system01\trading system\venv\Lib\site-packages\uvicorn\server.py", line 67, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 321, in run_forever
+    super().run_forever()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 608, in run_forever
+    self._run_once()
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 1898, in _run_once
+    event_list = self._selector.select(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 444, in select
+    self._poll(timeout)
+  File "C:\Users\rohit\AppData\Local\Programs\Python\Python311\Lib\asyncio\windows_events.py", line 825, in _poll
+    status = _overlapped.GetQueuedCompletionStatus(self._iocp, ms)

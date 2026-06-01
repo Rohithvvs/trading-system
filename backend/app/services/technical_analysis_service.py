@@ -27,7 +27,7 @@ class TechnicalAnalysisService:
             return 40
         else:
             # 200 (SMA200) + warmup
-            return 260
+            return 240
 
     def analyze_bulk(self, universe_candles: dict[str, list[OHLCVPoint]], mode: AnalysisMode) -> dict[str, TechnicalAnalysisResult]:
         self.logger.info("TECHNICAL | Start bulk analysis | mode=%s | symbols=%s", mode.value, len(universe_candles))
@@ -122,57 +122,95 @@ class TechnicalAnalysisService:
                 results[symbol] = TechnicalAnalysisResult(mode=mode, signal=signal, score=score, indicators=indicators, summary=summary)
             return results
 
-        # Swing Mode Vectorized
-        ema_20_unstack = close_unstack.ewm(span=20, adjust=False).mean()
-        sma_20_unstack = close_unstack.rolling(window=20).mean()
-        sma_30_unstack = close_unstack.rolling(window=30).mean()
-        sma_50_unstack = close_unstack.rolling(window=50).mean()
-        sma_100_unstack = close_unstack.rolling(window=100).mean()
-        sma_200_unstack = close_unstack.rolling(window=200).mean()
+        # Swing Mode Vectorized - GroupBy implementation
+        grouped = frame.groupby(level="symbol")
+        
+        def calc_rsi(x):
+            delta = x.diff()
+            gain = delta.where(delta > 0, 0.0).ewm(alpha=1/14, adjust=False).mean()
+            loss = (-delta.where(delta < 0, 0.0)).ewm(alpha=1/14, adjust=False).mean()
+            rs = gain / loss
+            return 100.0 - (100.0 / (1.0 + rs))
 
-        delta = close_unstack.diff()
-        gain = delta.where(delta > 0, 0.0).ewm(alpha=1/14, adjust=False).mean()
-        loss = (-delta.where(delta < 0, 0.0)).ewm(alpha=1/14, adjust=False).mean()
-        rs = gain / loss
-        rsi_14_unstack = 100.0 - (100.0 / (1.0 + rs))
+        def calc_macd(x):
+            ema_12 = x.ewm(span=12, adjust=False).mean()
+            ema_26 = x.ewm(span=26, adjust=False).mean()
+            return ema_12 - ema_26
 
-        ema_12 = close_unstack.ewm(span=12, adjust=False).mean()
-        ema_26 = close_unstack.ewm(span=26, adjust=False).mean()
-        macd_unstack = ema_12 - ema_26
-        macd_signal_unstack = macd_unstack.ewm(span=9, adjust=False).mean()
+        ema_20_series = grouped["close"].transform(lambda x: x.ewm(span=20, adjust=False).mean())
+        sma_20_series = grouped["close"].transform(lambda x: x.rolling(window=20).mean())
+        sma_30_series = grouped["close"].transform(lambda x: x.rolling(window=30).mean())
+        sma_50_series = grouped["close"].transform(lambda x: x.rolling(window=50).mean())
+        sma_100_series = grouped["close"].transform(lambda x: x.rolling(window=100).mean())
+        sma_200_series = grouped["close"].transform(lambda x: x.rolling(window=200).mean())
 
-        support_unstack = low_unstack.tail(20).min()
-        resistance_unstack = high_unstack.tail(20).max()
+        rsi_14_series = grouped["close"].transform(calc_rsi)
+        
+        macd_series = grouped["close"].transform(calc_macd)
+        macd_signal_series = grouped["close"].transform(lambda x: calc_macd(x).ewm(span=9, adjust=False).mean())
 
-        final_supertrend = frame.groupby(level="symbol").apply(lambda f: self._calculate_supertrend(f).iloc[-1], include_groups=False)
+        support_series = grouped["low"].transform(lambda x: x.rolling(window=20).min())
+        resistance_series = grouped["high"].transform(lambda x: x.rolling(window=20).max())
 
-        for symbol in close_unstack.columns:
-            lc = float(close_unstack[symbol].iloc[-1])
-            ema_20 = float(ema_20_unstack[symbol].iloc[-1])
-            sma_20 = float(sma_20_unstack[symbol].iloc[-1])
-            sma_30 = float(sma_30_unstack[symbol].iloc[-1])
-            sma_50 = float(sma_50_unstack[symbol].iloc[-1])
-            sma_100 = float(sma_100_unstack[symbol].iloc[-1])
-            sma_200 = float(sma_200_unstack[symbol].iloc[-1])
-            rsi_14 = float(rsi_14_unstack[symbol].iloc[-1])
-            macd_value = float(macd_unstack[symbol].iloc[-1])
-            macd_signal = float(macd_signal_unstack[symbol].iloc[-1])
-            support = float(support_unstack[symbol])
-            resistance = float(resistance_unstack[symbol])
+        final_supertrend = grouped.apply(lambda f: self._calculate_supertrend(f).iloc[-1], include_groups=False)
+
+        df_indicators = pd.DataFrame({
+            "ema_20": ema_20_series,
+            "sma_20": sma_20_series,
+            "sma_30": sma_30_series,
+            "sma_50": sma_50_series,
+            "sma_100": sma_100_series,
+            "sma_200": sma_200_series,
+            "rsi_14": rsi_14_series,
+            "macd": macd_series,
+            "macd_signal": macd_signal_series,
+            "support": support_series,
+            "resistance": resistance_series,
+        })
+        
+        last_inds = df_indicators.groupby(level="symbol").last()
+        sma_20_prev_df = sma_20_series.groupby(level="symbol").nth(-20)
+
+        for symbol in universe_candles.keys():
+            if symbol not in last_inds.index:
+                continue
+                
+            sym_candles = universe_candles[symbol]
+            if len(sym_candles) < 20:
+                continue
+
+            inds = last_inds.loc[symbol]
+            lc = float(sym_candles[-1].close)
             
-            supertrend_point = final_supertrend[symbol]
+            ema_20 = float(inds["ema_20"]) if not pd.isna(inds["ema_20"]) else 0.0
+            sma_20 = float(inds["sma_20"]) if not pd.isna(inds["sma_20"]) else 0.0
+            sma_30 = float(inds["sma_30"]) if not pd.isna(inds["sma_30"]) else 0.0
+            sma_50 = float(inds["sma_50"]) if not pd.isna(inds["sma_50"]) else 0.0
+            sma_100 = float(inds["sma_100"]) if not pd.isna(inds["sma_100"]) else 0.0
+            sma_200 = float(inds["sma_200"]) if not pd.isna(inds["sma_200"]) else 0.0
+            rsi_14 = float(inds["rsi_14"]) if not pd.isna(inds["rsi_14"]) else 0.0
+            macd_value = float(inds["macd"]) if not pd.isna(inds["macd"]) else 0.0
+            macd_signal = float(inds["macd_signal"]) if not pd.isna(inds["macd_signal"]) else 0.0
+            support = float(inds["support"]) if not pd.isna(inds["support"]) else 0.0
+            resistance = float(inds["resistance"]) if not pd.isna(inds["resistance"]) else 0.0
+            
+            supertrend_point = final_supertrend.loc[symbol] if symbol in final_supertrend.index else None
+            if supertrend_point is None:
+                continue
 
-            prev_1 = {"high": float(high_unstack[symbol].iloc[-2]), "low": float(low_unstack[symbol].iloc[-2]), "volume": float(volume_unstack[symbol].iloc[-2])}
-            prev_2 = {"high": float(high_unstack[symbol].iloc[-3]), "low": float(low_unstack[symbol].iloc[-3])}
-            prev_3 = {"high": float(high_unstack[symbol].iloc[-4]), "low": float(low_unstack[symbol].iloc[-4])}
-            prev_4 = {"high": float(high_unstack[symbol].iloc[-5]), "low": float(low_unstack[symbol].iloc[-5])}
-            prev_5 = {"high": float(high_unstack[symbol].iloc[-6]), "low": float(low_unstack[symbol].iloc[-6])}
-            latest = {"high": float(high_unstack[symbol].iloc[-1]), "low": float(low_unstack[symbol].iloc[-1]), "volume": float(volume_unstack[symbol].iloc[-1]), "open": float(frame.loc[(slice(None), symbol), "open"].iloc[-1]), "close": lc}
+            sma_20_prev = float(sma_20_prev_df.loc[symbol]) if symbol in sma_20_prev_df.index and not pd.isna(sma_20_prev_df.loc[symbol]) else 0.0
+
+            prev_1 = {"high": float(sym_candles[-2].high), "low": float(sym_candles[-2].low), "volume": float(sym_candles[-2].volume)}
+            prev_2 = {"high": float(sym_candles[-3].high), "low": float(sym_candles[-3].low)}
+            prev_3 = {"high": float(sym_candles[-4].high), "low": float(sym_candles[-4].low)}
+            prev_4 = {"high": float(sym_candles[-5].high), "low": float(sym_candles[-5].low)}
+            prev_5 = {"high": float(sym_candles[-6].high), "low": float(sym_candles[-6].low)}
+            latest = {"high": float(sym_candles[-1].high), "low": float(sym_candles[-1].low), "volume": float(sym_candles[-1].volume), "open": float(sym_candles[-1].open), "close": lc}
 
             close_above_ema20 = bool(lc > ema_20)
             supertrend_positive = bool(supertrend_point.direction_up and lc >= supertrend_point.value)
             macd_positive = bool(macd_value > macd_signal)
-            sma_uptrend_20d = bool(sma_20_unstack[symbol].iloc[-1] > sma_20_unstack[symbol].iloc[-20])
+            sma_uptrend_20d = bool(sma_20 > sma_20_prev)
             hh_hl_2d = bool(prev_1["high"] > prev_2["high"] and prev_1["low"] > prev_2["low"])
             hh_hl_3d = bool(prev_1["high"] > prev_3["high"] and prev_1["low"] > prev_3["low"])
             hh_hl_4d = bool(prev_1["high"] > prev_4["high"] and prev_1["low"] > prev_4["low"])

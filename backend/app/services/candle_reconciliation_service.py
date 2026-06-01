@@ -3,11 +3,10 @@ import time
 import asyncio
 import pytz
 import os
-import sqlite3
 import pandas as pd
 from datetime import datetime, timedelta
 from sqlalchemy import select, func, text
-from ..db.session import SessionLocal, engine
+from ..db.session import engine, AsyncSessionLocal
 from ..models.market_data import HistoricalCandle
 from .market_data_service import MarketDataService
 from .fyers_service import FyersService
@@ -22,7 +21,6 @@ class CandleReconciliationService:
         self.md_service = MarketDataService()
         self.fyers_service = FyersService()
         self.lock_service = DistributedLockService("reconciliation_job", ttl_seconds=3600)
-        self.failed_repair_cache = {}
         self.circuit_breaker_failures = 0
         self.circuit_breaker_tripped_until = None
 
@@ -30,8 +28,8 @@ class CandleReconciliationService:
         """Check if a given day is a weekend. A robust NSE holiday calendar can be integrated here."""
         return dt.weekday() < 5  # 0-4 are Mon-Fri
 
-    def detect_gaps(self, symbol: str, timeframe: str = '1D', min_gap_days: int = 3) -> list[dict]:
-        # SQLite >= 3.25 supports window functions
+    async def detect_gaps(self, symbol: str, timeframe: str = '1D', min_gap_days: int = 3) -> list[dict]:
+        # PostgreSQL syntax for gap detection
         query = text("""
         WITH lag_cte AS (
             SELECT symbol, resolution, timestamp, 
@@ -40,15 +38,15 @@ class CandleReconciliationService:
             WHERE symbol = :symbol AND resolution = :resolution
         )
         SELECT symbol, prev_timestamp, timestamp, 
-               julianday(timestamp) - julianday(prev_timestamp) as days_diff
+               EXTRACT(DAY FROM (timestamp - prev_timestamp)) as days_diff
         FROM lag_cte
-        WHERE days_diff > :min_gap
+        WHERE EXTRACT(DAY FROM (timestamp - prev_timestamp)) > :min_gap
         ORDER BY days_diff DESC;
         """)
         
         gaps = []
         try:
-            with SessionLocal() as db:
+            async with AsyncSessionLocal() as db:
                 result = db.execute(query, {"symbol": symbol, "resolution": timeframe, "min_gap": min_gap_days})
                 for row in result:
                     gaps.append({
@@ -61,52 +59,8 @@ class CandleReconciliationService:
             logger.error(f"Failed to detect gaps for {symbol}: {e}")
         return gaps
 
-    def verify_historical_migration(self):
-        legacy_db_path = os.path.join(os.path.dirname(__file__), "candle_cache.db")
-        if not os.path.exists(legacy_db_path):
-            logger.info("Legacy candle_cache.db not found. Migration not needed.")
-            return True
-        logger.info("Starting historical migration validation...")
-        legacy_counts = {}
-        try:
-            conn = sqlite3.connect(legacy_db_path)
-            cursor = conn.execute("SELECT symbol, COUNT(*) FROM candles GROUP BY symbol")
-            for row in cursor:
-                legacy_counts[row[0]] = row[1]
-            conn.close()
-        except Exception as e:
-            logger.error(f"Failed to read legacy candle_cache.db: {e}")
-            return False
-
-        primary_counts = {}
-        with SessionLocal() as db:
-            stmt = select(
-                HistoricalCandle.symbol, 
-                func.count(HistoricalCandle.id)
-            ).where(
-                HistoricalCandle.resolution == '1D'
-            ).group_by(HistoricalCandle.symbol)
-            result = db.execute(stmt)
-            for row in result:
-                primary_counts[row[0]] = row[1]
-
-        validation_failed = False
-        for symbol, legacy_count in legacy_counts.items():
-            primary_count = primary_counts.get(symbol, 0)
-            if primary_count < legacy_count:
-                logger.warning("historical_migration_mismatch", extra={
-                    "symbol": symbol, "legacy_count": legacy_count, "primary_count": primary_count, "deficit": legacy_count - primary_count
-                })
-                validation_failed = True
-
-        if validation_failed:
-            logger.error("Migration validation failed. Do NOT remove candle_cache.db yet.")
-            return False
-        logger.info("Migration validation successful. All legacy candles exist in primary DB.")
-        return True
-
-    def _parse_gap_timestamp(self, ts_str: str) -> datetime:
-        # Some SQLite strings have .000000, some don't.
+    async def _parse_gap_timestamp(self, ts_str: str) -> datetime:
+        # Parse timestamp strings
         if isinstance(ts_str, datetime):
             return ts_str
         try:
@@ -143,10 +97,16 @@ class CandleReconciliationService:
         MAX_REPAIRS_PER_CYCLE = 10
 
         for symbol in symbols:
-            # Clean up old repair cache
-            keys_to_delete = [k for k, v in self.failed_repair_cache.items() if now_ist > v]
-            for k in keys_to_delete:
-                del self.failed_repair_cache[k]
+            # Clean up old repair cache in PostgreSQL
+            try:
+                async with AsyncSessionLocal() as db:
+                    res = await db.execute(text("DELETE FROM empty_gaps WHERE expires_at < CURRENT_TIMESTAMP RETURNING symbol"))
+                    deleted_rows = len(res.fetchall())
+                    await db.commit()
+                    if deleted_rows > 0:
+                        logger.info(f"empty_gaps_cleanup_event", extra={"deleted_rows": deleted_rows})
+            except Exception as e:
+                logger.error(f"Failed to cleanup empty_gaps: {e}")
 
             # 1. Stale Detection using IST
             latest = self.md_service.get_latest_candle_time(symbol, '1D')
@@ -183,9 +143,18 @@ class CandleReconciliationService:
                         logger.info("holiday_gap_skipped", extra={"symbol": symbol, "gap_start": str(gap_start), "gap_end": str(gap_end)})
                         continue
 
-                    # Empty Repair Cache Check
-                    cache_key = f"{symbol}_{gap_start.date()}_{gap_end.date()}"
-                    if cache_key in self.failed_repair_cache:
+                    # Empty Repair Cache Check via PostgreSQL
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            res = await db.execute(
+                                text("SELECT 1 FROM empty_gaps WHERE symbol = :s AND gap_date = :gd"),
+                                {"s": symbol, "gd": gap_start_date}
+                            )
+                            is_cached = res.scalar() is not None
+                    except Exception:
+                        is_cached = False
+                    
+                    if is_cached:
                         skipped_repairs += 1
                         continue
                         
@@ -228,9 +197,21 @@ class CandleReconciliationService:
                             repaired_gaps += 1
                             repairs_this_cycle += 1
                             self.circuit_breaker_failures = 0
-                    else:
                         # 0 rows returned - known empty gap (e.g. unexpected holiday). Cache for 24h.
-                        self.failed_repair_cache[cache_key] = now_ist + timedelta(hours=24)
+                        expires_at = now_ist + timedelta(hours=24)
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                await db.execute(
+                                    text("""
+                                        INSERT INTO empty_gaps (symbol, gap_date, expires_at)
+                                        VALUES (:s, :gd, :ea)
+                                        ON CONFLICT (symbol, gap_date) DO UPDATE SET expires_at = EXCLUDED.expires_at
+                                    """),
+                                    {"s": symbol, "gd": gap_start_date, "ea": expires_at}
+                                )
+                                await db.commit()
+                        except Exception as e:
+                            logger.error(f"Failed to save empty gap for {symbol}: {e}")
                         skipped_repairs += 1
                         
                     # Backpressure safety: Sleep between API calls

@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from ..db.session import SessionLocal
+
 from ..models.paper_trading import ExecutionEvent, MarketEngineSession, PaperOrder, PaperPosition
+from ..services.token_service import get_current_access_token
 from ..services.fyers_service import FyersAuthExpiredError, FyersAuthInvalidError, FyersService
 from ..services.market_data_feed import FyersMarketDataFeed
+from ..db.session import AsyncSessionLocal, SessionLocal
 from ..services.paper_trading_service import PaperTradingService
 from ..utils import get_logger
 
@@ -27,13 +29,31 @@ class MarketEngineService:
         self._active_positions_cache: dict[str, list[PaperPosition]] = {}
         self._task: asyncio.Task | None = None
         self._running = False
-        self._feed = FyersMarketDataFeed(self._on_tick, self._on_feed_error, self._on_connection_change)
+        self._feed = FyersMarketDataFeed(
+            self._sync_on_tick, 
+            self._sync_on_feed_error, 
+            self._sync_on_connection_change
+        )
+        self._loop = None
+
+    def _sync_on_tick(self, symbol: str, price: float):
+        if self._loop and self._running:
+            asyncio.run_coroutine_threadsafe(self._on_tick(symbol, price), self._loop)
+
+    def _sync_on_feed_error(self, message: str | Exception):
+        if self._loop and self._running:
+            asyncio.run_coroutine_threadsafe(self._on_feed_error(message), self._loop)
+
+    def _sync_on_connection_change(self, connected: bool):
+        if self._loop and self._running:
+            asyncio.run_coroutine_threadsafe(self._on_connection_change(connected), self._loop)
 
     async def start_loop(self) -> None:
         if self._task and not self._task.done():
             self.logger.info("Market engine loop already running; start is idempotent")
             return
         self._running = True
+        self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._run_loop(), name="market-engine-loop")
         self.logger.info("Market engine loop started")
 
@@ -51,63 +71,65 @@ class MarketEngineService:
                 pass
         self.logger.info("Market engine loop stopped")
 
-    def request_start(self) -> MarketEngineSession:
-        with SessionLocal() as db:
-            session = self._get_or_create_session(db)
-            session.status = "STARTING"
-            session.requested_start_at = datetime.utcnow()
-            session.paused_reason = None
-            db.commit()
-            db.refresh(session)
-            self.logger.info("Market engine start requested | session_id=%s", session.id)
-            return session
+    async def request_start(self) -> MarketEngineSession:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                session = await self._get_or_create_session(db)
+                session.status = "STARTING"
+                session.requested_start_at = datetime.utcnow()
+                session.paused_reason = None
+                await db.refresh(session)
+                self.logger.info("Market engine start requested | session_id=%s", session.id)
+                return session
 
-    def request_stop(self) -> MarketEngineSession:
-        with SessionLocal() as db:
-            session = self._get_or_create_session(db)
-            session.status = "STOPPED"
-            session.stopped_at = datetime.utcnow()
-            session.websocket_connected = False
-            db.commit()
-            db.refresh(session)
-            self.logger.info("Market engine stop requested | session_id=%s", session.id)
+    async def request_stop(self) -> MarketEngineSession:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                session = await self._get_or_create_session(db)
+                session.status = "STOPPED"
+                session.stopped_at = datetime.utcnow()
+                session.websocket_connected = False
+                await db.refresh(session)
+                self.logger.info("Market engine stop requested | session_id=%s", session.id)
         self._feed.stop()
         return session
 
-    def heartbeat(self) -> None:
-        with SessionLocal() as db:
-            session = self._get_or_create_session(db)
-            session.last_heartbeat_at = datetime.utcnow()
-            db.commit()
-            self.logger.info("Market engine heartbeat recorded | session_id=%s", session.id)
+    async def heartbeat(self) -> None:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                session = await self._get_or_create_session(db)
+                session.last_heartbeat_at = datetime.utcnow()
+                self.logger.info("Market engine heartbeat recorded | session_id=%s", session.id)
 
-    def status(self) -> dict:
-        with SessionLocal() as db:
-            session = self._get_or_create_session(db)
-            symbols = sorted(self._desired_symbols(db))
-            return {
-                "status": session.status,
-                "market_hours_active": self.is_market_hours(),
-                "websocket_connected": bool(session.websocket_connected),
-                "token_status": session.token_status,
-                "paused_reason": session.paused_reason,
-                "last_heartbeat_at": session.last_heartbeat_at,
-                "last_tick_at": session.last_tick_at,
-                "active_monitored_symbols_count": len(symbols),
-                "active_symbols": symbols,
-                "trading_date": session.trading_date,
-            }
+    async def status(self) -> dict:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                session = await self._get_or_create_session(db)
+                symbols = sorted(await self._desired_symbols(db))
+                return {
+                    "status": session.status,
+                    "market_hours_active": self.is_market_hours(),
+                    "websocket_connected": bool(session.websocket_connected),
+                    "token_status": session.token_status,
+                    "paused_reason": session.paused_reason,
+                    "last_heartbeat_at": session.last_heartbeat_at,
+                    "last_tick_at": session.last_tick_at,
+                    "active_monitored_symbols_count": len(symbols),
+                    "active_symbols": symbols,
+                    "trading_date": session.trading_date,
+                }
 
     async def _run_loop(self) -> None:
         while self._running:
             try:
-                with SessionLocal() as db:
-                    session = self._get_or_create_session(db)
-                    if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED", "WAITING_MARKET_OPEN"}:
-                        await self._reconcile_session(db, session)
-                    db.commit()
+                async with AsyncSessionLocal() as db:
+                    async with db.begin():
+                        session = await self._get_or_create_session(db)
+                        if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED", "WAITING_MARKET_OPEN"}:
+                            await self._reconcile_session(db, session)
             except Exception:
                 self.logger.exception("Market engine loop failed")
+                await db.rollback()
             await asyncio.sleep(2)
 
     async def _reconcile_session(self, db, session: MarketEngineSession) -> None:
@@ -116,17 +138,21 @@ class MarketEngineService:
                 self.logger.info("Market closed; engine waiting for next session")
             session.status = "WAITING_MARKET_OPEN"
             session.websocket_connected = False
-            self._set_market_closed_waiting(db)
+            await self._set_market_closed_waiting(db)
             self._feed.stop(notify=False)
             return
 
         try:
-            desired = self._desired_symbols(db)
+            desired = await self._desired_symbols(db)
             session.monitored_symbols_count = len(desired)
-            self._resume_active_models(db)
+            await self._resume_active_models(db)
             self._feed.sync_symbols(desired)
             if desired:
-                self._feed.start()
+                token = await get_current_access_token(db)
+                if token:
+                    self._feed.start(str(token))
+                else:
+                    self.logger.warning("No token available to start feed")
             session.status = "RUNNING"
             session.token_status = "VALID"
             session.paused_reason = None
@@ -134,7 +160,7 @@ class MarketEngineService:
                 session.started_at = datetime.utcnow()
             await self._poll_missing_prices(desired)
         except (FyersAuthExpiredError, FyersAuthInvalidError):
-            self._pause_for_token(db, session)
+            await self._pause_for_token(db, session)
         except Exception:
             self.logger.exception("Market engine reconcile failed")
             session.status = "ERROR_RETRYING"
@@ -148,25 +174,25 @@ class MarketEngineService:
         
         async def fetch_and_process(sym: str):
             async with sem:
-                ltp = await asyncio.to_thread(self.fyers.fetch_ltp, sym)
+                ltp = await self.fyers.fetch_ltp(sym)
                 if ltp is not None:
-                    await asyncio.to_thread(self._on_tick, sym, ltp)
+                    await self._on_tick(sym, ltp)
 
         await asyncio.gather(*(fetch_and_process(sym) for sym in missing))
 
-    def _on_tick(self, symbol: str, price: float) -> None:
+    async def _on_tick(self, symbol: str, price: float) -> None:
         normalized = symbol.replace("NSE:", "").upper()
         self.latest_ltp[normalized] = price
         try:
-            with SessionLocal() as db:
-                self._process_symbol(db, normalized, price)
-                session = self._get_or_create_session(db)
-                session.last_tick_at = datetime.utcnow()
-                db.commit()
+            async with AsyncSessionLocal() as db:
+                async with db.begin():
+                    await self._process_symbol(db, normalized, price)
+                    session = await self._get_or_create_session(db)
+                    session.last_tick_at = datetime.utcnow()
         except Exception as e:
             self.logger.error("Tick processing error for %s: %s", normalized, e)
 
-    def _process_symbol(self, db, symbol: str, price: float) -> None:
+    async def _process_symbol(self, db, symbol: str, price: float) -> None:
         service = PaperTradingService(db)
         order_query = select(PaperOrder).where(
             PaperOrder.symbol == symbol,
@@ -176,19 +202,19 @@ class MarketEngineService:
         )
         if db.bind and db.bind.dialect.name == "postgresql":
             order_query = order_query.with_for_update(skip_locked=True)
-        orders = list(db.scalars(order_query))
+        orders = list((await db.scalars(order_query)).all())
         for order in orders:
             prior = order.lifecycle_state
             order.last_seen_ltp = price
             order.last_evaluated_at = datetime.utcnow()
-            account = service._get_or_create_account(for_update=True)
-            filled_order, position, _, _ = service._try_fill_order(account, order, price)
+            account = await service._get_or_create_account(for_update=True)
+            filled_order, position, _, _ = await service._try_fill_order(account, order, price)
             if filled_order.status == "FILLED":
                 filled_order.lifecycle_state = "ENTRY_FILLED"
                 if position:
                     position.lifecycle_state = "OPEN_POSITION"
                 self.logger.info("Entry filled | order_id=%s symbol=%s price=%s", order.id, symbol, price)
-                self._record_event(
+                await self._record_event(
                     db,
                     "ENTRY_FILLED",
                     symbol,
@@ -199,16 +225,12 @@ class MarketEngineService:
                     price,
                     dedupe_key=f"entry-filled:{order.id}",
                 )
-                service.add_notification(
-                    account.id,
-                    f"{symbol} paper buy auto-filled at Rs {round(price, 2)}.",
-                    "success",
-                    "ENTRY_FILLED",
-                    "order",
-                    order.id,
-                    dedupe_key=f"entry-filled:{order.id}",
-                    commit=False,
-                )
+                def _add_notif(acc_id, oid):
+                    with SessionLocal() as s:
+                        PaperTradingService(s).add_notification(
+                            acc_id, f"{symbol} paper buy auto-filled at Rs {round(price, 2)}.",
+                            "success", "ENTRY_FILLED", "order", oid, dedupe_key=f"entry-filled:{oid}", commit=True)
+                await asyncio.to_thread(_add_notif, account_id, order.id)
 
         position_query = select(PaperPosition).where(
             PaperPosition.symbol == symbol,
@@ -218,41 +240,41 @@ class MarketEngineService:
         )
         if db.bind and db.bind.dialect.name == "postgresql":
             position_query = position_query.with_for_update(skip_locked=True)
-        positions = list(db.scalars(position_query))
+        positions = list((await db.scalars(position_query)).all())
         for position in positions:
             if position.target is not None and price >= position.target:
                 self.logger.info("Target hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
                 try:
-                    service.auto_exit(position.id, price, "TARGET_HIT")
+                    await service.auto_exit(position.id, price, "TARGET_HIT")
                 except ValueError as exc:
                     self.logger.warning("Target exit skipped | position_id=%s reason=%s", position.id, exc)
-                self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:TARGET_HIT")
+                await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:TARGET_HIT")
             elif position.stop_loss is not None and price <= position.stop_loss:
                 self.logger.info("Stop loss hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
                 try:
-                    service.auto_exit(position.id, price, "STOPLOSS_HIT")
+                    await service.auto_exit(position.id, price, "STOPLOSS_HIT")
                 except ValueError as exc:
                     self.logger.warning("Stop-loss exit skipped | position_id=%s reason=%s", position.id, exc)
-                self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:STOPLOSS_HIT")
+                await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:STOPLOSS_HIT")
 
-    def _desired_symbols(self, db) -> set[str]:
+    async def _desired_symbols(self, db) -> set[str]:
         order_symbols = set(
-            db.scalars(
+            (await db.scalars(
                 select(PaperOrder.symbol).where(
                     PaperOrder.status == "PENDING",
                     PaperOrder.lifecycle_state.in_(ACTIVE_ORDER_STATES),
                     PaperOrder.monitor_enabled.is_(True),
                 )
-            )
+            )).all()
         )
         positions = list(
-            db.scalars(
+            (await db.scalars(
                 select(PaperPosition).where(
                     PaperPosition.status == "OPEN",
                     PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
                     PaperPosition.monitor_enabled.is_(True),
                 )
-            )
+            )).all()
         )
         
         self._active_positions_cache.clear()
@@ -262,86 +284,80 @@ class MarketEngineService:
         position_symbols = {pos.symbol for pos in positions if pos.symbol}
         return {s for s in order_symbols | position_symbols if s}
 
-    def _set_market_closed_waiting(self, db) -> None:
-        for order in db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING")):
+    async def _set_market_closed_waiting(self, db) -> None:
+        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
             if order.lifecycle_state in ACTIVE_ORDER_STATES:
                 order.lifecycle_state = "MARKET_CLOSED_WAITING"
-        for position in db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN")):
+        for position in (await db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN"))).all():
             if position.lifecycle_state in ACTIVE_POSITION_STATES:
                 position.lifecycle_state = "MARKET_CLOSED_WAITING"
 
-    def _resume_active_models(self, db) -> None:
-        for order in db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING")):
+    async def _resume_active_models(self, db) -> None:
+        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
             if order.lifecycle_state in {"MARKET_CLOSED_WAITING", "ERROR_RETRYING", "TOKEN_EXPIRED_PAUSED"}:
                 order.lifecycle_state = "PENDING_ENTRY"
                 order.paused_reason = None
-        for position in db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN")):
+        for position in (await db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN"))).all():
             if position.lifecycle_state in {"MARKET_CLOSED_WAITING", "ERROR_RETRYING", "TOKEN_EXPIRED_PAUSED"}:
                 position.lifecycle_state = "OPEN_POSITION"
                 position.paused_reason = None
 
-    def _pause_for_token(self, db, session: MarketEngineSession) -> None:
+    async def _pause_for_token(self, db, session: MarketEngineSession) -> None:
         already_paused = session.status == "PAUSED_TOKEN_EXPIRED"
         session.status = "PAUSED_TOKEN_EXPIRED"
         session.token_status = "EXPIRED"
         session.paused_reason = "TOKEN_EXPIRED"
         session.websocket_connected = False
-        account = PaperTradingService(db)._get_or_create_account()
-        for order in db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING")):
+        def _get_acc():
+            with SessionLocal() as s:
+                return PaperTradingService(s)._get_or_create_account().id
+        account_id = await asyncio.to_thread(_get_acc)
+        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
             order.lifecycle_state = "TOKEN_EXPIRED_PAUSED"
             order.paused_reason = "TOKEN_EXPIRED"
-        for position in db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN")):
+        for position in (await db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN"))).all():
             position.lifecycle_state = "TOKEN_EXPIRED_PAUSED"
             position.paused_reason = "TOKEN_EXPIRED"
         if not already_paused:
             self.logger.warning("Token expired; monitoring paused | session_id=%s", session.id)
-        PaperTradingService(db).add_notification(
-            account.id,
-            "FYERS token expired; monitoring paused.",
-            "error",
-            "TOKEN_EXPIRED",
-            "engine",
-            session.id,
-            dedupe_key=f"token-expired:{session.id}",
-            commit=False,
-        )
+        def _add_notif(acc_id, sid):
+            with SessionLocal() as s:
+                PaperTradingService(s).add_notification(acc_id, "FYERS token expired; monitoring paused.", "error", "TOKEN_EXPIRED", "engine", sid, dedupe_key=f"token-expired:{sid}", commit=True)
+        await asyncio.to_thread(_add_notif, account_id, session.id)
         self._feed.stop(notify=False)
 
-    def _on_feed_error(self, message: str | Exception) -> None:
+    async def _on_feed_error(self, message: str | Exception) -> None:
         if "expired" in str(message).lower():
-            with SessionLocal() as db:
-                session = self._get_or_create_session(db)
-                self._pause_for_token(db, session)
-                db.commit()
+            async with AsyncSessionLocal() as db:
+                async with db.begin():
+                    session = await self._get_or_create_session(db)
+                    await self._pause_for_token(db, session)
             return
-        with SessionLocal() as db:
-            session = self._get_or_create_session(db)
-            session.status = "ERROR_RETRYING"
-            session.websocket_connected = False
-            account = PaperTradingService(db)._get_or_create_account()
-            PaperTradingService(db).add_notification(
-                account.id,
-                "Live market feed disconnected; monitoring degraded while retrying.",
-                "error",
-                "WEBSOCKET_DISCONNECTED",
-                "engine",
-                session.id,
-                dedupe_key=f"feed-disconnected:{session.id}",
-                commit=False,
-            )
-            db.commit()
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                session = await self._get_or_create_session(db)
+                session.status = "ERROR_RETRYING"
+                session.websocket_connected = False
+                def _get_acc():
+                    with SessionLocal() as s:
+                        return PaperTradingService(s)._get_or_create_account().id
+                account_id = await asyncio.to_thread(_get_acc)
+                def _add_err_notif(acc_id, sid):
+                    with SessionLocal() as s:
+                        PaperTradingService(s).add_notification(acc_id, "Live market feed disconnected; monitoring degraded while retrying.", "error", "WEBSOCKET_DISCONNECTED", "engine", sid, dedupe_key=f"feed-disconnected:{sid}", commit=True)
+                await asyncio.to_thread(_add_err_notif, account_id, session.id)
 
-    def _on_connection_change(self, connected: bool) -> None:
+    async def _on_connection_change(self, connected: bool) -> None:
         try:
-            with SessionLocal() as db:
-                session = self._get_or_create_session(db)
-                self.logger.info("Websocket connection state changed | connected=%s", connected)
-                session.websocket_connected = connected
-                db.commit()
+            async with AsyncSessionLocal() as db:
+                async with db.begin():
+                    session = await self._get_or_create_session(db)
+                    self.logger.info("Websocket connection state changed | connected=%s", connected)
+                    session.websocket_connected = connected
         except Exception:
             self.logger.exception("Failed to persist websocket state change | connected=%s", connected)
 
-    def _record_event(
+    async def _record_event(
         self,
         db,
         event_type: str,
@@ -357,7 +373,7 @@ class MarketEngineService:
             for pending in db.new:
                 if isinstance(pending, ExecutionEvent) and pending.dedupe_key == dedupe_key:
                     return
-            existing = db.scalar(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == dedupe_key))
+            existing = await db.scalar(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == dedupe_key))
             if existing:
                 return
         db.add(
@@ -373,14 +389,14 @@ class MarketEngineService:
             )
         )
 
-    def _get_or_create_session(self, db) -> MarketEngineSession:
+    async def _get_or_create_session(self, db) -> MarketEngineSession:
         today = datetime.now(IST).date().isoformat()
-        session = db.scalar(select(MarketEngineSession).where(MarketEngineSession.trading_date == today))
+        session = await db.scalar(select(MarketEngineSession).where(MarketEngineSession.trading_date == today))
         if session:
             return session
         session = MarketEngineSession(trading_date=today, status="STOPPED")
         db.add(session)
-        db.flush()
+        await db.flush()
         return session
 
     def is_market_hours(self, now: datetime | None = None) -> bool:

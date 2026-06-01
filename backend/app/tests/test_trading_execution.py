@@ -20,6 +20,11 @@ engine = create_engine(
     f"sqlite:///{test_db_path}", connect_args={"check_same_thread": False, "timeout": 15}
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+from app.models.paper_trading import Base
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
+SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
 Base.metadata.create_all(bind=engine)
 
 @pytest.fixture(autouse=True)

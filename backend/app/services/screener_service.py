@@ -64,7 +64,7 @@ class ScreenerService:
     def get_metrics(self) -> dict:
         return scanner_metrics
         
-    def validate_startup_health(self, universe: list[str]) -> None:
+    async def validate_startup_health(self, universe: list[str]) -> None:
         try:
             from .market_data_service import MarketDataService
             md_svc = MarketDataService()
@@ -74,7 +74,7 @@ class ScreenerService:
             # Sample up to 50 symbols for quick startup check
             sample = universe[:50]
             for sym in sample:
-                cnt = md_svc.get_candle_count(sym, '1D')
+                cnt = await md_svc.get_candle_count(sym, '1D')
                 if cnt < req:
                     incomplete += 1
                     
@@ -85,7 +85,7 @@ class ScreenerService:
         except Exception:
             self.logger.exception("Failed to run scanner startup validation")
 
-    def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint], technical) -> ScreenerConditionResult:
+    async def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint], technical) -> ScreenerConditionResult:
         """Process a single symbol and return a ScreenerConditionResult.
         This contains the original symbol-level logic extracted from the
         sequential loop. Do NOT change the internal logic here when
@@ -94,13 +94,16 @@ class ScreenerService:
         # Begin symbol scanning
         self.logger.info("STEP 1/8 | Begin symbol screening | stage=%s | symbol=%s", stage_name, symbol)
         if candles is None:
-            candles = self.fyers_service.get_candles_cached(
-                symbol=symbol,
-                mode=AnalysisMode.swing,
-                resolution="1d",
-                lookback_window=max(lookback_window, 260),
-                allow_mock=False,
-            )
+            import asyncio
+            def _fetch():
+                return self.fyers_service.get_candles_cached(
+                    symbol=symbol,
+                    mode=AnalysisMode.swing,
+                    resolution="1d",
+                    lookback_window=max(lookback_window, 240),
+                    allow_mock=False,
+                )
+            candles = await asyncio.to_thread(_fetch)
         candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1d")
         if not candle_source or candle_source == "unknown":
             candle_source = "CANDLE_CACHE_DB"
@@ -333,7 +336,7 @@ class ScreenerService:
             
         return points
 
-    def screen_symbols_swing(
+    async def screen_symbols_swing(
         self,
         symbols: list[str],
         lookback_window: int,
@@ -376,11 +379,11 @@ class ScreenerService:
                     try:
                         # 1. Check DB cache health
                         required_history = self.technical_service.get_required_candle_count(AnalysisMode.swing)
-                        cache_health = await asyncio.to_thread(md_service.validate_candle_continuity, symbol, '1D', required_history)
+                        cache_health = await md_service.validate_candle_continuity(symbol, '1D', required_history)
                         
                         dummy_cache = []
                         if cache_health.is_valid_for_indicators:
-                            latest_timestamp = await asyncio.to_thread(md_service.get_latest_candle_time, symbol, '1D')
+                            latest_timestamp = await md_service.get_latest_candle_time(symbol, '1D')
                             if latest_timestamp:
                                 dummy_cache.append(OHLCVPoint(
                                     timestamp=latest_timestamp,
@@ -396,7 +399,7 @@ class ScreenerService:
                             scanner_metrics["forced_rebuilds"] += 1
 
                         # 2. Fetch incremental missing data from FYERS
-                        new_candles = await asyncio.to_thread(self.fyers_service.fetch_incremental_ohlcv, symbol, dummy_cache)
+                        new_candles = await asyncio.get_running_loop().run_in_executor(self.fyers_service._network_pool, lambda: self.fyers_service.fetch_incremental_ohlcv(symbol, dummy_cache))
                         
                         if not dummy_cache and new_candles:
                             scanner_metrics["successful_backfills"] += 1
@@ -407,10 +410,10 @@ class ScreenerService:
                             df = pd.DataFrame([{
                                 "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
                             } for c in new_candles], index=[c.timestamp for c in new_candles])
-                            await asyncio.to_thread(md_service.upsert_candles, symbol, '1D', df)
+                            await md_service.upsert_candles(symbol, '1D', df)
                         
                         # 4. Read the full merged history from the DB
-                        full_df = await asyncio.to_thread(md_service.load_full_history, symbol, '1D')
+                        full_df = await md_service.load_full_history(symbol, '1D')
                         
                         if full_df is None or full_df.empty:
                             scanner_metrics["invalid_symbols"] += 1
@@ -438,11 +441,7 @@ class ScreenerService:
                             ))
                         return symbol, final_candles
                     except Exception as e:
-                        from ..services.logger_service import logger_service
-                        logger_service.log_error(
-                            module="screener_service",
-                            message=f"FYERS fetch failed for {symbol}: {str(e)}"
-                        )
+                        self.logger.exception("Scanner processing failed", extra={"symbol": symbol})
                         scanner_metrics["invalid_symbols"] += 1
                         return symbol, []
                     finally:
@@ -455,7 +454,7 @@ class ScreenerService:
                     s, combined = res
                     precombined_datasets[s] = combined
 
-        asyncio.run(fetch_all_symbols())
+        await fetch_all_symbols()
 
         import pandas as pd
         # Add explicit data validation layer to forward-fill missing points
@@ -498,7 +497,7 @@ class ScreenerService:
                     # We filled some gaps, let's persist them back
                     try:
                         self.logger.info("Persisting %d forward-filled missing candles for %s", new_count - original_count, symbol)
-                        md_service.upsert_candles(symbol, '1D', df)
+                        await md_service.upsert_candles(symbol, '1D', df)
                     except Exception as e:
                         self.logger.warning("Failed to persist ffill data for %s: %s", symbol, e)
             
@@ -543,7 +542,7 @@ class ScreenerService:
                 continue
 
             try:
-                result = self._process_single_symbol(symbol, lookback_window, stage_name, candles, technical)
+                result = await self._process_single_symbol(symbol, lookback_window, stage_name, candles, technical)
                 results.append(result)
             except Exception as e:
                 self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)

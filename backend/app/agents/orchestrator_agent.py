@@ -49,7 +49,7 @@ class OrchestratorAgent:
         self.ranking_agent = RankingAgent()
         self.fundamental_agent = FundamentalAnalysisAgent()
 
-    def run_full(self, request: AnalysisRequest, progress_callback=None) -> FullAnalysisResponse:
+    async def run_full(self, request: AnalysisRequest, progress_callback=None) -> FullAnalysisResponse:
         self.logger.info(
             "Starting full analysis | symbols=%s | mode=%s | intraday=%s | swing=%s | lookback=%s",
             ",".join(request.symbols),
@@ -85,9 +85,7 @@ class OrchestratorAgent:
             loop = None
             
         if loop and loop.is_running():
-            import nest_asyncio
-            nest_asyncio.apply()
-            asyncio.run(prefetch_all())
+            await prefetch_all()
         else:
             asyncio.run(prefetch_all())
             
@@ -111,8 +109,7 @@ class OrchestratorAgent:
         # Dispatch Backtest and News agents concurrently for the batch
         async def run_remaining_agents():
             return await asyncio.gather(*(
-                asyncio.to_thread(
-                    self._analyze_symbol_post_bulk, 
+                self._analyze_symbol_post_bulk(
                     symbol, 
                     request, 
                     candles_by_symbol_and_mode[symbol], 
@@ -121,10 +118,7 @@ class OrchestratorAgent:
                 for symbol in request.symbols
             ))
             
-        if loop and loop.is_running():
-            items = asyncio.run(run_remaining_agents())
-        else:
-            items = asyncio.run(run_remaining_agents())
+        items = await run_remaining_agents()
             
 
         if progress_callback:
@@ -150,7 +144,7 @@ class OrchestratorAgent:
         rankings = self.ranking_agent.run(items)
         return AnalysisResponse(items=items, rankings=rankings, disclaimer=advisory_payload())
 
-    def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
+    async def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         if progress_callback:
             progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 10})
         self.logger.info(
@@ -166,7 +160,7 @@ class OrchestratorAgent:
                 len(request.symbols),
                 ",".join(request.symbols),
             )
-            return self._run_screener_stage(
+            return await self._run_screener_stage(
                 request=request,
                 stage_name="Custom symbols",
                 source_universe=request.symbols,
@@ -216,7 +210,7 @@ class OrchestratorAgent:
                 )
                 continue
 
-            stage_response = self._run_screener_stage(
+            stage_response = await self._run_screener_stage(
                 request=request,
                 stage_name=stage_name,
                 source_universe=unique_symbols,
@@ -261,7 +255,7 @@ class OrchestratorAgent:
         )
         return final_response
 
-    def _run_screener_stage(
+    async def _run_screener_stage(
         self,
         request: ScreenerRequest,
         stage_name: str,
@@ -271,7 +265,7 @@ class OrchestratorAgent:
     ) -> ScreenerResponse:
         if progress_callback:
             progress_callback({"stage": "Fetching Historical OHLCV Data...", "progress": 40})
-        screener_results = self.screener_service.screen_symbols_swing(
+        screener_results = await self.screener_service.screen_symbols_swing(
             source_universe,
             lookback_window=request.timeframe.lookback_window,
             stage_name=stage_name,
@@ -334,7 +328,7 @@ class OrchestratorAgent:
                 timeframe=request.timeframe,
             )
             self.logger.info("STEP 6/8 | Run full analysis only on top set | stage=%s | count=%s", stage_name, len(shortlisted_symbols))
-            shortlist_analysis = self.run_full(analysis_request, progress_callback)
+            shortlist_analysis = await self.run_full(analysis_request, progress_callback)
             buy_items = [item for item in shortlist_analysis.items if item.recommendation.action == "BUY"]
             watch_items = [item for item in shortlist_analysis.items if item.recommendation.action == "WATCH"]
             buy_candidate_symbols = [item.symbol for item in buy_items]
@@ -478,15 +472,16 @@ class OrchestratorAgent:
             return
         self.logger.info("SCANNER_DETERMINISM %s", json.dumps(payload, sort_keys=True, default=str))
 
-    def _analyze_symbol_post_bulk(
+    async def _analyze_symbol_post_bulk(
         self, 
         symbol: str, 
         request: AnalysisRequest, 
         candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]],
         bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]]
     ) -> StockAnalysisResult:
+        import asyncio
         self.logger.info("Completing post-bulk analysis | symbol=%s", symbol)
-        stock_id = self._get_or_create_stock(symbol)
+        stock_id = await self._get_or_create_stock(symbol)
         modes = self._resolve_modes(request.mode)
         
         if any(not candles for candles in candles_by_mode.values()):
@@ -509,7 +504,7 @@ class OrchestratorAgent:
                 candle_count,
                 latest_ts,
             )
-        import asyncio
+
         
         def safe_news_run(sym: str):
             try:
@@ -550,17 +545,7 @@ class OrchestratorAgent:
                 asyncio.to_thread(self.fundamental_agent.run, symbol)
             )
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import nest_asyncio
-            nest_asyncio.apply()
-            backtests, (articles, sentiment_score, sentiment_label, news_summary), fundamental_result = asyncio.run(_run_agents_concurrently())
-        else:
-            backtests, (articles, sentiment_score, sentiment_label, news_summary), fundamental_result = asyncio.run(_run_agents_concurrently())
+        backtests, (articles, sentiment_score, sentiment_label, news_summary), fundamental_result = await _run_agents_concurrently()
 
         # Retrieve the pre-computed vectorized technical results
         technical_results = []
@@ -594,7 +579,7 @@ class OrchestratorAgent:
             data_quality=data_quality,
         )
 
-        self._persist_analysis(stock_id, request.mode.value, technical_score, sentiment_score, best_backtest, recommendation)
+        await self._persist_analysis(stock_id, request.mode.value, technical_score, sentiment_score, best_backtest, recommendation)
         self.logger.info(
             "Completed symbol analysis | symbol=%s | recommendation=%s | confidence=%s | score=%s",
             symbol,
@@ -621,7 +606,7 @@ class OrchestratorAgent:
             confidence_breakdown=self._confidence_breakdown(technical_score, sentiment_score, best_backtest, recommendation),
         )
 
-    def _persist_analysis(
+    async def _persist_analysis(
         self,
         stock_id: int,
         mode: str,
@@ -630,8 +615,8 @@ class OrchestratorAgent:
         backtest: Any,
         recommendation: Any,
     ) -> None:
-        db = Session(self.db.get_bind())
-        try:
+        from ..db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
             analysis_entry = AnalysisHistory(
                 stock_id=stock_id,
                 mode=mode,
@@ -657,28 +642,25 @@ class OrchestratorAgent:
                 verdict=backtest.verdict,
             )
             db.add(backtest_entry)
-            db.commit()
-        finally:
-            db.close()
+            await db.commit()
 
-    def _get_or_create_stock(self, symbol: str) -> int:
-        db = Session(self.db.get_bind())
-        try:
-            existing = db.scalar(select(WatchedStock).where(WatchedStock.symbol == symbol))
+    async def _get_or_create_stock(self, symbol: str) -> int:
+        from ..db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select
+            existing = (await db.scalars(select(WatchedStock).where(WatchedStock.symbol == symbol))).first()
             if existing:
                 return existing.id
 
             stock = WatchedStock(symbol=symbol, display_name=symbol.replace("-EQ", ""))
             db.add(stock)
             try:
-                db.commit()
+                await db.commit()
                 return stock.id
             except IntegrityError:
-                db.rollback()
-                existing = db.scalar(select(WatchedStock).where(WatchedStock.symbol == symbol))
+                await db.rollback()
+                existing = (await db.scalars(select(WatchedStock).where(WatchedStock.symbol == symbol))).first()
                 return existing.id
-        finally:
-            db.close()
 
     def _resolve_modes(self, mode: AnalysisMode) -> list[AnalysisMode]:
         if mode == AnalysisMode.both:

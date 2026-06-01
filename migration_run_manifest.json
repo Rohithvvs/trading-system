@@ -1,0 +1,10 @@
+{
+  "migration_run_id": "44800b95-37cf-439e-8d7f-67575a94899e",
+  "start_timestamp": "2026-05-28T15:35:35.313621",
+  "dry_run": false,
+  "chunk_size": 500,
+  "operator": "DESKTOP-BO9214T",
+  "status": "SUCCESS",
+  "source_sqlite_hash": "6d581938272e17a98ed161b0273f1d0c807bc8635c6f2e682c2ac08e48a98ca1",
+  "finish_timestamp": "2026-05-28T15:36:26.024833"
+}

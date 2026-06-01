@@ -35,8 +35,9 @@ dummy_payload = {
 }
 
 # Measure write time
+import asyncio
 start_write = time.time()
-scan_store.save_latest_scan(dummy_payload)
+asyncio.run(scan_store.save_latest_scan(dummy_payload))
 write_time = time.time() - start_write
 
 # Measure DB size
@@ -44,7 +45,7 @@ db_size_kb = db_path.stat().st_size / 1024
 
 # Measure read time
 start_read = time.time()
-loaded = scan_store.load_latest_scan()
+loaded = asyncio.run(scan_store.load_latest_scan())
 read_time = time.time() - start_read
 
 assert loaded is not None, "Failed to load scan"

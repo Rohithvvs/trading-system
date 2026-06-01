@@ -86,7 +86,7 @@ async def test_duplicate_tick_idempotency(isolated_db):
         async def inject_tick(jitter_price: float):
             await barrier.wait()
             # Engine's tick handler is synchronous, so we run it in thread
-            await asyncio.to_thread(engine_svc._on_tick, "TCS", jitter_price)
+            await engine_svc._on_tick("TCS", jitter_price)
 
         # Generate 20 ticks. Prices jitter between 2999.0 and 2999.9 (all trigger the limit buy)
         tasks = [asyncio.create_task(inject_tick(2999.0 + (i * 0.01))) for i in range(20)]
@@ -150,7 +150,7 @@ async def test_reconnect_burst_stoploss(isolated_db):
         
         async def inject_reconnect_tick(price: float):
             await barrier.wait()
-            await asyncio.to_thread(engine_svc._on_tick, "RELIANCE", price)
+            await engine_svc._on_tick("RELIANCE", price)
 
         # Burst of 10 ticks breaching the stoploss (2399, 2398, etc)
         tasks = [asyncio.create_task(inject_reconnect_tick(2399.0 - (i * 0.1))) for i in range(10)]

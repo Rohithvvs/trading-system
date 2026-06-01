@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db.base import Base
@@ -30,18 +29,11 @@ def mask_secret(value: Any) -> Any:
 
 
 @router.post("/reset", dependencies=[Depends(require_test_mode)])
-def reset_test_state(db: Session = Depends(get_db)) -> dict[str, Any]:
+async def reset_test_state(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     for table in reversed(Base.metadata.sorted_tables):
-        db.execute(table.delete())
-    db.commit()
-
-    from ..db import scan_store
-
-    db_path = Path(scan_store.DB_PATH)
-    if db_path.exists():
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("DELETE FROM latest_scan")
-            conn.commit()
+        await db.execute(table.delete())
+    await db.execute(text("TRUNCATE TABLE market_data.scan_results"))
+    await db.commit()
     return {"status": "ok"}
 
 
@@ -49,7 +41,7 @@ def reset_test_state(db: Session = Depends(get_db)) -> dict[str, Any]:
 def source_of_truth() -> dict[str, Any]:
     return {
         "database": {
-            "kind": "sqlite" if settings.database_url.startswith("sqlite") else "external",
+            "kind": "postgresql",
             "url": settings.database_url,
             "survives_backend_restart": True,
             "survives_browser_refresh": True,
@@ -80,51 +72,31 @@ def source_of_truth() -> dict[str, Any]:
     }
 
 
-@router.get("/sqlite/tables", dependencies=[Depends(require_test_mode)])
-def sqlite_tables(db: Session = Depends(get_db)) -> dict[str, Any]:
-    rows = db.execute(
-        text("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-    ).all()
+@router.get("/db/tables", dependencies=[Depends(require_test_mode)])
+async def db_tables(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    rows = (await db.execute(
+        text("SELECT table_name FROM information_schema.tables WHERE table_schema='public' OR table_schema='market_data' ORDER BY table_name")
+    )).all()
     table_names = [row[0] for row in rows]
     counts: dict[str, int] = {}
     for name in table_names:
-        counts[name] = int(db.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar() or 0)
+        # Avoid row counts for huge tables in diagnostic routes, but we can try
+        try:
+            counts[name] = int((await db.execute(text(f'SELECT COUNT(*) FROM "{name}"'))).scalar() or 0)
+        except Exception:
+            counts[name] = -1
     return {"tables": table_names, "row_counts": counts}
 
 
-@router.get("/sqlite/table/{table_name}", dependencies=[Depends(require_test_mode)])
-def sqlite_table_dump(
-    table_name: str,
-    limit: int = Query(default=20, ge=1, le=200),
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    exists = db.execute(
-        text("SELECT name FROM sqlite_master WHERE type='table' AND name = :name"),
-        {"name": table_name},
-    ).first()
-    if not exists:
-        raise HTTPException(status_code=404, detail=f"Table not found: {table_name}")
-
-    result = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT :limit'), {"limit": limit})
-    rows = []
-    for row in result.mappings().all():
-        item = dict(row)
-        for key in list(item):
-            if "token" in key.lower() or "secret" in key.lower():
-                item[key] = mask_secret(item[key])
-        rows.append(item)
-    return {"table": table_name, "rows": rows}
-
-
 @router.get("/token", dependencies=[Depends(require_test_mode)])
-def token_storage(db: Session = Depends(get_db)) -> dict[str, Any]:
-    row = db.execute(text("SELECT * FROM fyers_tokens ORDER BY id DESC LIMIT 1")).mappings().first()
-    history_count = int(db.execute(text("SELECT COUNT(*) FROM fyers_token_history")).scalar() or 0)
+async def token_storage(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    row = (await db.execute(text("SELECT * FROM fyers_tokens ORDER BY id DESC LIMIT 1"))).mappings().first()
+    history_count = int((await db.execute(text("SELECT COUNT(*) FROM fyers_token_history"))).scalar() or 0)
     if not row:
-        return {"stored_in_sqlite": False, "history_count": history_count, "token_masked": None}
+        return {"stored_in_db": False, "history_count": history_count, "token_masked": None}
     token = row.get("access_token")
     return {
-        "stored_in_sqlite": bool(token),
+        "stored_in_db": bool(token),
         "table": "fyers_tokens",
         "history_table": "fyers_token_history",
         "history_count": history_count,
@@ -135,30 +107,13 @@ def token_storage(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.get("/scan-store", dependencies=[Depends(require_test_mode)])
-def scan_store_status() -> dict[str, Any]:
-    from ..db import scan_store
-
-    db_path = Path(scan_store.DB_PATH)
+async def scan_store_status(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     response: dict[str, Any] = {
-        "stored_in_sqlite": False,
-        "table": "latest_scan",
-        "db_path": str(db_path),
-        "db_file_exists": db_path.exists(),
+        "stored_in_db": False,
+        "table": "market_data.scan_results",
         "row_count": 0,
     }
-    if not db_path.exists():
-        return response
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS latest_scan (
-                id INTEGER PRIMARY KEY,
-                payload TEXT NOT NULL,
-                saved_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            """
-        )
-        row = conn.execute("SELECT COUNT(*) FROM latest_scan").fetchone()
-    response["row_count"] = int(row[0] if row else 0)
-    response["stored_in_sqlite"] = response["row_count"] > 0
+    row = (await db.execute(text("SELECT COUNT(*) FROM market_data.scan_results"))).scalar()
+    response["row_count"] = int(row if row else 0)
+    response["stored_in_db"] = response["row_count"] > 0
     return response

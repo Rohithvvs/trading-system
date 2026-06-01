@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import delete, desc, select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_db
 from ..models.system_log import SystemLog
@@ -88,7 +88,7 @@ def build_logs_query(
 
 
 @router.get("")
-def get_logs(
+async def get_logs(
     limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     level: str | None = None,
@@ -100,7 +100,7 @@ def get_logs(
     date_from: str | None = Query(None, alias="dateFrom"),
     date_to: str | None = Query(None, alias="dateTo"),
     search: str | None = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     query = build_logs_query(
         level=level,
@@ -113,11 +113,11 @@ def get_logs(
         date_to=date_to,
         search=search,
     )
-    logs = db.scalars(query.offset(offset).limit(limit)).all()
+    logs = (await db.scalars(query.offset(offset).limit(limit))).all()
     return [serialize_log(log) for log in logs]
 
 
-def clear_logs_impl(confirm: str | None, days_old: int, db: Session):
+async def clear_logs_impl(confirm: str | None, days_old: int, db: AsyncSession):
     if days_old == 0 and confirm not in {"WIPE_ALL", "CONFIRM"}:
         return JSONResponse(
             status_code=400,
@@ -134,40 +134,40 @@ def clear_logs_impl(confirm: str | None, days_old: int, db: Session):
         
     for attempt in range(5):
         try:
-            result = db.execute(stmt.execution_options(synchronize_session=False))
-            db.commit()
+            result = await db.execute(stmt.execution_options(synchronize_session=False))
+            await db.commit()
             return {"detail": f"Deleted {result.rowcount or 0} logs.", "deleted": result.rowcount or 0}
         except OperationalError as e:
-            db.rollback()
+            await db.rollback()
             if "database is locked" in str(e) and attempt < 4:
                 time.sleep(0.5)
                 continue
             return JSONResponse(status_code=500, content={"detail": f"Failed to clear logs: Database is locked by the active logging thread. Please try again."})
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             return JSONResponse(status_code=500, content={"detail": f"An error occurred: {str(e)}"})
 
 
 @router.delete("")
-def clear_logs_legacy(
+async def clear_logs_legacy(
     confirm: str | None = Query("WIPE_ALL"),
     days_old: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     return clear_logs_impl(confirm, days_old, db)
 
 
 @router.delete("/clear")
-def clear_logs(
+async def clear_logs(
     confirm: str | None = Query("WIPE_ALL"),
     days_old: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     return clear_logs_impl(confirm, days_old, db)
 
 
 @router.get("/export")
-def export_logs(
+async def export_logs(
     format: str = Query("csv", pattern="^(csv|json)$"),
     level: str | None = None,
     source: str | None = None,
@@ -178,7 +178,7 @@ def export_logs(
     date_from: str | None = Query(None, alias="dateFrom"),
     date_to: str | None = Query(None, alias="dateTo"),
     search: str | None = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     query = build_logs_query(
         level=level,
@@ -191,7 +191,7 @@ def export_logs(
         date_to=date_to,
         search=search,
     )
-    rows = [serialize_log(log) for log in db.scalars(query).all()]
+    rows = [serialize_log(log) for log in (await db.scalars(query)).all()]
     if format == "json":
         return Response(
             json.dumps(rows, default=str),

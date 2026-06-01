@@ -8,25 +8,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-
 def normalize_database_url(raw_value: str) -> str:
     value = raw_value.strip()
-    if not value:
-        return "sqlite:///./trading_system.db"
     if value.startswith("postgres://"):
-        value = value.replace("postgres://", "postgresql://", 1)
-    if "://" in value:
-        return value
-    if value.endswith(".db") or value.endswith(".sqlite") or value.endswith(".sqlite3"):
-        return f"sqlite:///./{value}"
+        return value.replace("postgres://", "postgresql+asyncpg://", 1)
+    if value.startswith("postgresql://") and not value.startswith("postgresql+asyncpg://"):
+        return value.replace("postgresql://", "postgresql+asyncpg://", 1)
     return value
 
 class Settings(BaseSettings):
     app_name: str = "Trading System"
     app_env: str = "development"
+    quarantine_mode: bool = False
     app_host: str = "127.0.0.1"
     app_port: int = 8000
-    database_url: str = "sqlite:///./trading_system.db"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
     redis_url: str = "redis://localhost:6379/0"
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
     
@@ -69,10 +65,10 @@ class Settings(BaseSettings):
     )
 
     @field_validator("database_url", mode="before")
-    def _validate_db_url(cls, v):
+    def _validate_db_url(cls, v, info):
         if v:
             return normalize_database_url(v)
-        return "sqlite:///./trading_system.db"
+        return "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
 
     @cached_property
     def cors_origins(self) -> list[str]:

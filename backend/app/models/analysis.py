@@ -20,7 +20,7 @@ class AnalysisHistory(Base):
     recommendation: Mapped[str] = mapped_column(String(12), index=True)
     confidence: Mapped[float] = mapped_column(Float)
     reasoning: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
 
     stock = relationship("WatchedStock", back_populates="analyses")
 
@@ -39,7 +39,7 @@ class BacktestHistory(Base):
     profit_factor: Mapped[float] = mapped_column(Float)
     trade_count: Mapped[int] = mapped_column(Integer)
     verdict: Mapped[str] = mapped_column(String(20))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
 
     stock = relationship("WatchedStock", back_populates="backtests")
 
@@ -49,20 +49,20 @@ class StrategyPerformanceLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     symbol: Mapped[str] = mapped_column(String(25), index=True)
-    screened_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    screened_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     initial_score: Mapped[float] = mapped_column(Float)
     dominant_agent: Mapped[str] = mapped_column(String(50))
     realized_return_5d: Mapped[float | None] = mapped_column(Float, nullable=True)
     realized_return_10d: Mapped[float | None] = mapped_column(Float, nullable=True)
     realized_return_20d: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 class ScannedCandidate(Base):
     __tablename__ = "scanned_candidates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     symbol: Mapped[str] = mapped_column(String(25), index=True)
-    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     screener_name: Mapped[str] = mapped_column(String(100))
     technical_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     technical_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)

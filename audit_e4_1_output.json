@@ -1,0 +1,66 @@
+{
+  "results": {
+    "dashboard": {
+      "success": 0,
+      "failure": 0,
+      "timeouts": 0,
+      "status_500": 0,
+      "other_exceptions": 100,
+      "exception_samples": [
+        "Cannot connect to host localhost:8000 ssl:default [The remote computer refused the network connection]"
+      ],
+      "avg_latency": 4.110271043777466,
+      "p95_latency": 4.130708253383636
+    },
+    "market_orders": {
+      "success": 0,
+      "failure": 0,
+      "timeouts": 0,
+      "status_500": 0,
+      "other_exceptions": 50,
+      "exception_samples": [
+        "Cannot connect to host localhost:8000 ssl:default [The remote computer refused the network connection]"
+      ],
+      "avg_latency": 4.086254649162292,
+      "p95_latency": 4.089514648914337
+    },
+    "limit_orders": {
+      "success": 0,
+      "failure": 0,
+      "timeouts": 0,
+      "status_500": 0,
+      "other_exceptions": 50,
+      "exception_samples": [
+        "Cannot connect to host localhost:8000 ssl:default [The remote computer refused the network connection]"
+      ],
+      "avg_latency": 4.102116575241089,
+      "p95_latency": 4.143571853637695
+    },
+    "scanner": {
+      "success": 0,
+      "failure": 0,
+      "timeouts": 0,
+      "status_500": 0,
+      "other_exceptions": 10,
+      "exception_samples": [
+        "Cannot connect to host localhost:8000 ssl:default [The remote computer refused the network connection]"
+      ],
+      "avg_latency": 4.078476667404175,
+      "p95_latency": 4.078476667404175
+    }
+  },
+  "db_stats": {
+    "active_connections": 1,
+    "idle_connections": 0,
+    "idle_in_transaction": 0,
+    "samples": 28
+  },
+  "errors": {
+    "RuntimeError": 0,
+    "ReadTimeout": 0,
+    "QueuePool": 0,
+    "TooManyConnectionsError": 0,
+    "PendingRollbackError": 0,
+    "coroutine was never awaited": 0
+  }
+}

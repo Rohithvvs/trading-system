@@ -22,7 +22,14 @@ engine = create_engine(
     f"sqlite:///{test_db_path}", connect_args={"check_same_thread": False}
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
+
+from alembic.config import Config
+from alembic import command
+from app.config import settings
+from app.config.settings import ROOT_DIR
+alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))
+alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{test_db_path}")
+command.upgrade(alembic_cfg, "head")
 
 @pytest.fixture
 def md_service():

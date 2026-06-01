@@ -34,22 +34,22 @@ class RouterAgent:
     def final_recommendation(self, request: AnalysisRequest) -> AnalysisResponse:
         return self.orchestrator.run_partial(request)
 
-    def full_analysis(self, request: AnalysisRequest) -> FullAnalysisResponse:
+    async def full_analysis(self, request: AnalysisRequest) -> FullAnalysisResponse:
         self.logger.info(
             "Router dispatch | flow=full_analysis | symbols=%s | mode=%s",
             ",".join(request.symbols),
             request.mode.value,
         )
-        return self.orchestrator.run_full(request)
+        return await self.orchestrator.run_full(request)
 
     def rankings(self, request: AnalysisRequest) -> RankingsResponse:
         return self.orchestrator.run_partial(request).rankings
 
-    def screener_full(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
+    async def screener_full(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         self.logger.info(
             "Router dispatch | flow=screener_full | custom_symbols=%s | top_n=%s | lookback=%s",
             len(request.symbols),
             request.top_n,
             request.timeframe.lookback_window,
         )
-        return self.orchestrator.run_screener(request, progress_callback)
+        return await self.orchestrator.run_screener(request, progress_callback)

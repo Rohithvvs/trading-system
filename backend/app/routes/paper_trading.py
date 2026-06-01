@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks, Header
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
 import logging
 from zoneinfo import ZoneInfo
 
-from ..db import get_db
+from ..db import get_sync_db
+from sqlalchemy.orm import Session
 from ..db.scan_store import get_last_scan_time
 from ..schemas.paper_trading import (
     PaperOrderActionResponse,
@@ -39,7 +40,7 @@ from ..config import settings
 router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
 
 
-def get_service(db: Session = Depends(get_db)) -> PaperTradingService:
+def get_service(db: Session = Depends(get_sync_db)) -> PaperTradingService:
     return PaperTradingService(db)
 
 
@@ -174,24 +175,28 @@ def place_order(
         response = service.place_order(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
 @router.post("/engine/start", response_model=MarketEngineStatusResponse)
-def start_market_engine() -> MarketEngineStatusResponse:
-    market_engine.request_start()
-    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+async def start_market_engine() -> MarketEngineStatusResponse:
+    await market_engine.request_start()
+    return JSONResponse(content=sanitize_for_json(await market_engine.status()))
 
 
 @router.post("/engine/stop", response_model=MarketEngineStatusResponse)
-def stop_market_engine() -> MarketEngineStatusResponse:
-    market_engine.request_stop()
-    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+async def stop_market_engine() -> MarketEngineStatusResponse:
+    await market_engine.request_stop()
+    return JSONResponse(content=sanitize_for_json(await market_engine.status()))
 
 
 @router.get("/engine/status", response_model=MarketEngineStatusResponse)
-def get_market_engine_status() -> MarketEngineStatusResponse:
-    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+async def get_market_engine_status() -> MarketEngineStatusResponse:
+    return JSONResponse(content=sanitize_for_json(await market_engine.status()))
 
 
 import asyncio
@@ -200,47 +205,41 @@ import concurrent.futures
 # Dedicated executor for heavy Pandas background scans to prevent starving FastAPI worker threads
 _scan_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
-def _run_automated_background_scan_sync():
+async def _run_automated_background_scan_sync():
     """Runs a complete Nifty 500 swing scan and caches it in SQLite."""
     logger = logging.getLogger("app.background")
     logger.info("Starting automated background scan...")
     try:
-        from ..db.session import SessionLocal
         from ..agents import RouterAgent
         from ..schemas.analysis import ScreenerRequest, AnalysisMode, TimeframeConfig
         
-        db = SessionLocal()
-        try:
-            req = ScreenerRequest(
-                mode=AnalysisMode.SWING,
-                timeframe_config=TimeframeConfig(intraday="5m", swing="1d", lookback_window=180),
-                universe="NIFTY500",
-                custom_symbols=[],
-                top_n=20
-            )
-            RouterAgent(db).screener_full(req)
-            logger.info("Automated background scan completed successfully.")
-        finally:
-            db.close()
+        req = ScreenerRequest(
+            mode=AnalysisMode.SWING,
+            timeframe_config=TimeframeConfig(intraday="5m", swing="1d", lookback_window=180),
+            universe="NIFTY500",
+            custom_symbols=[],
+            top_n=20
+        )
+        await RouterAgent(None).screener_full(req)
+        logger.info("Automated background scan completed successfully.")
     except Exception as e:
         logger.error("Automated background scan failed: %s", e, exc_info=True)
 
 async def _run_automated_background_scan():
-    """Async wrapper to run the heavy sync scan in a dedicated ThreadPoolExecutor."""
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(_scan_executor, _run_automated_background_scan_sync)
+    """Async wrapper that directly awaits the scan (no thread executor needed)."""
+    await _run_automated_background_scan_sync()
 
 
 @router.post("/engine/heartbeat", response_model=MarketEngineStatusResponse)
-def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEngineStatusResponse:
-    market_engine.heartbeat()
+async def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEngineStatusResponse:
+    await market_engine.heartbeat()
     
     # 1. Immediately log the incoming cron keep-alive ping is done via market_engine.heartbeat() internal logs.
     logger = logging.getLogger("app.heartbeat")
     
     now_ist = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
-    last_scan_str = get_last_scan_time()
-    
+    # 1) When was the last scan done?
+    last_scan_str = await get_last_scan_time()
     should_run = False
     
     if last_scan_str:
@@ -274,7 +273,7 @@ def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEngineSt
     if should_run:
         background_tasks.add_task(_run_automated_background_scan)
 
-    return JSONResponse(content=sanitize_for_json(market_engine.status()))
+    return JSONResponse(content=sanitize_for_json(await market_engine.status()))
 
 
 @router.get("/orders/pending", response_model=list[PaperOrderResponse])
@@ -324,9 +323,14 @@ def get_account_transactions(
 
 
 @router.put("/orders/{order_id}", response_model=PaperOrderActionResponse)
-def modify_order(order_id: int, payload: PaperOrderUpdateRequest, service: PaperTradingService = Depends(get_service)) -> PaperOrderActionResponse:
+def modify_order(
+    order_id: int, 
+    payload: PaperOrderUpdateRequest, 
+    service: PaperTradingService = Depends(get_service),
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
+) -> PaperOrderActionResponse:
     try:
-        response = service.modify_order(order_id, payload)
+        response = service.modify_order(order_id, payload, idempotency_key=x_idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -342,18 +346,26 @@ def delete_order(order_id: int, service: PaperTradingService = Depends(get_servi
 
 
 @router.post("/orders/{order_id}/cancel", response_model=PaperOrderActionResponse)
-def cancel_order(order_id: int, service: PaperTradingService = Depends(get_service)) -> PaperOrderActionResponse:
+def cancel_order(
+    order_id: int, 
+    service: PaperTradingService = Depends(get_service),
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
+) -> PaperOrderActionResponse:
     try:
-        response = service.cancel_order(order_id)
+        response = service.cancel_order(order_id, idempotency_key=x_idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
 @router.post("/positions/{position_id}/close", response_model=PaperOrderActionResponse)
-def close_position(position_id: int, service: PaperTradingService = Depends(get_service)) -> PaperOrderActionResponse:
+def close_position(
+    position_id: int, 
+    service: PaperTradingService = Depends(get_service),
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
+) -> PaperOrderActionResponse:
     try:
-        response = service.close_position(position_id)
+        response = service.close_position(position_id, idempotency_key=x_idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -364,9 +376,10 @@ def update_position(
     position_id: int,
     payload: PaperPositionUpdateRequest,
     service: PaperTradingService = Depends(get_service),
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.update_position(position_id, payload)
+        response = service.update_position(position_id, payload, idempotency_key=x_idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -383,7 +396,8 @@ def from_recommendation(
 
 @router.get("/symbols", response_model=list[str])
 def get_symbols(service: PaperTradingService = Depends(get_service)) -> list[str]:
-    return JSONResponse(content=sanitize_for_json(service.get_dashboard().symbols))
+    dashboard = service.get_dashboard()
+    return JSONResponse(content=sanitize_for_json(dashboard.symbols))
 
 
 @router.get("/symbols/{symbol}/workspace", response_model=PaperWorkspaceSnapshot)

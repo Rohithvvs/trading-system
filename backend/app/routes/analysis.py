@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 import asyncio
 import json
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import RouterAgent
 from ..db import get_db
@@ -31,7 +31,7 @@ from ..services.fyers_service import (
 
 from ..services.market_info_service import MarketInfoService
 from ..services.workstation_service import WorkstationService
-from ..db.locks import transaction_advisory_lock
+
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -39,31 +39,31 @@ logger = get_logger("backend.app.routes.analysis")
 
 
 @router.post("/technical", response_model=AnalysisResponse)
-def technical_analysis(payload: AnalysisRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
+def technical_analysis(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> AnalysisResponse:
     response = RouterAgent(db).technical_only(payload)
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
 @router.post("/news", response_model=AnalysisResponse)
-def news_analysis(payload: AnalysisRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
+def news_analysis(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> AnalysisResponse:
     response = RouterAgent(db).news_only(payload)
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
 @router.post("/backtest", response_model=AnalysisResponse)
-def backtest_analysis(payload: AnalysisRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
+def backtest_analysis(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> AnalysisResponse:
     response = RouterAgent(db).backtest_only(payload)
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
 @router.post("/final-recommendation", response_model=AnalysisResponse)
-def final_recommendation(payload: AnalysisRequest, db: Session = Depends(get_db)) -> AnalysisResponse:
+def final_recommendation(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> AnalysisResponse:
     response = RouterAgent(db).final_recommendation(payload)
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
 
 @router.post("/full", response_model=FullAnalysisResponse)
-def full_analysis(payload: AnalysisRequest, db: Session = Depends(get_db)) -> FullAnalysisResponse:
+async def full_analysis(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> FullAnalysisResponse:
     logger.info(
         "API ENTRY | endpoint=/analysis/full | symbols=%s | mode=%s | intraday=%s | swing=%s | lookback=%s",
         len(payload.symbols),
@@ -72,7 +72,7 @@ def full_analysis(payload: AnalysisRequest, db: Session = Depends(get_db)) -> Fu
         payload.timeframe.swing,
         payload.timeframe.lookback_window,
     )
-    response = RouterAgent(db).full_analysis(payload)
+    response = await RouterAgent(db).full_analysis(payload)
     logger.info(
         "API EXIT | endpoint=/analysis/full | analyzed=%s | generated_at=%s",
         len(response.items),
@@ -82,7 +82,7 @@ def full_analysis(payload: AnalysisRequest, db: Session = Depends(get_db)) -> Fu
 
 
 @router.post("/rankings", response_model=RankingsResponse)
-def rankings(payload: AnalysisRequest, db: Session = Depends(get_db)) -> RankingsResponse:
+def rankings(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> RankingsResponse:
     response = RouterAgent(db).rankings(payload)
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
 
@@ -105,51 +105,38 @@ async def screener_full(payload: ScreenerRequest):
         loop.call_soon_threadsafe(q.put_nowait, update_dict)
 
     async def run_scan_in_background():
+        import time
+        from ..services.latest_scan_service import LatestScanService
+        from ..db.session import AsyncSessionLocal
         try:
-            from ..db import SessionLocal
+            await asyncio.sleep(2.0)
+            start_t = time.perf_counter()
+            response = await RouterAgent(None).screener_full(payload, progress_callback=progress_callback)
+            duration_ms = int((time.perf_counter() - start_t) * 1000)
+            result = sanitize_for_json(response.model_dump(mode="json"))
             
-            def sync_scan():
-                with SessionLocal() as thread_db:
-                    with transaction_advisory_lock(thread_db, "scanner:full") as acquired:
-                        if not acquired:
-                            raise RuntimeError("A full scanner run is already active.")
-                        response = RouterAgent(thread_db).screener_full(payload, progress_callback=progress_callback)
-                        result = sanitize_for_json(response.model_dump(mode="json"))
-                        save_latest_scan(result)
-                        try:
-                            universe = "CUSTOM" if payload.symbols else "NIFTY500"
-                            WorkstationService(thread_db).record_scan_history(
-                                result,
-                                scan_name="Manual Scan",
-                                mode=payload.mode.value,
-                                timeframe=payload.timeframe.swing,
-                                lookback_window=payload.timeframe.lookback_window,
-                                top_n=payload.top_n,
-                                universe=universe,
-                            )
-                        except Exception:
-                            logger.exception("Failed to persist scan history snapshot")
-                        
-                        if progress_callback:
-                            progress_callback({"stage": "Persisting Candidates to Database...", "progress": 95})
-                            progress_callback({"stage": "Scan Complete! Rendering Dashboard.", "progress": 100})
-                        
-                        logger.info(
-                            "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
-                            response.scanned_symbols,
-                            len(response.data_valid_symbols),
-                            len(response.eligible_symbols),
-                            len(response.matched_symbols),
-                            len(response.shortlisted_symbols),
-                            len(response.buy_candidate_symbols),
-                            len(response.watch_candidate_symbols),
-                            response.data_source,
-                            response.stopped_at_stage,
-                        )
-                        return result
-
-            result = await asyncio.to_thread(sync_scan)
+            async with AsyncSessionLocal() as db:
+                scan_service = LatestScanService(db)
+                await scan_service.persist_successful_scan(response, duration_ms)
+                await db.commit()
+                
+            await save_latest_scan(result) # preserve existing behaviour if needed somewhere
+            logger.info(
+                "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
+                response.scanned_symbols,
+                len(response.data_valid_symbols),
+                len(response.eligible_symbols),
+                len(response.matched_symbols),
+                len(response.shortlisted_symbols),
+                len(response.buy_candidate_symbols),
+                len(response.watch_candidate_symbols),
+                response.data_source,
+                response.stopped_at_stage,
+            )
             await q.put({"status": "complete", "result": result})
+        except asyncio.CancelledError:
+            logger.warning("Scan cancelled")
+            raise
         except Exception as e:
             logger.exception("Screener failed")
             await q.put({"status": "error", "message": str(e)})
@@ -169,7 +156,7 @@ async def screener_full(payload: ScreenerRequest):
 
 
 @router.get("/symbol/{symbol}/detail")
-def symbol_detail(symbol: str, db: Session = Depends(get_db)):
+def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
     """Run a single-symbol full analysis and return enriched fields used by the frontend detail page.
 
     This endpoint runs the same full analysis flow but also computes additional derived
@@ -398,8 +385,10 @@ def _build_backtest_extras(backtests: list) -> dict:
 
 
 @router.get("/scan/latest")
-def get_latest_scan():
-    data = load_latest_scan()
+async def get_latest_scan():
+    print("ENTERED get_latest_scan", flush=True)
+    data = await load_latest_scan()
+    print("LOADED data in get_latest_scan", flush=True)
     logger = logging.getLogger("scan.db")
     if data is None:
         logger.info("API /scan/latest | available=False | DB is empty")
@@ -411,7 +400,7 @@ def get_latest_scan():
     return {"available": True, **data}
 
 @router.get("/candidates/today")
-def get_today_candidates(db: Session = Depends(get_db)):
+async def get_today_candidates(db: AsyncSession = Depends(get_db)):
     from ..models.analysis import ScannedCandidate
     from sqlalchemy import select
     from datetime import datetime
@@ -419,11 +408,12 @@ def get_today_candidates(db: Session = Depends(get_db)):
     today = datetime.utcnow().date()
     start_of_today = datetime.combine(today, datetime.min.time())
     
-    candidates = db.scalars(
+    res = await db.scalars(
         select(ScannedCandidate)
         .where(ScannedCandidate.scanned_at >= start_of_today)
         .order_by(ScannedCandidate.screener_score.desc())
-    ).all()
+    )
+    candidates = res.all()
     
     return JSONResponse(content=[{
         "id": c.id,

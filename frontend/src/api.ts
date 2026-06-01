@@ -383,6 +383,22 @@ export async function loadLatestScan(): Promise<ScreenerResponse | null> {
   return data as ScreenerResponse;
 }
 
+export async function getLatestScan(): Promise<any> {
+  const response = await fetchWithDiagnostics("/scanner/latest", {
+    method: "GET",
+    headers: {
+      "Accept": "application/json",
+    },
+  }, "Get latest scan");
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch latest scan");
+  }
+
+  return await response.json();
+}
+
+
 export async function loadTodayCandidates(): Promise<any[]> {
   const response = await fetchWithDiagnostics("/analysis/candidates/today", undefined, "Load today candidates");
   if (!response.ok) {

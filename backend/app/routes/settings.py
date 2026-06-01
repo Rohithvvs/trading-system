@@ -12,7 +12,8 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_db
@@ -113,7 +114,7 @@ async def _validate_token_with_fyers(access_token: str) -> tuple[bool, str]:
 @router.post("/token")
 async def validate_and_save_token(
     payload: TokenValidateRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Validate a FYERS access token against the broker API, then persist it.
 
@@ -151,11 +152,12 @@ async def validate_and_save_token(
     logger.info("FYERS token validated successfully (%s). Saving to DB…", masked)
 
     # Step 1: Deactivate all previous tokens
-    deactivated = (
-        db.query(FyersToken)
-        .filter(FyersToken.is_active == True)
-        .update({"is_active": False, "status": "inactive"})
+    result = await db.execute(
+        update(FyersToken)
+        .where(FyersToken.is_active == True)
+        .values(is_active=False, status="inactive")
     )
+    deactivated = result.rowcount
     logger.info("Deactivated %d previous token(s)", deactivated)
 
     # Step 2: Insert new active token
@@ -179,8 +181,8 @@ async def validate_and_save_token(
     )
     db.add(history_entry)
 
-    db.commit()
-    db.refresh(new_row)
+    await db.commit()
+    await db.refresh(new_row)
 
     # Step 4: Log success
     logger_service.log_info(

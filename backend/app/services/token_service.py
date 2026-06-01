@@ -1,11 +1,12 @@
 from __future__ import annotations
+from sqlalchemy import select, update
 
 from datetime import datetime, timedelta
 import logging
 from typing import Any, List
 import os
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import FyersToken, FyersTokenHistory
 
 logger = logging.getLogger("app.token")
@@ -20,14 +21,17 @@ def _clear_token_cache() -> None:
     _CACHED_TOKEN = None
     _TOKEN_EXPIRY = None
 
+def has_cached_token() -> bool:
+    return bool(_CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY)
+
 
 def _set_token_cache(access_token: str) -> None:
     global _CACHED_TOKEN, _TOKEN_EXPIRY
     _CACHED_TOKEN = access_token
     _TOKEN_EXPIRY = datetime.utcnow() + _TOKEN_CACHE_TTL
 
-def get_fyers_token_row(db: Session) -> FyersToken | None:
-    return db.query(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()).first()
+async def get_fyers_token_row(db: AsyncSession) -> FyersToken | None:
+    return (await db.scalars(select(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()))).first()
 
 
 def _mask_token(token: str | None) -> str | None:
@@ -39,7 +43,7 @@ def _mask_token(token: str | None) -> str | None:
     return f"{t[:4]}...{t[-4:]}"
 
 
-def save_access_token(access_token: str, db: Session) -> dict:
+async def save_access_token(access_token: str, db: AsyncSession) -> dict:
     logger.info("%s", "=" * 60)
     logger.info("SAVE ACCESS TOKEN STARTED")
     logger.info("%s", "=" * 60)
@@ -51,65 +55,70 @@ def save_access_token(access_token: str, db: Session) -> dict:
     logger.info("Timestamp (UTC)  : %s", datetime.utcnow().isoformat())
 
     try:
-        logger.info("STEP 1: Querying existing FyersToken row from DB...")
-        row = get_fyers_token_row(db)
-        logger.info("STEP 1 RESULT: row_found=%s", row is not None)
+        async with db.begin():
+            now = datetime.utcnow()
+            
+            # Step 1: Deactivate existing tokens
+            logger.info("STEP 1: Deactivating existing tokens...")
+            await db.execute(update(FyersToken).where(FyersToken.is_active == True).values(is_active=False, status="inactive"))
+            logger.info("STEP 1 RESULT: Deactivated")
 
-        if row is None:
-            logger.info("STEP 2: No existing row. Creating new FyersToken row...")
-            row = FyersToken(
-                access_token=access_token,
+            # Step 2: Ensure ID=1 row exists
+            logger.info("STEP 2: Checking for existing ID=1 row...")
+            row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one_or_none()
+            
+            if row:
+                logger.info("STEP 2 RESULT: Found existing row. Updating...")
+                row.access_token = access_token
+                row.is_active = True
+                row.status = "active"
+                row.access_token_saved_at = now
+                db.add(row)
+            else:
+                logger.info("STEP 2 RESULT: No row found. Creating new...")
+                row = FyersToken(
+                    id=1,
+                    access_token=access_token,
+                    created_at=now,
+                    is_active=True,
+                    status="active",
+                    access_token_saved_at=now,
+                )
+                db.add(row)
+
+            # Step 3: Add history
+            logger.info("STEP 3: Adding token history entry...")
+            history = FyersTokenHistory(
+                token_id=1,
+                action="save_manual",
                 status="active",
-                access_token_saved_at=datetime.utcnow(),
-                last_error=None,
+                note="Manual save via UI",
             )
-            db.add(row)
-            logger.info("STEP 2 RESULT: New row created and added to session")
-        else:
-            logger.info("STEP 2: Updating existing row id=%s, old_status=%s", row.id, row.status)
-            row.access_token = access_token
-            row.status = "active"
-            row.access_token_saved_at = datetime.utcnow()
-            row.last_error = None
-            logger.info("STEP 2 RESULT: Row updated in session")
+            db.add(history)
+            logger.info("STEP 3 RESULT: History entry added")
 
-        logger.info("STEP 3: Saving FyersTokenHistory entry...")
-        masked = "..." + access_token[-8:] if access_token and len(access_token) >= 8 else "too_short"
-        history = FyersTokenHistory(
-            access_token_masked=masked,
-            saved_at=datetime.utcnow(),
-            status="active",
-            note="Manual save via UI",
-        )
-        db.add(history)
-        logger.info("STEP 3 RESULT: History entry added")
+            logger.info("STEP 4: Committing DB transaction...")
+            # PRE-COMMIT diagnostic
+            logger.info("PRE-COMMIT: token_length=%s", len(access_token) if access_token else 0)
 
-        logger.info("STEP 4: Committing DB transaction...")
-        # PRE-COMMIT diagnostic
-        logger.info("PRE-COMMIT: token_length=%s", len(access_token) if access_token else 0)
+            try:
+                db_url = str(engine.url)
+                logger.info("DB ENGINE URL: %s", db_url)
+            except Exception:
+                pass
 
-        # Log DB engine/url and file path when using SQLite
-        try:
-            from ..db.session import engine
-            db_url = str(engine.url)
-            logger.info("DB ENGINE URL: %s", db_url)
-            if db_url.startswith("sqlite:///"):
-                db_path = db_url.replace("sqlite:///", "")
-                logger.info("DB FILE PATH: %s | exists=%s", db_path, os.path.exists(db_path))
-        except Exception:
-            pass
-
-        db.commit()
-        db.refresh(row)
+        # We must refresh outside the transaction block if expire_on_commit was true,
+        # but since expire_on_commit=False, row retains state!
+        # await db.refresh(row) is not strictly needed inside, but if needed, we can do it inside.
         _set_token_cache(access_token)
-        logger.info("STEP 4 RESULT: Commit successful. Final status=%s saved_at=%s", row.status, row.access_token_saved_at)
+        logger.info("STEP 4 RESULT: Commit successful. Final status=%s saved_at=%s", row.status, getattr(row, 'access_token_saved_at', None))
 
         # POST-COMMIT diagnostics
         logger.info("POST-COMMIT: row_id=%s access_token_saved_at=%s", getattr(row, 'id', None), getattr(row, 'access_token_saved_at', None))
 
         # Verification read
         try:
-            verify_row = get_fyers_token_row(db)
+            verify_row = await get_fyers_token_row(db)
             logger.info(
                 "VERIFY: token_in_db=%s, status=%s",
                 bool(verify_row and verify_row.access_token),
@@ -129,14 +138,14 @@ def save_access_token(access_token: str, db: Session) -> dict:
         logger.error("Exception type   : %s", type(e).__name__)
         logger.error("Exception message: %s", str(e))
         logger.error("%s", "=" * 60, exc_info=True)
-        db.rollback()
+        await db.rollback()
         _clear_token_cache()
         logger.info("DB transaction rolled back")
         return {"status": "error", "message": str(e)}
 
 
-def get_token_status(db: Session) -> dict[str, Any]:
-    row = get_fyers_token_row(db)
+async def get_token_status(db: AsyncSession) -> dict[str, Any]:
+    row = await get_fyers_token_row(db)
     return {
         "access_token_active": bool(row and row.access_token),
         "access_token_saved_at": row.access_token_saved_at.isoformat() if row and row.access_token_saved_at else None,
@@ -145,8 +154,8 @@ def get_token_status(db: Session) -> dict[str, Any]:
     }
 
 
-def get_token_history(db: Session, limit: int = 50) -> List[dict[str, Any]]:
-    rows = db.query(FyersTokenHistory).order_by(FyersTokenHistory.saved_at.desc()).limit(limit).all()
+async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str, Any]]:
+    rows = (await db.scalars(select(FyersTokenHistory).order_by(FyersTokenHistory.saved_at.desc()).limit(limit))).all()
     return [
         {
             "id": r.id,
@@ -159,12 +168,12 @@ def get_token_history(db: Session, limit: int = 50) -> List[dict[str, Any]]:
     ]
 
 
-def get_current_access_token(db: Session) -> str | None:
+async def get_current_access_token(db: AsyncSession) -> str | None:
     if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
         return _CACHED_TOKEN
 
     logger.info("Reading access token from database")
-    row = get_fyers_token_row(db)
+    row = await get_fyers_token_row(db)
     if row is None:
         logger.warning("No FyersToken row found in database")
         _clear_token_cache()

@@ -19,6 +19,6 @@ def health_check() -> HealthResponse:
 
 
 @router.get("/health/heartbeat")
-def heartbeat() -> dict[str, object]:
-    market_engine.heartbeat()
+async def heartbeat() -> dict[str, object]:
+    await market_engine.heartbeat()
     return sanitize_for_json({"status": "ok", "engine": market_engine.status()})
