@@ -13,15 +13,30 @@ from .base import Base
 connect_args = {}
 pool_kwargs = {"pool_pre_ping": True}
 
+database_url = settings.database_url
+
+# Handle Render PostgreSQL sslmode=require for asyncpg
+if "sslmode=require" in database_url:
+    database_url = database_url.replace("?sslmode=require", "")
+    database_url = database_url.replace("&sslmode=require", "")
+    connect_args["ssl"] = True
+
 # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
-if settings.database_url.startswith("postgresql"):
+if database_url.startswith("postgresql"):
     connect_args["command_timeout"] = 120
 
 # Connection Pooling Limits for Postgres
 pool_kwargs["pool_size"] = 20
 pool_kwargs["max_overflow"] = 10
 
-engine = create_async_engine(settings.database_url, connect_args=connect_args, **pool_kwargs)
+print(f"Database SSL Enabled: {connect_args.get('ssl', False)}")
+print("Database Driver: asyncpg")
+
+engine = create_async_engine(
+    database_url,
+    connect_args=connect_args,
+    **pool_kwargs
+)
 
 @event.listens_for(engine.sync_engine, "connect")
 def set_postgres_timeouts(dbapi_connection, connection_record):
@@ -47,7 +62,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     finally:
         await db.close()
 
-sync_database_url = settings.database_url.replace("postgresql+asyncpg", "postgresql")
+sync_database_url = database_url.replace(
+    "postgresql+asyncpg",
+    "postgresql"
+)
 sync_connect_args = connect_args.copy()
 sync_connect_args.pop("command_timeout", None)
 sync_pool_kwargs = pool_kwargs.copy()
