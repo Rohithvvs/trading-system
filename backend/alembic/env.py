@@ -1,5 +1,6 @@
 import asyncio
 from logging.config import fileConfig
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -35,7 +36,41 @@ from app.models import market_data
 from app.models import system_log
 from app.models import infrastructure
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+def _prepare_asyncpg_url(raw_database_url: str) -> tuple[str, dict[str, object]]:
+    parsed = urlsplit(raw_database_url)
+    if parsed.scheme != "postgresql+asyncpg":
+        return raw_database_url, {}
+
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    filtered_pairs: list[tuple[str, str]] = []
+    sslmode: str | None = None
+
+    for key, value in query_pairs:
+        if key == "sslmode":
+            sslmode = value.lower()
+            continue
+        if key == "channel_binding":
+            continue
+        filtered_pairs.append((key, value))
+
+    connect_args: dict[str, object] = {}
+    if sslmode and sslmode != "disable":
+        connect_args["ssl"] = True
+
+    database_url = urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urlencode(filtered_pairs, doseq=True),
+            parsed.fragment,
+        )
+    )
+    return database_url, connect_args
+
+
+database_url, connect_args = _prepare_asyncpg_url(settings.database_url)
+config.set_main_option("sqlalchemy.url", database_url)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
@@ -85,6 +120,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:

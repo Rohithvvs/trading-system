@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import event, text
 import asyncio
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..config import settings
 from .base import Base
@@ -13,31 +14,43 @@ from .base import Base
 connect_args = {}
 pool_kwargs = {"pool_pre_ping": True}
 
-database_url = settings.database_url
+def _prepare_asyncpg_url(raw_database_url: str) -> tuple[str, dict[str, object]]:
+    parsed = urlsplit(raw_database_url)
+    if parsed.scheme == "sqlite":
+        return raw_database_url.replace("sqlite://", "sqlite+aiosqlite://", 1), {}
+    if parsed.scheme != "postgresql+asyncpg":
+        return raw_database_url, {}
 
-# Handle Render PostgreSQL sslmode=require for asyncpg
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    filtered_pairs: list[tuple[str, str]] = []
+    sslmode: str | None = None
 
-if "sslmode=" in database_url or "channel_binding=" in database_url:
-    parsed = urlparse(database_url)
+    for key, value in query_pairs:
+        if key == "sslmode":
+            sslmode = value.lower()
+            continue
+        if key == "channel_binding":
+            continue
+        filtered_pairs.append((key, value))
 
-    query = parse_qs(parsed.query)
+    async_connect_args: dict[str, object] = {}
+    if sslmode and sslmode != "disable":
+        async_connect_args["ssl"] = True
 
-    query.pop("sslmode", None)
-    query.pop("channel_binding", None)
-
-    connect_args["ssl"] = True
-
-    database_url = urlunparse(
+    async_database_url = urlunsplit(
         (
             parsed.scheme,
             parsed.netloc,
             parsed.path,
-            parsed.params,
-            urlencode(query, doseq=True),
+            urlencode(filtered_pairs, doseq=True),
             parsed.fragment,
         )
     )
+    return async_database_url, async_connect_args
+
+
+database_url, ssl_connect_args = _prepare_asyncpg_url(settings.database_url)
+connect_args.update(ssl_connect_args)
 
 # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
 if database_url.startswith("postgresql"):
@@ -47,9 +60,6 @@ if database_url.startswith("postgresql"):
 pool_kwargs["pool_size"] = 20
 pool_kwargs["max_overflow"] = 10
 
-print(f"Database SSL Enabled: {connect_args.get('ssl', False)}")
-print("Database Driver: asyncpg")
-print("Normalized Database URL:", database_url)
 engine = create_async_engine(
     database_url,
     connect_args=connect_args,
@@ -80,12 +90,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     finally:
         await db.close()
 
-sync_database_url = database_url.replace(
+sync_database_url = settings.database_url.replace(
     "postgresql+asyncpg",
-    "postgresql"
+    "postgresql+psycopg2"
+).replace(
+    "sqlite+aiosqlite",
+    "sqlite"
 )
-sync_connect_args = connect_args.copy()
-sync_connect_args.pop("command_timeout", None)
+sync_connect_args = {}
 sync_pool_kwargs = pool_kwargs.copy()
 sync_pool_kwargs["pool_size"] = 80
 sync_pool_kwargs["max_overflow"] = 20

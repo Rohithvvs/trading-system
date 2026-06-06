@@ -3,13 +3,51 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 from functools import cached_property
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
+
+
+def normalize_postgres_ssl_query(raw_value: str) -> str:
+    parsed = urlsplit(raw_value)
+    if parsed.scheme not in {"postgres", "postgresql", "postgresql+asyncpg", "postgresql+psycopg2"}:
+        return raw_value
+
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    normalized_pairs: list[tuple[str, str]] = []
+    ssl_value: str | None = None
+    has_sslmode = False
+
+    for key, value in query_pairs:
+        if key == "sslmode":
+            has_sslmode = True
+            normalized_pairs.append((key, value))
+            continue
+        if key == "ssl":
+            ssl_value = value.lower()
+            continue
+        normalized_pairs.append((key, value))
+
+    if ssl_value is not None and not has_sslmode:
+        sslmode = "require" if ssl_value in {"1", "true", "yes", "require"} else "disable"
+        normalized_pairs.append(("sslmode", sslmode))
+
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urlencode(normalized_pairs, doseq=True),
+            parsed.fragment,
+        )
+    )
+
+
 def normalize_database_url(raw_value: str) -> str:
-    value = raw_value.strip()
+    value = normalize_postgres_ssl_query(raw_value.strip())
     if value.startswith("postgres://"):
         return value.replace("postgres://", "postgresql+asyncpg://", 1)
     if value.startswith("postgresql://") and not value.startswith("postgresql+asyncpg://"):
