@@ -1,0 +1,7 @@
+# Bugs
+
+## Open
+
+## Fixed
+
+## Investigating
