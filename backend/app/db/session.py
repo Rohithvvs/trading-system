@@ -16,10 +16,28 @@ pool_kwargs = {"pool_pre_ping": True}
 database_url = settings.database_url
 
 # Handle Render PostgreSQL sslmode=require for asyncpg
-if "sslmode=require" in database_url:
-    database_url = database_url.replace("?sslmode=require", "")
-    database_url = database_url.replace("&sslmode=require", "")
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+if "sslmode=" in database_url or "channel_binding=" in database_url:
+    parsed = urlparse(database_url)
+
+    query = parse_qs(parsed.query)
+
+    query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+
     connect_args["ssl"] = True
+
+    database_url = urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            urlencode(query, doseq=True),
+            parsed.fragment,
+        )
+    )
 
 # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
 if database_url.startswith("postgresql"):
@@ -31,7 +49,7 @@ pool_kwargs["max_overflow"] = 10
 
 print(f"Database SSL Enabled: {connect_args.get('ssl', False)}")
 print("Database Driver: asyncpg")
-
+print("Normalized Database URL:", database_url)
 engine = create_async_engine(
     database_url,
     connect_args=connect_args,
