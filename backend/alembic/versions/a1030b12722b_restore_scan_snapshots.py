@@ -1,0 +1,71 @@
+"""restore_scan_snapshots
+
+Revision ID: a1030b12722b
+Revises: 6650a54dd6aa
+Create Date: 2026-06-07 10:56:38.841040
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = 'a1030b12722b'
+down_revision: Union[str, Sequence[str], None] = '6650a54dd6aa'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    op.create_table('scan_snapshots',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('scan_id', sa.String(length=36), nullable=False),
+    sa.Column('scan_timestamp', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('scan_duration_ms', sa.Integer(), nullable=False),
+    sa.Column('total_scanned', sa.Integer(), nullable=False),
+    sa.Column('valid_symbols', sa.Integer(), nullable=False),
+    sa.Column('buy_count', sa.Integer(), nullable=False),
+    sa.Column('watch_count', sa.Integer(), nullable=False),
+    sa.Column('rejected_count', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_scan_snapshots'))
+    )
+    op.create_index(op.f('ix_scan_snapshots_id'), 'scan_snapshots', ['id'], unique=False)
+    op.create_index(op.f('ix_scan_snapshots_scan_id'), 'scan_snapshots', ['scan_id'], unique=True)
+    op.create_index(op.f('ix_scan_snapshots_scan_timestamp'), 'scan_snapshots', ['scan_timestamp'], unique=False)
+    
+    op.create_table('scan_snapshot_records',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('scan_id', sa.String(length=36), nullable=False),
+    sa.Column('symbol', sa.String(length=50), nullable=False),
+    sa.Column('recommendation', sa.String(length=20), nullable=False),
+    sa.Column('score', sa.Numeric(precision=18, scale=8), nullable=False),
+    sa.Column('close_price', sa.Numeric(precision=18, scale=8), nullable=False),
+    sa.Column('sma50', sa.Numeric(precision=18, scale=8), nullable=True),
+    sa.Column('sma200', sa.Numeric(precision=18, scale=8), nullable=True),
+    sa.Column('rsi', sa.Numeric(precision=18, scale=8), nullable=True),
+    sa.Column('macd', sa.Numeric(precision=18, scale=8), nullable=True),
+    sa.Column('volume', sa.Integer(), nullable=True),
+    sa.Column('reason', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['scan_id'], ['scan_snapshots.scan_id'], name=op.f('fk_scan_snapshot_records_scan_id_scan_snapshots'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_scan_snapshot_records'))
+    )
+    op.create_index(op.f('ix_scan_snapshot_records_id'), 'scan_snapshot_records', ['id'], unique=False)
+    op.create_index(op.f('ix_scan_snapshot_records_scan_id'), 'scan_snapshot_records', ['scan_id'], unique=False)
+    op.create_index(op.f('ix_scan_snapshot_records_symbol'), 'scan_snapshot_records', ['symbol'], unique=False)
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.drop_index(op.f('ix_scan_snapshot_records_symbol'), table_name='scan_snapshot_records')
+    op.drop_index(op.f('ix_scan_snapshot_records_scan_id'), table_name='scan_snapshot_records')
+    op.drop_index(op.f('ix_scan_snapshot_records_id'), table_name='scan_snapshot_records')
+    op.drop_table('scan_snapshot_records')
+    op.drop_index(op.f('ix_scan_snapshots_scan_timestamp'), table_name='scan_snapshots')
+    op.drop_index(op.f('ix_scan_snapshots_scan_id'), table_name='scan_snapshots')
+    op.drop_index(op.f('ix_scan_snapshots_id'), table_name='scan_snapshots')
+    op.drop_table('scan_snapshots')
