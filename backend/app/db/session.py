@@ -269,7 +269,7 @@ def check_alembic_head() -> None:
     
     # Use absolute path to alembic.ini to avoid working directory issues
     root_dir = Path(__file__).resolve().parents[3]
-    alembic_ini_path = root_dir / "alembic.ini"
+    alembic_ini_path = root_dir / "backend" / "alembic.ini"
     
     if not alembic_ini_path.exists():
         logger.critical("STARTUP STEP FAILED: alembic.ini not found at %s", alembic_ini_path)

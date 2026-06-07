@@ -273,7 +273,21 @@ async def lifespan(app: FastAPI):
         await screener_svc.validate_startup_health(list(settings.nifty500_symbols))
         logger.info("STARTUP SUCCESS: Scanner health bootstrap completed successfully.")
     except Exception as e:
-        logger.exception("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan: %s", e)
+        logger.critical("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan: %s", repr(e))
+        logger.critical("FAILED CHECK: Startup Initialization")
+        logger.critical("EXCEPTION TYPE: %s", type(e).__name__)
+        logger.critical("EXCEPTION MESSAGE: %s", str(e))
+        
+        # Connection cleanup
+        try:
+            from .db.session import engine, sync_engine
+            sync_engine.dispose()
+            await engine.dispose()
+            if 'worker_lease' in locals() and hasattr(worker_lease, 'release'):
+                await worker_lease.release()
+        except Exception as cleanup_e:
+            logger.error("Failed during connection cleanup on fatal exit: %s", cleanup_e)
+            
         sys.exit(1)
 
     # JOB 1: Market Engine Spin Up

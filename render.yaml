@@ -3,7 +3,7 @@ services:
     name: trading-backend
     env: python
     buildCommand: pip install -r backend/requirements.txt
-    preDeployCommand: alembic upgrade head
+    preDeployCommand: alembic -c backend/alembic.ini upgrade head
     startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
