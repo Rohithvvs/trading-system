@@ -51,7 +51,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
-  const [lastScanLabel, setLastScanLabel] = useState<string | null>(null);
+
   const [liveTicks, setLiveTicks] = useState<Record<string, number>>({});
   
   // Streaming Progress State
@@ -336,7 +336,6 @@ export default function Dashboard() {
     setScanHistory((current) => saveScanHistory(response, current));
     setSelectedSymbol(response.shortlisted_symbols[0] ?? response.buy_candidate_symbols[0] ?? response.watch_candidate_symbols[0] ?? null);
     setDetailViewOpen(false);
-    setLastScanLabel(source === "restored" ? "Restored from saved" : null);
   }
 
   function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null) {
@@ -370,8 +369,7 @@ export default function Dashboard() {
       {mainView === "scanner" ? (
         <DashboardHeader
           isLoading={isLoading}
-          lastScanAt={screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
-          lastScanLabel={lastScanLabel}
+          lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
           marketStatus={marketStatus}
           search={filters.search}
           onSearchChange={(value) => setFilters((current) => ({ ...current, search: value }))}
@@ -392,14 +390,14 @@ export default function Dashboard() {
 
       <div className="app-main-scroll">
         {mainView === "home" ? (
-          <WorkstationPage onLoadSavedScan={loadSavedScan} />
+          <WorkstationPage onLoadSavedScan={loadSavedScan} onNavigate={(view) => setMainView(view)} />
         ) : mainView === "paper-trading" ? (
           <div className="dashboard-grid">
             <PaperTradingPage
               recommendationPrefill={paperTradingPrefill}
               onPrefillConsumed={() => setPaperTradingPrefill(null)}
               scannerCandidates={shortlistRows}
-              lastScanAt={screenerResult?.analysis?.generated_at ?? null}
+              lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
             />
           </div>
         ) : detailViewOpen && selectedRow ? (

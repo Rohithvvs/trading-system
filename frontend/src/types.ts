@@ -152,6 +152,9 @@ export type ScreenerConditionResult = {
   symbol: string;
   close: number;
   ema_20: number;
+  ema_50?: number;
+  ema50_available?: boolean;
+  ema20_above_ema50?: boolean;
   sma_30: number;
   sma_50: number;
   sma_100: number;
@@ -200,6 +203,7 @@ export type ScreenerResponse = {
   stopped_at_stage?: string | null;
   duplicate_symbols_skipped?: number;
   scanned_at?: string;
+  last_scan_completed_at?: string;
 };
 
 export type CandidateRow = {

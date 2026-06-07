@@ -5,10 +5,35 @@ import { TOOLTIPS } from '../constants/tooltips';
 import type { ThemeMode } from "../types";
 import NotificationBell from "./NotificationBell";
 
+function formatScanTime(isoString: string | null): string {
+  if (!isoString) return "No scan has been completed yet";
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return "No scan has been completed yet";
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const year = date.getFullYear();
+  let hour = date.getHours();
+  const minute = date.getMinutes().toString().padStart(2, '0');
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  const hourStr = hour.toString().padStart(2, '0');
+  
+  return `${day} ${month} ${year}, ${hourStr}:${minute} ${ampm}`;
+}
+
+
 type DashboardHeaderProps = {
   isLoading: boolean;
   lastScanAt: string | null;
-  lastScanLabel?: string | null;
   marketStatus: string;
   search: string;
   onSearchChange: (value: string) => void;
@@ -29,7 +54,7 @@ type DashboardHeaderProps = {
 export function DashboardHeader({
   isLoading,
   lastScanAt,
-  lastScanLabel,
+
   marketStatus,
   search,
   onSearchChange,
@@ -56,8 +81,8 @@ export function DashboardHeader({
         <div className="header-meta">
           <StatusPill label="Market" value={marketStatus} tone={marketStatus === "Open" ? "positive" : "neutral"} />
           <StatusPill
-            label="Last Updated"
-            value={lastScanLabel ?? (lastScanAt ? new Date(lastScanAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Not run yet")}
+            label="Last Scan Completed"
+            value={formatScanTime(lastScanAt)}
             tone="neutral"
           />
         </div>

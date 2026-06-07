@@ -139,6 +139,18 @@ class FyersService:
     def __init__(self) -> None:
         self.logger = get_logger("app.fyers")
 
+    def validate_token_sync(self, token: str) -> None:
+        """Validates a token synchronously against the FYERS API."""
+        client_id = (settings.fyers_app_id or "").strip()
+        client = fyersModel.FyersModel(
+            is_async=False,
+            client_id=client_id,
+            token=token.strip(),
+            log_path="",
+        )
+        response = client.get_profile()
+        _check_fyers_response(response, "VALIDATE_TOKEN")
+
     async def fetch_ltp(self, symbol: str) -> float | None:
         cache_key = self._cache_symbol(symbol)
         

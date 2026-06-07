@@ -314,6 +314,12 @@ function TechnicalsTab({
       copy: "Price above EMA 20 keeps the short-term swing trend constructive.",
     },
     {
+      label: "EMA 50",
+      value: indicators["ema_50"] ? formatValue(indicators["ema_50"]) : "N/A",
+      status: Boolean(indicators["ema20_above_ema50"]) ? "Passed" : "Failed",
+      copy: "Price above EMA 50 indicates medium-term strength.",
+    },
+    {
       label: "Supertrend",
       value: formatValue(indicators["supertrend"]),
       status: Boolean(indicators["supertrend_positive"]) ? "Positive" : "Negative",
@@ -400,6 +406,9 @@ function TechnicalsTab({
               </abbr>
               : {Boolean(indicators["hard_filters_pass"]) ? "Yes" : "No"}
             </span>
+            <span className="helper-chip" style={{ background: indicators["ema50_available"] === false ? "var(--surface-sunken)" : Boolean(indicators["ema20_above_ema50"]) ? "var(--positive)" : "var(--negative)", color: "var(--text)", border: indicators["ema50_available"] === false ? "1px solid var(--border)" : "none" }}>
+              {indicators["ema50_available"] === false ? "EMA50 Not Available" : "Bullish EMA Structure"}
+            </span>
           </div>
         </div>
         {techExtra ? (
@@ -474,8 +483,8 @@ function TechnicalsTab({
         <h3>Trade confidence checklist</h3>
         <div className="checklist-grid">
           {buildTechnicalChecklist(indicators, row).map((item) => (
-            <article key={item.label} className={`checklist-item ${item.passed ? "is-positive" : "is-risk"}`}>
-              <span>{item.passed ? "Pass" : "Check"}</span>
+            <article key={item.label} className={`checklist-item ${item.state === "N/A" ? "is-neutral" : item.passed ? "is-positive" : "is-risk"}`} style={item.state === "N/A" ? { opacity: 0.7 } : {}}>
+              <span>{item.state === "N/A" ? "N/A" : item.passed ? "PASS" : "FAIL"}</span>
               <strong>{item.label}</strong>
               <p>{item.copy}</p>
             </article>
@@ -576,6 +585,12 @@ function buildTechnicalChecklist(indicators: Record<string, string | number | bo
       label: "Trend alignment",
       passed: Boolean(indicators["close_above_ema20"]) && Boolean(indicators["supertrend_positive"]),
       copy: "Close above EMA 20 and Supertrend positive.",
+    },
+    {
+      label: "EMA20 Above EMA50",
+      passed: Boolean(indicators["ema20_above_ema50"]),
+      state: indicators["ema50_available"] === false ? "N/A" : undefined,
+      copy: "EMA20 is strictly greater than EMA50.",
     },
     {
       label: "Long-term trend",

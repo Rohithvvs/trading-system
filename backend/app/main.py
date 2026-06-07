@@ -664,6 +664,64 @@ async def automated_screening_job():
                 mode=AnalysisMode.swing
             )
             
+            from .services import token_service
+            from .services.fyers_service import FyersService, FyersAuthInvalidError, FyersAuthExpiredError, FyersAPIError
+            
+            token = await token_service.get_current_access_token(db)
+            if not token:
+                logger.error("Scan aborted: No cached token available in memory or DB.")
+                from .services.diagnostics_service import diagnostics
+                diagnostics.set_scanner_failed("No FYERS token configured")
+                from .services.paper_trading_service import PaperTradingService
+                try:
+                    PaperTradingService(db).add_notification(
+                        account_id=1,
+                        message="Scheduled scan aborted: No FYERS token configured. Please authenticate.",
+                        level="error",
+                        event_type="TOKEN_MISSING",
+                        entity_type="system",
+                        dedupe_key="TOKEN_MISSING_ALERT",
+                        commit=True
+                    )
+                except Exception as ne:
+                    pass
+                return
+            
+            try:
+                logger.info("Validating FYERS token before scheduled scan...")
+                fyers_service = FyersService()
+                await asyncio.wait_for(
+                    asyncio.to_thread(fyers_service.validate_token_sync, token),
+                    timeout=15.0
+                )
+            except asyncio.TimeoutError:
+                logger.error("Scan aborted: FYERS API timeout during token validation.")
+                from .services.diagnostics_service import diagnostics
+                diagnostics.set_scanner_failed("FYERS Validation Timeout")
+                return
+            except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
+                logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
+                from .services.diagnostics_service import diagnostics
+                diagnostics.set_scanner_failed("FYERS Token Expired")
+                token_service._clear_token_cache()
+                from .services.paper_trading_service import PaperTradingService
+                PaperTradingService(db).add_notification(
+                    account_id=1,
+                    message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
+                    level="error",
+                    event_type="TOKEN_EXPIRED",
+                    entity_type="system",
+                    dedupe_key="TOKEN_EXPIRED_ALERT",
+                    commit=True
+                )
+                logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
+                return
+            except FyersAPIError as e:
+                logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
+                from .services.diagnostics_service import diagnostics
+                diagnostics.set_scanner_failed("FYERS API Error")
+                return
+            
             logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
             import datetime, os
             try:

@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
-import { getTokenHistory, getTokenStatus, saveAccessToken } from "../api";
+import { getTokenHistory, getTokenStatus, saveAccessToken, getLatestScan } from "../api";
 
 type Status = {
   access_token_active: boolean;
   access_token_saved_at: string | null;
+  validated_at?: string | null;
   status: string | null;
   last_error: string | null;
 };
 
 export default function TokenStatus() {
   const [status, setStatus] = useState<Status | null>(null);
+  const [lastScanAt, setLastScanAt] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -20,6 +22,10 @@ export default function TokenStatus() {
     try {
       const res = await getTokenStatus();
       setStatus(res);
+      const scanRes = await getLatestScan();
+      if (scanRes && scanRes.last_scan_completed_at) {
+        setLastScanAt(scanRes.last_scan_completed_at);
+      }
     } catch (e: any) {
       // Non-critical background load error
     }
@@ -40,6 +46,11 @@ export default function TokenStatus() {
     const id = setInterval(() => void load(), 60000);
     return () => clearInterval(id);
   }, []);
+
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const totalMins = istTime.getHours() * 60 + istTime.getMinutes();
+  const isEligible = totalMins >= 555 && totalMins <= 1320;
 
   function badge() {
     if (!status || status.status === "no_token") {
@@ -84,16 +95,28 @@ export default function TokenStatus() {
         <table className="token-table">
           <tbody>
             <tr>
-              <td>Last Saved</td>
-              <td>{status?.access_token_saved_at ? new Date(status.access_token_saved_at).toLocaleString() : "-"}</td>
-            </tr>
-            <tr>
-              <td>Last Error</td>
-              <td>{status?.last_error ?? "-"}</td>
-            </tr>
-            <tr>
-              <td>Status</td>
+              <td>Token Status</td>
               <td>{status?.status ?? "no_token"}</td>
+            </tr>
+            <tr>
+              <td>Last Token Validation</td>
+              <td>{status?.validated_at ? new Date(status.validated_at).toLocaleString() : "-"}</td>
+            </tr>
+            <tr>
+              <td>Last Successful Scan</td>
+              <td>{lastScanAt ? new Date(lastScanAt).toLocaleString() : "-"}</td>
+            </tr>
+            <tr>
+              <td>Next Scheduled Scan</td>
+              <td>Mon-Fri, 09:00 AM & 04:00 PM IST</td>
+            </tr>
+            <tr>
+              <td>Auto Scan Eligible</td>
+              <td>{isEligible ? "YES" : "NO"}</td>
+            </tr>
+            <tr>
+              <td>Auto Scan Window</td>
+              <td>09:15–22:00 IST</td>
             </tr>
           </tbody>
         </table>

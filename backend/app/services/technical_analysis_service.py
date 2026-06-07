@@ -76,6 +76,7 @@ class TechnicalAnalysisService:
         if mode == AnalysisMode.intraday:
             ema_9_unstack = close_unstack.ewm(span=9, adjust=False).mean()
             ema_20_unstack = close_unstack.ewm(span=20, adjust=False).mean()
+            ema_50_unstack = close_unstack.ewm(span=50, adjust=False).mean()
 
             delta = close_unstack.diff()
             gain = delta.where(delta > 0, 0.0).ewm(alpha=1/14, adjust=False).mean()
@@ -100,6 +101,7 @@ class TechnicalAnalysisService:
                 lc = float(last_close[symbol])
                 ema_9 = float(ema_9_unstack[symbol].iloc[-1])
                 ema_20 = float(ema_20_unstack[symbol].iloc[-1])
+                ema_50 = float(ema_50_unstack[symbol].iloc[-1])
                 rsi_14 = float(rsi_14_unstack[symbol].iloc[-1])
                 macd_val = float(macd_unstack[symbol].iloc[-1])
                 macd_sig = float(macd_signal_unstack[symbol].iloc[-1])
@@ -108,9 +110,12 @@ class TechnicalAnalysisService:
                 vol_trend = "expanding" if float(avg_vol_short[symbol]) > float(avg_vol_long[symbol]) else "stable"
                 close_above_vwap = bool(lc > vwap)
                 
+                ema50_available = bool(ema_50 > 0 and not pd.isna(ema_50))
+                
                 score = 0.0
                 score += 20 if close_above_vwap else 0
                 score += 20 if ema_9 > ema_20 else 0
+                score += 15 if (ema50_available and ema_20 > ema_50) else 0
                 score += 15 if macd_val > macd_sig else 0
                 score += 15 if 52 <= rsi_14 <= 72 else 8 if rsi_14 >= 45 else 0
                 score += 15 if vol_trend == "expanding" else 5
@@ -122,6 +127,9 @@ class TechnicalAnalysisService:
                     "vwap": round(vwap, 2),
                     "ema_9": round(ema_9, 2),
                     "ema_20": round(ema_20, 2),
+                    "ema_50": round(ema_50, 2),
+                    "ema50_available": ema50_available,
+                    "ema20_above_ema50": bool(ema50_available and ema_20 > ema_50),
                     "rsi_14": round(rsi_14, 2),
                     "macd": round(macd_val, 4),
                     "macd_signal": round(macd_sig, 4),
@@ -151,6 +159,7 @@ class TechnicalAnalysisService:
             return ema_12 - ema_26
 
         ema_20_series = grouped["close"].transform(lambda x: x.ewm(span=20, adjust=False).mean())
+        ema_50_series = grouped["close"].transform(lambda x: x.ewm(span=50, adjust=False, min_periods=50).mean())
         sma_20_series = grouped["close"].transform(lambda x: x.rolling(window=20).mean())
         sma_30_series = grouped["close"].transform(lambda x: x.rolling(window=30).mean())
         sma_50_series = grouped["close"].transform(lambda x: x.rolling(window=50).mean())
@@ -169,6 +178,7 @@ class TechnicalAnalysisService:
 
         df_indicators = pd.DataFrame({
             "ema_20": ema_20_series,
+            "ema_50": ema_50_series,
             "sma_20": sma_20_series,
             "sma_30": sma_30_series,
             "sma_50": sma_50_series,
@@ -198,6 +208,7 @@ class TechnicalAnalysisService:
             lc = float(sym_candles[-1].close)
             
             ema_20 = float(inds["ema_20"]) if not pd.isna(inds["ema_20"]) else 0.0
+            ema_50 = float(inds["ema_50"]) if not pd.isna(inds["ema_50"]) else 0.0
             sma_20 = float(inds["sma_20"]) if not pd.isna(inds["sma_20"]) else 0.0
             sma_30 = float(inds["sma_30"]) if not pd.isna(inds["sma_30"]) else 0.0
             sma_50 = float(inds["sma_50"]) if not pd.isna(inds["sma_50"]) else 0.0
@@ -223,6 +234,8 @@ class TechnicalAnalysisService:
             latest = {"high": float(sym_candles[-1].high), "low": float(sym_candles[-1].low), "volume": float(sym_candles[-1].volume), "open": float(sym_candles[-1].open), "close": lc}
 
             close_above_ema20 = bool(lc > ema_20)
+            ema50_available = bool(ema_50 > 0 and not pd.isna(ema_50))
+            ema20_above_ema50 = bool(ema50_available and ema_20 > ema_50)
             supertrend_positive = bool(supertrend_point.direction_up and lc >= supertrend_point.value)
             macd_positive = bool(macd_value > macd_signal)
             sma_uptrend_20d = bool(sma_20 > sma_20_prev)
@@ -250,6 +263,7 @@ class TechnicalAnalysisService:
 
             score = 0.0
             score += 18 if close_above_ema20 else 0
+            score += 12 if ema20_above_ema50 else 0
             score += 16 if supertrend_positive else 0
             score += 12 if macd_positive else 0
             score += 8 if rsi_supportive else 0
@@ -269,6 +283,9 @@ class TechnicalAnalysisService:
 
             indicators = {
                 "ema_20": round(ema_20, 2),
+                "ema_50": round(ema_50, 2),
+                "ema50_available": ema50_available,
+                "ema20_above_ema50": ema20_above_ema50,
                 "sma_20": round(sma_20, 2),
                 "sma_30": round(sma_30, 2),
                 "sma_50": round(sma_50, 2),
@@ -340,6 +357,7 @@ class TechnicalAnalysisService:
 
             ema_9_unstack = close_unstack.ewm(span=9, adjust=False).mean()
             ema_20_unstack = close_unstack.ewm(span=20, adjust=False).mean()
+            ema_50_unstack = close_unstack.ewm(span=50, adjust=False, min_periods=50).mean()
 
             delta = close_unstack.diff()
             gain = delta.where(delta > 0, 0.0).ewm(alpha=1/14, adjust=False).mean()
@@ -364,6 +382,7 @@ class TechnicalAnalysisService:
                 lc = float(last_close[symbol])
                 ema_9 = float(ema_9_unstack[symbol].iloc[-1])
                 ema_20 = float(ema_20_unstack[symbol].iloc[-1])
+                ema_50 = float(ema_50_unstack[symbol].iloc[-1])
                 rsi_14 = float(rsi_14_unstack[symbol].iloc[-1])
                 macd_val = float(macd_unstack[symbol].iloc[-1])
                 macd_sig = float(macd_signal_unstack[symbol].iloc[-1])
@@ -375,6 +394,7 @@ class TechnicalAnalysisService:
                 score = 0.0
                 score += 20 if close_above_vwap else 0
                 score += 20 if ema_9 > ema_20 else 0
+                score += 15 if ema_20 > ema_50 else 0
                 score += 15 if macd_val > macd_sig else 0
                 score += 15 if 52 <= rsi_14 <= 72 else 8 if rsi_14 >= 45 else 0
                 score += 15 if vol_trend == "expanding" else 5
@@ -386,6 +406,8 @@ class TechnicalAnalysisService:
                     "vwap": round(vwap, 2),
                     "ema_9": round(ema_9, 2),
                     "ema_20": round(ema_20, 2),
+                    "ema_50": round(ema_50, 2),
+                    "ema20_above_ema50": bool(ema_20 > ema_50),
                     "rsi_14": round(rsi_14, 2),
                     "macd": round(macd_val, 4),
                     "macd_signal": round(macd_sig, 4),
@@ -415,6 +437,7 @@ class TechnicalAnalysisService:
             return ema_12 - ema_26
 
         ema_20_series = grouped["close"].transform(lambda x: x.ewm(span=20, adjust=False).mean())
+        ema_50_series = grouped["close"].transform(lambda x: x.ewm(span=50, adjust=False, min_periods=50).mean())
         sma_20_series = grouped["close"].transform(lambda x: x.rolling(window=20).mean())
         sma_30_series = grouped["close"].transform(lambda x: x.rolling(window=30).mean())
         sma_50_series = grouped["close"].transform(lambda x: x.rolling(window=50).mean())
@@ -433,6 +456,7 @@ class TechnicalAnalysisService:
 
         df_indicators = pd.DataFrame({
             "ema_20": ema_20_series,
+            "ema_50": ema_50_series,
             "sma_20": sma_20_series,
             "sma_30": sma_30_series,
             "sma_50": sma_50_series,
@@ -463,6 +487,7 @@ class TechnicalAnalysisService:
             lc = float(sym_data["close"].iloc[-1])
 
             ema_20 = float(inds["ema_20"]) if not pd.isna(inds["ema_20"]) else 0.0
+            ema_50 = float(inds["ema_50"]) if not pd.isna(inds["ema_50"]) else 0.0
             sma_20 = float(inds["sma_20"]) if not pd.isna(inds["sma_20"]) else 0.0
             sma_30 = float(inds["sma_30"]) if not pd.isna(inds["sma_30"]) else 0.0
             sma_50 = float(inds["sma_50"]) if not pd.isna(inds["sma_50"]) else 0.0
@@ -489,6 +514,8 @@ class TechnicalAnalysisService:
             latest = {"high": float(sym_data["high"].iloc[-1]), "low": float(sym_data["low"].iloc[-1]), "volume": float(sym_data["volume"].iloc[-1]), "open": float(sym_data["open"].iloc[-1]), "close": lc}
 
             close_above_ema20 = bool(lc > ema_20)
+            ema50_available = bool(ema_50 > 0 and not pd.isna(ema_50))
+            ema20_above_ema50 = bool(ema50_available and ema_20 > ema_50)
             supertrend_positive = bool(supertrend_point.direction_up and lc >= supertrend_point.value)
             macd_positive = bool(macd_value > macd_signal)
             sma_uptrend_20d = bool(sma_20 > sma_20_prev)
@@ -516,6 +543,7 @@ class TechnicalAnalysisService:
 
             score = 0.0
             score += 18 if close_above_ema20 else 0
+            score += 12 if (ema50_available and ema_20 > ema_50) else 0
             score += 16 if supertrend_positive else 0
             score += 12 if macd_positive else 0
             score += 8 if rsi_supportive else 0
@@ -535,6 +563,9 @@ class TechnicalAnalysisService:
 
             indicators = {
                 "ema_20": round(ema_20, 2),
+                "ema_50": round(ema_50, 2),
+                "ema50_available": ema50_available,
+                "ema20_above_ema50": ema20_above_ema50,
                 "sma_20": round(sma_20, 2),
                 "sma_30": round(sma_30, 2),
                 "sma_50": round(sma_50, 2),
@@ -594,6 +625,7 @@ class TechnicalAnalysisService:
                 score,
                 bool(indicators.get("close_above_vwap", False)),
                 bool(float(indicators.get("ema_9", 0.0)) > float(indicators.get("ema_20", 0.0))),
+                bool(float(indicators.get("ema_20", 0.0)) > float(indicators.get("ema_50", 0.0))),
                 bool(float(indicators.get("macd", 0.0)) > float(indicators.get("macd_signal", 0.0))),
                 indicators.get("rsi_14", 0.0),
                 indicators.get("volume_trend", "unknown"),

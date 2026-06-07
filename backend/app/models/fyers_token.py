@@ -25,6 +25,7 @@ class FyersToken(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, server_default=text("true"))
+    validated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Compatibility columns (legacy service code may reference these)
     status = Column(String(32), default="active", index=True)

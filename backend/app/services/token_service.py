@@ -55,6 +55,32 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
     logger.info("Timestamp (UTC)  : %s", datetime.utcnow().isoformat())
 
     try:
+        import asyncio
+        from .fyers_service import FyersService
+        from .fyers_service import FyersAuthInvalidError, FyersAuthExpiredError, FyersAPIError
+        
+        logger.info("Validating token against FYERS API...")
+        fyers_service = FyersService()
+        await asyncio.wait_for(
+            asyncio.to_thread(fyers_service.validate_token_sync, access_token),
+            timeout=15.0
+        )
+        logger.info("Token validation successful.")
+        
+    except asyncio.TimeoutError:
+        logger.error("Token validation failed: FYERS API timeout")
+        return {"status": "error", "message": "Validation failed: FYERS API timeout"}
+    except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
+        logger.error("Token validation failed: %s", str(e))
+        return {"status": "error", "message": f"Invalid token: {str(e)}"}
+    except FyersAPIError as e:
+        logger.error("Token validation failed due to API error: %s", str(e))
+        return {"status": "error", "message": f"Validation failed: {str(e)}"}
+    except Exception as e:
+        logger.error("Unexpected error validating token: %s", str(e))
+        return {"status": "error", "message": f"Validation error: {str(e)}"}
+
+    try:
         async with db.begin():
             now = datetime.utcnow()
             
@@ -73,6 +99,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
                 row.is_active = True
                 row.status = "active"
                 row.access_token_saved_at = now
+                row.validated_at = now
                 db.add(row)
             else:
                 logger.info("STEP 2 RESULT: No row found. Creating new...")
@@ -83,6 +110,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
                     is_active=True,
                     status="active",
                     access_token_saved_at=now,
+                    validated_at=now,
                 )
                 db.add(row)
 
@@ -149,6 +177,7 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
     return {
         "access_token_active": bool(row and row.access_token),
         "access_token_saved_at": row.access_token_saved_at.isoformat() if row and row.access_token_saved_at else None,
+        "validated_at": getattr(row, 'validated_at', None).isoformat() if row and getattr(row, 'validated_at', None) else None,
         "status": row.status if row else "no_token",
         "last_error": row.last_error if row else None,
     }

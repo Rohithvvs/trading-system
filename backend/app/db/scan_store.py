@@ -77,6 +77,7 @@ async def load_latest_scan() -> dict | None:
         
         # Inject the saved_at timestamp into the payload for the frontend
         data["scanned_at"] = saved_at
+        data["last_scan_completed_at"] = saved_at
         items = data.get("items", [])
         shortlisted = [s for s in items if s.get("matched") is True]
         rejected = [s for s in items if s.get("matched") is False]

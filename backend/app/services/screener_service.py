@@ -149,6 +149,9 @@ class ScreenerService:
                 symbol=symbol,
                 close=0.0,
                 ema_20=0.0,
+                ema_50=0.0,
+                ema50_available=False,
+                ema20_above_ema50=False,
                 sma_30=0.0,
                 sma_50=0.0,
                 sma_100=0.0,
@@ -190,6 +193,9 @@ class ScreenerService:
                 symbol=symbol,
                 close=latest.close if latest else 0.0,
                 ema_20=0.0,
+                ema_50=0.0,
+                ema50_available=False,
+                ema20_above_ema50=False,
                 sma_30=0.0,
                 sma_50=0.0,
                 sma_100=0.0,
@@ -236,6 +242,9 @@ class ScreenerService:
             symbol=symbol,
             close=round(latest.close, 2),
             ema_20=float(indicators.get("ema_20", 0.0)),
+            ema_50=float(indicators.get("ema_50", 0.0)),
+            ema50_available=bool(indicators.get("ema50_available", False)),
+            ema20_above_ema50=bool(indicators.get("ema20_above_ema50", False)),
             sma_30=float(indicators.get("sma_30", 0.0)),
             sma_50=float(indicators.get("sma_50", 0.0)),
             sma_100=float(indicators.get("sma_100", 0.0)),
@@ -510,7 +519,7 @@ class ScreenerService:
             sym_df = symbol_frames.get(symbol)
             if sym_df is None or sym_df.empty:
                 results.append(ScreenerConditionResult(
-                    symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
+                    symbol=symbol, close=0.0, ema_20=0.0, ema_50=0.0, ema50_available=False, ema20_above_ema50=False, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
                     supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
                     technical_signal="unknown", technical_score=0.0, candles_fetched=0,
@@ -521,7 +530,7 @@ class ScreenerService:
             technical = bulk_technical_results.get(symbol)
             if not technical:
                 results.append(ScreenerConditionResult(
-                    symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
+                    symbol=symbol, close=0.0, ema_20=0.0, ema_50=0.0, ema50_available=False, ema20_above_ema50=False, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
                     supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
                     technical_signal="unknown", technical_score=0.0, candles_fetched=len(sym_df),
@@ -556,7 +565,7 @@ class ScreenerService:
             except Exception as e:
                 self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)
                 results.append(ScreenerConditionResult(
-                    symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
+                    symbol=symbol, close=0.0, ema_20=0.0, ema_50=0.0, ema50_available=False, ema20_above_ema50=False, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
                     supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
                     technical_signal="unknown", technical_score=0.0, candles_fetched=total_rows,
@@ -654,6 +663,8 @@ class ScreenerService:
             "core_momentum_filter_pass": bool(indicators.get("core_momentum_filter_pass", False)),
             "basic_liquidity_filter_pass": bool(indicators.get("basic_liquidity_filter_pass", False)),
             "close_above_ema20": bool(indicators.get("close_above_ema20", False)),
+            "ema50_available": bool(indicators.get("ema50_available", False)),
+            "ema20_above_ema50": bool(indicators.get("ema20_above_ema50", False)),
             "supertrend_positive": bool(indicators.get("supertrend_positive", False)),
             "macd_positive": bool(indicators.get("macd_positive", False)),
             "rsi_supportive": bool(indicators.get("rsi_supportive", False)),
@@ -685,6 +696,7 @@ class ScreenerService:
         score += 12 if conditions["broad_trend_eligibility"] else 0
         score += 6 if conditions["hard_filters_pass"] else 0
         score += 4 if conditions["close_above_ema20"] else 0
+        score += 5 if (conditions.get("ema50_available") and conditions.get("ema20_above_ema50")) else 0
         score += 4 if conditions["supertrend_positive"] else 0
         score += 4 if conditions["macd_positive"] else 0
         score += 3 if conditions["rsi_supportive"] else 0

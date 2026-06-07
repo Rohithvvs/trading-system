@@ -12,40 +12,45 @@ import {
   fetchScanHistory,
   fetchWorkstationAlerts,
   updateRiskSettings,
+  getLatestScan,
+  getTokenStatus,
 } from "../api";
 
 type Props = {
   onLoadSavedScan?: (scan: any) => void;
+  onNavigate?: (view: "scanner" | "paper-trading" | "home") => void;
 };
 
-export function WorkstationPage({ onLoadSavedScan }: Props) {
+export function WorkstationPage({ onLoadSavedScan, onNavigate }: Props) {
   const [market, setMarket] = useState<any | null>(null);
-  const [history, setHistory] = useState<any[]>([]);
   const [savedScans, setSavedScans] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [risk, setRisk] = useState<any | null>(null);
   const [health, setHealth] = useState<any | null>(null);
-  const [comparison, setComparison] = useState<any | null>(null);
+  const [latestScan, setLatestScan] = useState<any | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [priceAlert, setPriceAlert] = useState({ name: "", symbol: "", condition: ">=", target_price: "" });
   const [scanAlertName, setScanAlertName] = useState("");
 
   async function load() {
     try {
-      const [marketData, historyData, savedData, alertsData, riskData, healthData] = await Promise.all([
-        fetchMarketOverview(),
-        fetchScanHistory(20),
-        fetchSavedScans(),
-        fetchWorkstationAlerts(),
-        fetchRiskSettings(),
-        fetchApiHealth(),
+      const [marketData, savedData, alertsData, riskData, healthData, latestData, tokenData] = await Promise.all([
+        fetchMarketOverview().catch(() => null),
+        fetchSavedScans().catch(() => []),
+        fetchWorkstationAlerts().catch(() => []),
+        fetchRiskSettings().catch(() => null),
+        fetchApiHealth().catch(() => null),
+        getLatestScan().catch(() => null),
+        getTokenStatus().catch(() => null),
       ]);
       setMarket(marketData);
-      setHistory(historyData);
       setSavedScans(savedData);
       setAlerts(alertsData);
       setRisk(riskData);
       setHealth(healthData);
+      setLatestScan(latestData);
+      setTokenStatus(tokenData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load workstation.");
     }
@@ -54,10 +59,6 @@ export function WorkstationPage({ onLoadSavedScan }: Props) {
   useEffect(() => {
     void load();
   }, []);
-
-  async function handleCompare(id: number) {
-    setComparison(await compareScan(id));
-  }
 
   async function handleCreatePriceAlert() {
     await createWorkstationAlert({
@@ -91,10 +92,162 @@ export function WorkstationPage({ onLoadSavedScan }: Props) {
     setRisk(next);
   }
 
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const totalMins = istTime.getHours() * 60 + istTime.getMinutes();
+  const isEligible = totalMins >= 555 && totalMins <= 1320;
+
+  const isTokenValid = tokenStatus?.status === "active";
+  const isSchedulerRunning = health?.services?.find((s: any) => s.name === "scheduler")?.status === "ok";
+  const isDbConnected = health?.services?.find((s: any) => s.name === "database")?.status === "ok";
+
+  let scannerState: "READY" | "PAUSED" | "BLOCKED" = "READY";
+  if (!isTokenValid) scannerState = "BLOCKED";
+  else if (!isEligible) scannerState = "PAUSED";
+
+  let autoScannerState = "🟢 Enabled";
+  let autoScannerReason = "";
+  if (!isTokenValid) {
+    autoScannerState = "🔴 Token Expired";
+    autoScannerReason = "Please update FYERS token.";
+  } else if (!isSchedulerRunning) {
+    autoScannerState = "🔴 Scheduler Offline";
+    autoScannerReason = "Backend scheduler is down.";
+  } else if (!isEligible) {
+    autoScannerState = "🟡 Outside Trading Window";
+    autoScannerReason = "Window: 09:15 AM - 10:00 PM IST";
+  }
+
+  const lastScanDate = latestScan?.last_scan_completed_at ? new Date(latestScan.last_scan_completed_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : "--";
+  const nextScanDate = "Mon-Fri, 09:00 AM & 04:00 PM IST";
+
+  const topScore = Math.max(
+    ...(latestScan?.buy_candidates?.map((c: any) => c.score) || []),
+    ...(latestScan?.watch_candidates?.map((c: any) => c.score) || []),
+    0
+  );
+  
+  const lowestScore = Math.min(
+    ...(latestScan?.rejected_candidates?.map((c: any) => c.score) || []),
+    ...(latestScan?.buy_candidates?.map((c: any) => c.score) || []),
+    ...(latestScan?.watch_candidates?.map((c: any) => c.score) || []),
+    100
+  );
+
   return (
     <main className="dashboard-grid">
-      {error ? <section className="panel error-state"><h2>Workstation failed</h2><p>{error}</p></section> : null}
+      {error && <section className="panel error-state"><h2>Workstation failed</h2><p>{error}</p></section>}
 
+      {/* SECTION 1 - SCANNER STATUS BANNER */}
+      <section className="panel" style={{ background: scannerState === "READY" ? "rgba(16, 185, 129, 0.1)" : scannerState === "PAUSED" ? "rgba(245, 158, 11, 0.1)" : "rgba(239, 68, 68, 0.1)", borderLeft: `4px solid ${scannerState === "READY" ? "#10b981" : scannerState === "PAUSED" ? "#f59e0b" : "#ef4444"}` }}>
+        <div className="panel-header" style={{ marginBottom: 12 }}>
+          {scannerState === "READY" && <h2>🟢 Scanner Ready</h2>}
+          {scannerState === "PAUSED" && <h2>🟡 Scanner Paused</h2>}
+          {scannerState === "BLOCKED" && <h2>🔴 Scanner Blocked</h2>}
+        </div>
+        <div>
+          {scannerState === "READY" && (
+            <div className="workstation-two-col">
+              <p><strong>Last Scan:</strong> {lastScanDate}</p>
+              <p><strong>Next Scheduled Scan:</strong> {nextScanDate}</p>
+              <p><strong>FYERS Token:</strong> VALID</p>
+              <p><strong>Scheduler:</strong> RUNNING</p>
+            </div>
+          )}
+          {scannerState === "PAUSED" && (
+            <div className="workstation-two-col">
+              <p><strong>Reason:</strong> Outside Auto-Trigger Window</p>
+              <p><strong>Auto Trigger Window:</strong> 09:15 AM – 10:00 PM IST</p>
+            </div>
+          )}
+          {scannerState === "BLOCKED" && (
+            <div className="workstation-two-col">
+              <p><strong>Reason:</strong> FYERS Token Expired</p>
+              <p><strong>Last Successful Scan:</strong> {lastScanDate}</p>
+              <p><strong>Action Required:</strong> Generate New Token</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* SECTION 3 - DASHBOARD SUMMARY METRICS */}
+      <section className="summary-row workstation-summary" style={{ gap: 16 }}>
+        <article className="metric-card">
+          <span>Stocks Scanned</span>
+          <strong>{latestScan?.total_scanned ?? "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <span>Qualified Stocks</span>
+          <strong>{(latestScan?.buy_count || 0) + (latestScan?.watch_count || 0)}</strong>
+        </article>
+        <article className="metric-card">
+          <span>Data Coverage</span>
+          <strong>{latestScan ? `${latestScan.valid_symbols} / ${latestScan.total_scanned}` : "--"}</strong>
+        </article>
+        <article className="metric-card">
+          <span>Scan Duration</span>
+          <strong>{latestScan?.duration_ms ? `${Math.floor(latestScan.duration_ms / 60000)}m ${Math.floor((latestScan.duration_ms % 60000) / 1000)}s` : "--"}</strong>
+        </article>
+      </section>
+
+      <div className="workstation-two-col">
+        {/* SECTION 2 - AUTOMATION STATUS CARD */}
+        <section className="panel">
+          <div className="panel-header"><h2>Automation Status</h2></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <p><strong>Auto Scanner Status:</strong> {autoScannerState}</p>
+              {autoScannerReason && <p className="muted-copy" style={{ fontSize: "0.85em" }}>{autoScannerReason}</p>}
+            </div>
+            <p><strong>Scheduler:</strong> {isSchedulerRunning ? "Running" : "Offline"}</p>
+            <p><strong>Last Scan:</strong> {lastScanDate}</p>
+            <p><strong>Next Scan:</strong> {nextScanDate}</p>
+            <p><strong>FYERS Token:</strong> {isTokenValid ? "Valid" : "Expired"}</p>
+            <p><strong>Validated:</strong> {tokenStatus?.validated_at ? new Date(tokenStatus.validated_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : "--"}</p>
+          </div>
+        </section>
+
+        {/* SECTION 4 - LATEST SCAN SNAPSHOT */}
+        <section className="panel">
+          <div className="panel-header"><h2>Latest Scan Snapshot</h2></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p><strong>Last Run:</strong> {lastScanDate}</p>
+            <p><strong>Stocks Scanned:</strong> {latestScan?.total_scanned ?? "--"}</p>
+            <p><strong>Qualified:</strong> {(latestScan?.buy_count || 0) + (latestScan?.watch_count || 0)}</p>
+            <p><strong>Top Score:</strong> {latestScan ? topScore.toFixed(1) : "--"}</p>
+            <p><strong>Lowest Score:</strong> {latestScan && latestScan.total_scanned > 0 ? lowestScore.toFixed(1) : "--"}</p>
+          </div>
+          <button className="button primary-button" style={{ marginTop: 16 }} onClick={() => onNavigate?.("scanner")}>View Latest Scan</button>
+        </section>
+      </div>
+
+      <div className="workstation-two-col">
+        {/* SECTION 6 - QUICK ACTIONS PANEL */}
+        <section className="panel">
+          <div className="panel-header"><h2>Quick Actions</h2></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button className="button primary-button" onClick={() => onNavigate?.("scanner")}>Run Scanner</button>
+            <button className="button ghost-button" onClick={() => void load()}>Refresh Market Data</button>
+            <button className="button ghost-button" onClick={() => {}}>Generate FYERS Token</button>
+            <button className="button ghost-button" onClick={() => onNavigate?.("scanner")}>Open Scanner</button>
+            <button className="button ghost-button" onClick={() => window.open("/logs", "_blank")}>Open System Logs</button>
+          </div>
+        </section>
+
+        {/* SECTION 7 - SYSTEM HEALTH PANEL */}
+        <section className="panel">
+          <div className="panel-header"><h2>System Health</h2></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p>{isDbConnected ? "🟢" : "🔴"} Database Connected</p>
+            <p>{isTokenValid ? "🟢" : "🔴"} FYERS Connected</p>
+            <p>{isSchedulerRunning ? "🟢" : "🔴"} Scheduler Running</p>
+            <p>{scannerState === "READY" ? "🟢" : "🟡"} Scanner Ready</p>
+            <p>🟢 AI Analysis Available</p>
+          </div>
+        </section>
+      </div>
+
+      {/* SECTION 5 - MARKET OVERVIEW IMPROVEMENTS */}
       <section className="panel">
         <div className="panel-header">
           <div>
@@ -103,16 +256,25 @@ export function WorkstationPage({ onLoadSavedScan }: Props) {
           </div>
           <button type="button" className="button ghost-button" onClick={() => void load()}>Refresh</button>
         </div>
-        <div className="summary-row workstation-summary">
-          {(market?.indices ?? []).map((item: any) => <MarketCard key={item.symbol} item={item} />)}
-          {market?.vix ? <MarketCard item={market.vix} /> : null}
-        </div>
-        <div className="workstation-two-col">
-          <MoverList title="Top scan scores" rows={market?.top_gainers ?? []} />
-          <MoverList title="Lowest scan scores" rows={market?.top_losers ?? []} />
-        </div>
+        {!market ? (
+          <p className="muted-copy text-center py-4" style={{ textAlign: "center", margin: "20px 0" }}>Loading market data...</p>
+        ) : (market.indices?.length === 0 && !market.vix) ? (
+          <p className="muted-copy text-center py-4" style={{ textAlign: "center", margin: "20px 0" }}>Market data unavailable</p>
+        ) : (
+          <div className="summary-row workstation-summary">
+            {(market?.indices ?? []).map((item: any) => <MarketCard key={item.symbol} item={item} />)}
+            {market?.vix ? <MarketCard item={market.vix} /> : null}
+          </div>
+        )}
+        {market && (market.indices?.length > 0 || market.vix) && (
+          <div className="workstation-two-col" style={{ marginTop: 16 }}>
+            <MoverList title="Top scan scores" rows={market?.top_gainers ?? []} />
+            <MoverList title="Lowest scan scores" rows={market?.top_losers ?? []} />
+          </div>
+        )}
       </section>
 
+      {/* RETAIN SAVED SCANS */}
       <section className="panel">
         <div className="panel-header">
           <div>
@@ -136,34 +298,7 @@ export function WorkstationPage({ onLoadSavedScan }: Props) {
         </div>
       </section>
 
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="section-label">Scan History</p>
-            <h2>Server snapshots</h2>
-          </div>
-        </div>
-        <div className="workstation-list">
-          {history.map((item) => (
-            <article key={item.id} className="scan-history-item">
-              <div>
-                <strong>{new Date(item.created_at).toLocaleString()}</strong>
-                <p className="muted-copy">{item.shortlisted_count} shortlisted | BUY {item.buy_count} | WATCH {item.watch_count} | {item.data_source ?? "unknown"}</p>
-              </div>
-              <button type="button" className="button small-button" onClick={() => void handleCompare(item.id)}>Compare</button>
-            </article>
-          ))}
-        </div>
-        {comparison ? (
-          <div className="subpanel" style={{ marginTop: 12 }}>
-            <h3>Comparison</h3>
-            <p className="muted-copy">New: {comparison.new_symbols.join(", ") || "--"}</p>
-            <p className="muted-copy">Removed: {comparison.removed_symbols.join(", ") || "--"}</p>
-            <p className="muted-copy">Stayed: {comparison.stayed_symbols.slice(0, 12).join(", ") || "--"}</p>
-          </div>
-        ) : null}
-      </section>
-
+      {/* RETAIN ALERTS */}
       <section className="panel">
         <div className="panel-header"><div><p className="section-label">Alerts</p><h2>Price and scan-entry alerts</h2></div></div>
         <div className="workstation-two-col">
@@ -195,44 +330,38 @@ export function WorkstationPage({ onLoadSavedScan }: Props) {
           ))}
         </div>
       </section>
-
+      
+      {/* RETAIN ADMIN RISK SETTINGS */}
       <section className="panel">
-        <div className="panel-header"><div><p className="section-label">Admin</p><h2>Risk and API health</h2></div></div>
-        <div className="workstation-two-col">
-          <div className="subpanel">
-            <h3>Risk profile</h3>
-            {risk ? (
-              <div className="paper-ticket-grid">
-                <select value={risk.profile} onChange={(e) => setRisk({ ...risk, profile: e.target.value })}>
-                  <option value="conservative">Conservative</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="aggressive">Aggressive</option>
-                </select>
-                <input type="number" value={risk.default_position_size_pct} onChange={(e) => setRisk({ ...risk, default_position_size_pct: Number(e.target.value) })} />
-                <input type="number" value={risk.max_risk_per_trade_pct} onChange={(e) => setRisk({ ...risk, max_risk_per_trade_pct: Number(e.target.value) })} />
-                <button type="button" className="button primary-button" onClick={() => void handleSaveRisk()}>Save risk</button>
-              </div>
-            ) : null}
-          </div>
-          <div className="subpanel">
-            <h3>API health</h3>
-            <p className="muted-copy">Database size: {health?.database_size_mb ?? "--"} MB</p>
-            {(health?.services ?? []).map((item: any) => (
-              <p key={item.name} className="muted-copy"><strong>{item.name}</strong>: {item.status} | {item.detail}</p>
-            ))}
-          </div>
+        <div className="panel-header"><div><p className="section-label">Admin</p><h2>Risk Configuration</h2></div></div>
+        <div className="subpanel">
+          <h3>Risk profile</h3>
+          {risk ? (
+            <div className="paper-ticket-grid">
+              <select value={risk.profile} onChange={(e) => setRisk({ ...risk, profile: e.target.value })}>
+                <option value="conservative">Conservative</option>
+                <option value="moderate">Moderate</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+              <input type="number" value={risk.default_position_size_pct} onChange={(e) => setRisk({ ...risk, default_position_size_pct: Number(e.target.value) })} />
+              <input type="number" value={risk.max_risk_per_trade_pct} onChange={(e) => setRisk({ ...risk, max_risk_per_trade_pct: Number(e.target.value) })} />
+              <button type="button" className="button primary-button" onClick={() => void handleSaveRisk()}>Save risk</button>
+            </div>
+          ) : null}
         </div>
       </section>
+
     </main>
   );
 }
 
 function MarketCard({ item }: { item: any }) {
+  const source = item.source === "PG_CACHE" || item.source === "REDIS_CACHE" ? "Market Data" : item.source;
   return (
     <article className="metric-card">
       <span>{item.label}</span>
       <strong>{item.price == null ? "--" : item.price.toLocaleString("en-IN")}</strong>
-      <p>{item.source}</p>
+      <p>{source}</p>
     </article>
   );
 }

@@ -153,6 +153,7 @@ class LatestScanService:
         logger.info("latest_scan_loaded | scan_id=%s", snapshot.scan_id)
         return {
             "scan_timestamp": snapshot.scan_timestamp.isoformat(),
+            "last_scan_completed_at": snapshot.scan_timestamp.isoformat(),
             "total_scanned": snapshot.total_scanned,
             "valid_symbols": snapshot.valid_symbols,
             "buy_count": snapshot.buy_count,

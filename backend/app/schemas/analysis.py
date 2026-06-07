@@ -200,6 +200,9 @@ class ScreenerConditionResult(BaseModel):
     symbol: str
     close: float
     ema_20: float
+    ema_50: float = 0.0
+    ema50_available: bool = False
+    ema20_above_ema50: bool = False
     sma_30: float
     sma_50: float
     sma_100: float
@@ -245,6 +248,7 @@ class ScreenerResponse(BaseModel):
     data_source: str = "unknown"
     data_warning: str | None = None
     scanned_at: str | None = None
+    last_scan_completed_at: str | None = None
     market_context: dict[str, str | float | bool] = Field(default_factory=dict)
     scan_stages: list[ScreenerStageSummary] = Field(default_factory=list)
     stopped_at_stage: str | None = None
