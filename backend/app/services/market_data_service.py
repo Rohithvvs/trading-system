@@ -293,4 +293,10 @@ class MarketDataService:
         if not df.empty:
             df.set_index("date", inplace=True)
             df.sort_index(inplace=True)
+            # Cast Decimal columns to native Python types for Pandas arithmetic compatibility
+            for col in ("open", "high", "low", "close"):
+                if col in df.columns:
+                    df[col] = df[col].astype(float)
+            if "volume" in df.columns:
+                df["volume"] = df["volume"].astype(int)
         return df

@@ -10,6 +10,10 @@ import time
 import re
 import yfinance as yf
 import pandas as pd
+import psutil
+
+def get_rss_mb():
+    return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
 from ..schemas import AnalysisMode, OHLCVPoint, ScreenerConditionResult
 from ..utils import get_logger
@@ -85,12 +89,15 @@ class ScreenerService:
         except Exception:
             self.logger.exception("Failed to run scanner startup validation")
 
-    async def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint], technical) -> ScreenerConditionResult:
+    async def _process_single_symbol(self, symbol: str, lookback_window: int, stage_name: str, candles: list[OHLCVPoint], technical, total_candle_count: int | None = None) -> ScreenerConditionResult:
         """Process a single symbol and return a ScreenerConditionResult.
         This contains the original symbol-level logic extracted from the
         sequential loop. Do NOT change the internal logic here when
         parallelizing the outer loop.
         """
+        # total_candle_count: the real DB row count (may differ from len(candles) when tail-only)
+        if total_candle_count is None:
+            total_candle_count = len(candles)
         # Begin symbol scanning
         self.logger.info("STEP 1/8 | Begin symbol screening | stage=%s | symbol=%s", stage_name, symbol)
         if candles is None:
@@ -107,11 +114,11 @@ class ScreenerService:
         candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1d")
         if not candle_source or candle_source == "unknown":
             candle_source = "CANDLE_CACHE_DB"
-        minimum_swing_candles_met = len(candles) >= MINIMUM_SWING_CANDLES
+        minimum_swing_candles_met = total_candle_count >= MINIMUM_SWING_CANDLES
         self.logger.info(
             "CANDLE CHECK | symbol=%s | candles=%s | minimum_required=%s | met=%s",
             symbol,
-            len(candles),
+            total_candle_count,
             MINIMUM_SWING_CANDLES,
             minimum_swing_candles_met,
         )
@@ -121,7 +128,7 @@ class ScreenerService:
             scan_log.info(
                 "CANDLE CHECK | symbol=%s | candles=%s | minimum=%s | met=%s",
                 symbol,
-                len(candles),
+                total_candle_count,
                 MINIMUM_SWING_CANDLES,
                 minimum_swing_candles_met,
             )
@@ -159,7 +166,7 @@ class ScreenerService:
                 matched=False,
             )
 
-        if not self._passes_data_quality(candles):
+        if not self._passes_data_quality(candles, total_candle_count=total_candle_count):
             latest = candles[-1] if candles else None
             self.logger.info(
                 "STEP 2/8 | Data quality failed | symbol=%s | source=%s | candles=%s | latest_close=%s | latest_volume=%s",
@@ -195,7 +202,7 @@ class ScreenerService:
                 screener_score=0.0,
                 technical_signal="unknown",
                 technical_score=0.0,
-                candles_fetched=len(candles),
+                candles_fetched=total_candle_count,
                 conditions={"data_quality_failed": True},
                 matched=False,
             )
@@ -241,7 +248,7 @@ class ScreenerService:
             screener_score=screener_score,
             technical_signal=technical.signal,
             technical_score=technical.score,
-            candles_fetched=len(candles),
+            candles_fetched=total_candle_count,
             conditions=conditions,
             matched=matched,
         )
@@ -366,10 +373,14 @@ class ScreenerService:
             lookback_window,
         )
 
+        print(f"MEMORY_AUDIT stage=scanner_start rss_mb={get_rss_mb():.2f}")
+
         from .market_data_service import MarketDataService
         md_service = MarketDataService()
 
-        precombined_datasets: dict[str, list[OHLCVPoint]] = {}
+        # Phase 3: Use DataFrames as canonical representation instead of OHLCVPoint lists
+        # This eliminates precombined_datasets (238 MB) and candles_dict (228 MB)
+        symbol_frames: dict[str, pd.DataFrame] = {}
 
         async def fetch_all_symbols():
             sem = asyncio.Semaphore(3)
@@ -406,44 +417,29 @@ class ScreenerService:
                             
                         # 3. Save newly fetched delta to DB
                         if new_candles:
-                            import pandas as pd
                             df = pd.DataFrame([{
                                 "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume
                             } for c in new_candles], index=[c.timestamp for c in new_candles])
                             await md_service.upsert_candles(symbol, '1D', df)
                         
-                        # 4. Read the full merged history from the DB
+                        # 4. Read the full merged history from the DB — as a DataFrame (no Pydantic conversion)
                         full_df = await md_service.load_full_history(symbol, '1D')
                         
                         if full_df is None or full_df.empty:
                             scanner_metrics["invalid_symbols"] += 1
                             self.logger.warning("Skipping %s gracefully: No historical data available after backfill attempts.", symbol)
-                            return symbol, []
+                            return symbol, None
                             
                         if len(full_df) < required_history:
                             self.logger.warning("Skipping %s gracefully: Extracted history (%s) is still below required indicators (%s).", symbol, len(full_df), required_history)
-                            return symbol, []
-                            
-                        final_candles = []
-                        for index, row in full_df.iterrows():
-                            dt = index
-                            if hasattr(dt, "to_pydatetime"):
-                                dt = dt.to_pydatetime()
-                            if dt.tzinfo is not None:
-                                dt = dt.replace(tzinfo=None)
-                            final_candles.append(OHLCVPoint(
-                                timestamp=dt,
-                                open=float(row["open"]),
-                                high=float(row["high"]),
-                                low=float(row["low"]),
-                                close=float(row["close"]),
-                                volume=int(row["volume"])
-                            ))
-                        return symbol, final_candles
+                            return symbol, None
+
+                        # Return the raw DataFrame — no OHLCVPoint conversion needed
+                        return symbol, full_df
                     except Exception as e:
                         self.logger.exception("Scanner processing failed", extra={"symbol": symbol})
                         scanner_metrics["invalid_symbols"] += 1
-                        return symbol, []
+                        return symbol, None
                     finally:
                         await asyncio.sleep(0.5)
 
@@ -451,76 +447,68 @@ class ScreenerService:
             results = await asyncio.gather(*tasks)
             for res in results:
                 if res is not None:
-                    s, combined = res
-                    precombined_datasets[s] = combined
+                    s, df = res
+                    if df is not None and not df.empty:
+                        symbol_frames[s] = df
 
         await fetch_all_symbols()
 
-        import pandas as pd
-        # Add explicit data validation layer to forward-fill missing points
-        candles_dict: dict[str, list[OHLCVPoint]] = {}
-        for symbol, candles in precombined_datasets.items():
-            if not candles:
-                continue
-            # Convert to DataFrame to ffill any data gaps cleanly
-            df = pd.DataFrame([{
-                "timestamp": c.timestamp,
-                "open": c.open,
-                "high": c.high,
-                "low": c.low,
-                "close": c.close,
-                "volume": c.volume
-            } for c in candles])
-            if df is not None and not df.empty:
-                df.set_index("timestamp", inplace=True)
-                df.sort_index(inplace=True)
-                # Check for gaps before filling
-                original_count = len(df)
-                
-                # We need to reindex to daily frequency to properly expose missing weekend/holiday days if any? 
-                # Actually, ffill on its own won't insert missing rows unless we resample. But let's keep the existing `ffill` behavior.
-                # If there are missing dates in the index, we need to create a complete date range first.
-                # Since the prompt said "missing candles are forward-filled in memory", we assume df.asfreq or similar was intended, but the existing code just does ffill.
-                # Let's resample to business days ('B') to generate the missing index rows, then ffill.
-                
-                # To avoid breaking existing business logic, we'll keep the ffill as it was and just upsert the result.
-                # Actually, the user's code only does `df.ffill()`, which only fills NaNs on *existing* rows. It doesn't create new rows for missing timestamps. 
-                # However, the user audit says "screener correctly detects and forward-fills gaps, but fails to persist these fixes back to the database".
-                # Let's resample it to business days to actually create the missing rows before ffilling.
-                
-                full_index = pd.date_range(start=df.index.min(), end=df.index.max(), freq='B')
-                df = df.reindex(full_index)
-                df = df.ffill()
-                
-                new_count = len(df)
-                if new_count > original_count:
-                    # We filled some gaps, let's persist them back
-                    try:
-                        self.logger.info("Persisting %d forward-filled missing candles for %s", new_count - original_count, symbol)
-                        await md_service.upsert_candles(symbol, '1D', df)
-                    except Exception as e:
-                        self.logger.warning("Failed to persist ffill data for %s: %s", symbol, e)
-            
-            filled_candles = []
-            for ts, row in df.iterrows():
-                filled_candles.append(OHLCVPoint(
-                    timestamp=ts,
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=int(row["volume"]),
-                ))
-            candles_dict[symbol] = filled_candles
+        total_candles_in_frames = sum(len(df) for df in symbol_frames.values())
+        print(f"MEMORY_AUDIT stage=symbol_frames_loaded rss_mb={get_rss_mb():.2f} symbols={len(symbol_frames)} candles={total_candles_in_frames}")
 
-        # Vectorized Bulk Analysis over the entire universe
+        # Forward-fill gaps and persist filled candles, then build the combined frame
+        frame_parts = []
+        for symbol, df in symbol_frames.items():
+            # ffill logic (preserved from original candles_dict builder)
+            df.sort_index(inplace=True)
+            original_count = len(df)
+            full_index = pd.date_range(start=df.index.min(), end=df.index.max(), freq='B')
+            df = df.reindex(full_index)
+            df = df.ffill()
+            new_count = len(df)
+            if new_count > original_count:
+                try:
+                    self.logger.info("Persisting %d forward-filled missing candles for %s", new_count - original_count, symbol)
+                    await md_service.upsert_candles(symbol, '1D', df)
+                except Exception as e:
+                    self.logger.warning("Failed to persist ffill data for %s: %s", symbol, e)
+            
+            # Prepare for multi-index frame: add symbol column
+            sym_df = df.copy()
+            sym_df["symbol"] = symbol
+            sym_df.index.name = "timestamp"
+            sym_df = sym_df.reset_index().set_index(["timestamp", "symbol"])
+            frame_parts.append(sym_df)
+            # Update symbol_frames with the ffilled version for scoring later
+            symbol_frames[symbol] = df
+
+        if not frame_parts:
+            print(f"MEMORY_AUDIT stage=no_valid_frames rss_mb={get_rss_mb():.2f}")
+            return results
+
+        # Build the single canonical multi-index frame
+        combined_frame = pd.concat(frame_parts)
+        combined_frame.sort_index(inplace=True)
+        # Release intermediate frame_parts immediately
+        del frame_parts
+
+        print(f"MEMORY_AUDIT stage=combined_frame_built rss_mb={get_rss_mb():.2f} symbols={len(symbol_frames)} candles={len(combined_frame)}")
+
+        # Vectorized Bulk Analysis — pass the pre-built frame directly (no OHLCVPoint conversion)
         self.logger.info("STEP 2/8 | Stage=%s | Run vectorized analyze_bulk on entire universe", stage_name)
-        bulk_technical_results = self.technical_service.analyze_bulk(candles_dict, AnalysisMode.swing)
+        bulk_technical_results = self.technical_service.analyze_bulk_from_frame(combined_frame, AnalysisMode.swing)
+
+        # Release the combined frame — indicators are extracted, we don't need it anymore
+        del combined_frame
+
+        print(f"MEMORY_AUDIT stage=after_bulk_analysis rss_mb={get_rss_mb():.2f} symbols={len(bulk_technical_results)}")
 
         # Evaluate scoring sequentially using the precomputed results
+        # For scoring, build small OHLCVPoint lists from only the tail of each symbol's DataFrame
+        SCORING_TAIL_SIZE = 30  # _passes_data_quality uses last 30 candles max
         for symbol in symbols:
-            candles = candles_dict.get(symbol, [])
-            if not candles:
+            sym_df = symbol_frames.get(symbol)
+            if sym_df is None or sym_df.empty:
                 results.append(ScreenerConditionResult(
                     symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
@@ -536,13 +524,34 @@ class ScreenerService:
                     symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
                     supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
-                    technical_signal="unknown", technical_score=0.0, candles_fetched=len(candles),
+                    technical_signal="unknown", technical_score=0.0, candles_fetched=len(sym_df),
                     conditions={"technical_analysis_failed": True}, matched=False
                 ))
                 continue
 
+            # Build minimal OHLCVPoint list for scoring functions (tail only)
+            total_rows = len(sym_df)
+            tail_df = sym_df.tail(SCORING_TAIL_SIZE)
+            candles = []
+            for ts, row in tail_df.iterrows():
+                dt = ts
+                if hasattr(dt, "to_pydatetime"):
+                    dt = dt.to_pydatetime()
+                if dt.tzinfo is not None:
+                    dt = dt.replace(tzinfo=None)
+                candles.append(OHLCVPoint(
+                    timestamp=dt,
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=int(row["volume"]),
+                ))
+            # Patch candles_fetched to reflect the full count, not just the tail
+            # _process_single_symbol uses len(candles) for logging and candles_fetched field
+
             try:
-                result = await self._process_single_symbol(symbol, lookback_window, stage_name, candles, technical)
+                result = await self._process_single_symbol(symbol, lookback_window, stage_name, candles, technical, total_candle_count=total_rows)
                 results.append(result)
             except Exception as e:
                 self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)
@@ -550,9 +559,12 @@ class ScreenerService:
                     symbol=symbol, close=0.0, ema_20=0.0, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
                     supertrend=0.0, volume=0, previous_volume=0, screener_score=0.0,
-                    technical_signal="unknown", technical_score=0.0, candles_fetched=len(candles),
+                    technical_signal="unknown", technical_score=0.0, candles_fetched=total_rows,
                     conditions={"processing_error": True}, matched=False
                 ))
+
+        # Release symbol_frames explicitly after scoring loop
+        del symbol_frames
 
         # Post-process aggregated results to compute summaries
         data_source_failed = sum(1 for r in results if r.conditions.get("data_source_failed"))
@@ -592,6 +604,9 @@ class ScreenerService:
                 ", ".join("%s=%s" % item for item in condition_failure_counts.items()),
             )
         results.sort(key=lambda item: (-item.screener_score, item.symbol))
+        
+        print(f"MEMORY_AUDIT stage=scanner_completion rss_mb={get_rss_mb():.2f} symbols={len(results)}")
+        
         return results
 
     def _log_determinism_debug(self, payload: dict[str, object]) -> None:
@@ -599,8 +614,9 @@ class ScreenerService:
             return
         self.logger.info("SCANNER_DETERMINISM %s", json.dumps(payload, sort_keys=True, default=str))
 
-    def _passes_data_quality(self, candles: list[OHLCVPoint]) -> bool:
-        if len(candles) < MINIMUM_SWING_CANDLES:
+    def _passes_data_quality(self, candles: list[OHLCVPoint], total_candle_count: int | None = None) -> bool:
+        count = total_candle_count if total_candle_count is not None else len(candles)
+        if count < MINIMUM_SWING_CANDLES:
             return False
         recent = candles[-30:]
         if any(candle.close <= 0 or candle.high <= 0 or candle.low <= 0 for candle in recent):
