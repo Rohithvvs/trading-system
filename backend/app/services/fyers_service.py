@@ -15,6 +15,10 @@ from ..config import settings
 from ..schemas import AnalysisMode, OHLCVPoint
 from ..utils import get_logger
 from ..core.log_manager import fyers_logger
+from ..observability.scan_diagnostics import (
+    get_current_scan, log_fyers_request, log_fyers_response,
+    log_fyers_failure, log_cache_lookup, log_data_source_selection,
+)
 
 QUARANTINED_SYMBOLS: dict[str, datetime] = {}
 _BLACKLIST_LOCK = threading.Lock()
@@ -713,6 +717,9 @@ class FyersService:
                         )
                     self._ohlcv_source_cache[cache_key] = "CANDLE_CACHE_DB"
                     self.logger.info("CACHE HIT | symbol=%s | source=DB | candles=%s", symbol, len(parsed))
+                    scan_ctx = get_current_scan()
+                    if scan_ctx:
+                        log_cache_lookup(scan_ctx, symbol=symbol, hit=True, available_candles=cached_count, required_candles=points)
                     return parsed[-points:]
 
                 # Cached data is incomplete for the requested horizon -> treat as a miss
@@ -729,6 +736,9 @@ class FyersService:
                 symbol,
                 last_stored,
             )
+            scan_ctx = get_current_scan()
+            if scan_ctx:
+                log_cache_lookup(scan_ctx, symbol=symbol, hit=False, available_candles=0, required_candles=points)
 
             # Fetch from FYERS using existing logic (this may also populate the app-level ohlcv store)
             fetched = self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
@@ -818,15 +828,32 @@ class FyersService:
     def _request_history_with_retries(self, client, payload: dict[str, object], symbol: str) -> dict:
         last_error: Exception | None = None
         for attempt in range(1, _FYERS_MAX_RETRIES + 1):
+            scan_ctx = get_current_scan()
+            request_start = time.time()
+            if scan_ctx:
+                log_fyers_request(
+                    scan_ctx,
+                    symbol=symbol,
+                    endpoint="history",
+                    from_date=str(payload.get("range_from", "")),
+                    to_date=str(payload.get("range_to", "")),
+                    attempt=attempt,
+                )
             with _FYERS_HISTORY_SEMAPHORE:
                 try:
                     response = client.history(data=payload)
                     _check_fyers_response(response, symbol)
+                    response_ms = int((time.time() - request_start) * 1000)
+                    candle_count = len(response.get("candles", [])) if isinstance(response, dict) else 0
+                    if scan_ctx:
+                        log_fyers_response(scan_ctx, symbol=symbol, candles_returned=candle_count, response_time_ms=response_ms)
                     return response if isinstance(response, dict) else {}
                 except FyersInvalidSymbolError:
                     raise
                 except FyersRateLimitError as exc:
                     last_error = exc
+                    if scan_ctx:
+                        log_fyers_failure(scan_ctx, symbol=symbol, exception_type="FyersRateLimitError", exception_message=str(exc), retry_count=attempt)
                 except Exception as exc:
                     last_error = exc
                     if isinstance(exc, (TimeoutError, ConnectionError)) or "timeout" in str(exc).lower():
@@ -834,6 +861,8 @@ class FyersService:
                         diagnostics.increment_fyers_metric("timeout_count")
                     if not self._is_rate_limit_error(exc):
                         break
+                    if scan_ctx:
+                        log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=attempt)
 
             if attempt < _FYERS_MAX_RETRIES:
                 wait_seconds = 2 * attempt
@@ -985,8 +1014,13 @@ class FyersService:
                     "range_to": today_str,
                     "cont_flag": "1",
                 }
+                scan_ctx = get_current_scan()
+                incr_start = time.time()
                 response = self._request_history_with_retries(client, payload, symbol)
                 candle_rows = response.get("candles", []) if isinstance(response, dict) else []
+                incr_ms = int((time.time() - incr_start) * 1000)
+                if scan_ctx:
+                    log_fyers_response(scan_ctx, symbol=symbol, candles_returned=len(candle_rows), response_time_ms=incr_ms)
                 
                 fetched: list[OHLCVPoint] = []
                 for row in candle_rows:
@@ -1012,6 +1046,8 @@ class FyersService:
             except Exception as exc:
                 wait_time = 2 ** retry_count
                 self.logger.warning("Network drop fetching incremental candle | symbol=%s | attempt=%s | wait=%ss | error=%s", symbol, retry_count + 1, wait_time, exc)
+                if scan_ctx:
+                    log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=retry_count + 1)
                 time.sleep(wait_time)
         
         self.logger.error("All 3 attempts failed for incremental candle | symbol=%s", symbol)

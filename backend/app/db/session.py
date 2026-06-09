@@ -78,6 +78,32 @@ def set_postgres_timeouts(dbapi_connection, connection_record):
 
 AsyncSessionLocal = async_sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, class_=AsyncSession)
 
+# ---------------------------------------------------------------------------
+# DB POOL FORENSICS — passive observers, no business logic changes
+# ---------------------------------------------------------------------------
+import logging as _db_logging
+_db_forensics_logger = _db_logging.getLogger("app.db_forensics")
+
+@event.listens_for(engine.sync_engine, "checkout")
+def _log_pool_checkout(dbapi_connection, connection_record, connection_proxy):
+    """Log DB_POOL_STATUS on every connection checkout for pool exhaustion forensics."""
+    try:
+        pool = engine.pool
+        _db_forensics_logger.info(
+            "DB_POOL_STATUS | pool_size=%s | checked_out=%s | overflow=%s | checkedin=%s",
+            pool.size(), pool.checkedout(), pool.overflow(), pool.checkedin(),
+        )
+    except Exception:
+        pass  # pool status is best-effort diagnostic
+
+@event.listens_for(engine.sync_engine, "invalidate")
+def _log_pool_invalidate(dbapi_connection, connection_record, exception):
+    """Log DB_RECONNECT when a connection is invalidated (disconnect detected)."""
+    _db_forensics_logger.warning(
+        "DB_RECONNECT | reason=connection_invalidated | exception=%s",
+        str(exception)[:200] if exception else "unknown",
+    )
+
 main_event_loop = None
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

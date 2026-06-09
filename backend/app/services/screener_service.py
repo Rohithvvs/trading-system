@@ -22,6 +22,10 @@ from .technical_analysis_service import TechnicalAnalysisService
 from ..core.log_manager import scanner_logger
 from datetime import datetime
 from . import candle_store
+from ..observability.scan_diagnostics import (
+    get_current_scan, log_symbol_failure, log_data_source_selection,
+    log_pipeline_stage,
+)
 
 MINIMUM_SWING_CANDLES = 220
 
@@ -444,10 +448,17 @@ class ScreenerService:
                             return symbol, None
 
                         # Return the raw DataFrame — no OHLCVPoint conversion needed
+                        scan_ctx = get_current_scan()
+                        if scan_ctx:
+                            source = "fyers" if new_candles else "cache"
+                            log_data_source_selection(scan_ctx, symbol, source, "data available", cache_available=True, cache_candles=len(full_df), fyers_available=bool(new_candles))
                         return symbol, full_df
                     except Exception as e:
                         self.logger.exception("Scanner processing failed", extra={"symbol": symbol})
                         scanner_metrics["invalid_symbols"] += 1
+                        scan_ctx = get_current_scan()
+                        if scan_ctx:
+                            log_symbol_failure(scan_ctx, symbol=symbol, stage="data_acquisition", exc=e)
                         return symbol, None
                     finally:
                         await asyncio.sleep(0.5)
@@ -564,6 +575,9 @@ class ScreenerService:
                 results.append(result)
             except Exception as e:
                 self.logger.error("SYMBOL ERROR symbol=%s error=%s", symbol, e)
+                scan_ctx = get_current_scan()
+                if scan_ctx:
+                    log_symbol_failure(scan_ctx, symbol=symbol, stage="scoring", exc=e)
                 results.append(ScreenerConditionResult(
                     symbol=symbol, close=0.0, ema_20=0.0, ema_50=0.0, ema50_available=False, ema20_above_ema50=False, sma_30=0.0, sma_50=0.0,
                     sma_100=0.0, sma_200=0.0, macd=0.0, macd_signal=0.0,
@@ -612,6 +626,12 @@ class ScreenerService:
                 "STEP 4/8 | Condition failure summary | %s",
                 ", ".join("%s=%s" % item for item in condition_failure_counts.items()),
             )
+        # Pipeline stage diagnostics
+        scan_ctx = get_current_scan()
+        if scan_ctx:
+            scan_ctx.symbols_processed = total_requested
+            scan_ctx.data_source_failures = data_source_failed
+            log_pipeline_stage(scan_ctx, "symbol_evaluation", 4, total_requested, len(results), rejected_by_conditions + data_source_failed + data_quality_failed, 0)
         results.sort(key=lambda item: (-item.screener_score, item.symbol))
         
         print(f"MEMORY_AUDIT stage=scanner_completion rss_mb={get_rss_mb():.2f} symbols={len(results)}")

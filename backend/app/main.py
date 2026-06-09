@@ -42,6 +42,11 @@ from .core.task_supervisor import TaskSupervisor
 # token_service refresh automation removed — manual access-token workflow only
 import asyncio
 from .schemas import AnalysisMode
+from .observability.scan_diagnostics import (
+    begin_scan, end_scan, get_current_scan, log_token_status,
+    log_process_event, log_scheduler_event, log_incident_summary,
+    log_db_pool_status, hash_token_prefix, ScanContext, log_scan_environment
+)
 
 
 setup_logging()
@@ -98,6 +103,13 @@ def _scheduler_listener(event):
         "success": success,
         "failure_reason": failure_reason
     })
+    log_scheduler_event(
+        "SCHEDULER_COMPLETE" if success else "SCHEDULER_FAILED",
+        job_name=event.job_id,
+        duration_ms=duration_ms,
+        status=status,
+        scheduled_time=scheduled_time or "unknown",
+    )
 
 scheduler.add_listener(_scheduler_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED | EVENT_JOB_SUBMITTED)
 
@@ -221,6 +233,7 @@ async def lifespan(app: FastAPI):
     from .db import session as session_module
     import anyio
     session_module.main_event_loop = asyncio.get_running_loop()
+    log_process_event("PROCESS_START")
     
     # Configure AnyIO thread pool for high concurrency (Phase E4.1)
     try:
@@ -370,9 +383,29 @@ async def lifespan(app: FastAPI):
         # Verify token is present
         try:
             async with AsyncSessionLocal() as db:
+                from .services.token_service import get_fyers_token_row
                 token = await get_current_access_token(db)
+                token_row = await get_fyers_token_row(db)
+                token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
+                token_age_min = 0.0
+                if token_row and token_row.access_token_saved_at:
+                    token_age_min = (datetime.utcnow() - token_row.access_token_saved_at).total_seconds() / 60.0
+                logger.info(
+                    "STARTUP_TOKEN_VERIFICATION | token_found=%s | saved_at=%s | age_minutes=%.1f",
+                    bool(token), token_saved_at, token_age_min,
+                )
                 if token:
                     logger.info("STARTUP: FYERS access token loaded from DB successfully")
+                    # Lightweight FYERS validation
+                    try:
+                        fyers_svc = FyersService()
+                        await asyncio.wait_for(
+                            asyncio.to_thread(fyers_svc.validate_token_sync, token),
+                            timeout=10.0,
+                        )
+                        logger.info("TOKEN_VALIDATION_SUCCESS | saved_at=%s | age_minutes=%.1f", token_saved_at, token_age_min)
+                    except Exception as val_exc:
+                        logger.error("TOKEN_VALIDATION_FAILED | saved_at=%s | age_minutes=%.1f | error=%s", token_saved_at, token_age_min, val_exc)
                 else:
                     logger.warning("STARTUP: No FYERS access token found in DB. Please add via UI.")
         except Exception:
@@ -503,6 +536,7 @@ async def lifespan(app: FastAPI):
     # yield control to the application
     yield
     # Shutdown
+    log_process_event("PROCESS_STOP", reason="lifespan_shutdown")
     if settings.app_env != "test" and scheduler.running:
         scheduler.shutdown()
     try:
@@ -655,6 +689,7 @@ async def automated_screening_job():
     from .schemas import ScreenerRequest, AnalysisMode
     import asyncio
     
+    scan_ctx = begin_scan(trigger_source="scheduler", universe="NIFTY500", symbol_count=len(settings.nifty500_symbols))
     from .db.session import AsyncSessionLocal, SessionLocal
     from .models.analysis import ScannedCandidate
     try:
@@ -672,6 +707,9 @@ async def automated_screening_job():
                 logger.error("Scan aborted: No cached token available in memory or DB.")
                 from .services.diagnostics_service import diagnostics
                 diagnostics.set_scanner_failed("No FYERS token configured")
+                scan_ctx.token_loaded = False
+                scan_ctx.token_source = "none"
+                end_scan(scan_ctx)
                 from .services.paper_trading_service import PaperTradingService
                 try:
                     PaperTradingService(db).add_notification(
@@ -690,19 +728,27 @@ async def automated_screening_job():
             try:
                 logger.info("Validating FYERS token before scheduled scan...")
                 fyers_service = FyersService()
+                val_start_t = perf_counter()
                 await asyncio.wait_for(
                     asyncio.to_thread(fyers_service.validate_token_sync, token),
                     timeout=15.0
                 )
+                val_latency_ms = int((perf_counter() - val_start_t) * 1000)
             except asyncio.TimeoutError:
                 logger.error("Scan aborted: FYERS API timeout during token validation.")
                 from .services.diagnostics_service import diagnostics
                 diagnostics.set_scanner_failed("FYERS Validation Timeout")
+                scan_ctx.token_loaded = False
+                scan_ctx.token_source = "none"
+                end_scan(scan_ctx)
                 return
             except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
                 logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
                 from .services.diagnostics_service import diagnostics
                 diagnostics.set_scanner_failed("FYERS Token Expired")
+                scan_ctx.token_loaded = False
+                scan_ctx.token_source = "none"
+                end_scan(scan_ctx)
                 token_service._clear_token_cache()
                 from .services.paper_trading_service import PaperTradingService
                 PaperTradingService(db).add_notification(
@@ -720,9 +766,93 @@ async def automated_screening_job():
                 logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
                 from .services.diagnostics_service import diagnostics
                 diagnostics.set_scanner_failed("FYERS API Error")
+                scan_ctx.token_loaded = False
+                scan_ctx.token_source = "none"
+                end_scan(scan_ctx)
                 return
             
             logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
+            # Token forensics
+            try:
+                token_row = await token_service.get_fyers_token_row(db)
+                token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
+                token_age = (datetime.utcnow() - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
+                log_token_status(
+                    scan_ctx,
+                    token_exists=bool(token),
+                    token_source="memory" if token_service.has_cached_token() else "database",
+                    token_saved_at=token_saved_at,
+                    token_age_minutes=token_age,
+                    token_hash=hash_token_prefix(token),
+                )
+            except Exception:
+                logger.exception("Failed to log token status for scan")
+                
+            # Emit full SCAN_ENVIRONMENT block
+            try:
+                from .observability.scan_diagnostics import _PROCESS_START_TIME
+                from .db.session import engine
+                from .services.latest_scan_service import LatestScanService
+                from .services.candle_store import get_all_cached_symbols
+                import datetime
+                
+                startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
+                app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
+                
+                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
+                if ist_now.weekday() >= 5:
+                    market_session = "closed"
+                elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
+                    market_session = "pre_open"
+                elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
+                    market_session = "post_close"
+                else:
+                    market_session = "open"
+                
+                pool = engine.pool
+                
+                last_scan = await LatestScanService(db).get_latest_completed_scan()
+                if last_scan:
+                    last_scan_ts = last_scan.get("scan_timestamp")
+                    last_scan_dt = datetime.datetime.fromisoformat(last_scan_ts)
+                    minutes_since = (datetime.datetime.utcnow() - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
+                    last_scan_res = "SUCCESS" if last_scan.get("valid_symbols", 0) > 0 else "NO_DATA"
+                else:
+                    last_scan_ts = None
+                    minutes_since = 0.0
+                    last_scan_res = "NONE"
+                    
+                cache_entries = len(get_all_cached_symbols())
+                
+                log_scan_environment(
+                    ctx=scan_ctx,
+                    token_loaded=bool(token),
+                    token_source="memory" if token_service.has_cached_token() else "database",
+                    token_saved_at=token_saved_at if 'token_row' in locals() and token_row else None,
+                    token_age_minutes=token_age if 'token_age' in locals() else 0.0,
+                    token_hash=hash_token_prefix(token),
+                    app_uptime_minutes=app_uptime,
+                    market_open=market_open,
+                    market_session=market_session,
+                    exchange_time=ist_now.strftime("%H:%M:%S"),
+                    weekday=ist_now.strftime("%A"),
+                    db_connected=True,
+                    pool_size=pool.size(),
+                    checked_out=pool.checkedout(),
+                    overflow=pool.overflow(),
+                    fyers_validation_result="success",
+                    fyers_validation_latency_ms=val_latency_ms if 'val_latency_ms' in locals() else 0,
+                    last_scan_timestamp=last_scan_ts,
+                    last_scan_result=last_scan_res,
+                    last_scan_source="db",
+                    minutes_since_last_scan=minutes_since,
+                    cache_enabled=True,
+                    cache_entries=cache_entries,
+                    cache_health="ok" if cache_entries > 0 else "empty"
+                )
+            except Exception:
+                logger.exception("Failed to emit SCAN_ENVIRONMENT block")
             import datetime, os
             try:
                 import psutil
@@ -756,6 +886,14 @@ async def automated_screening_job():
                 "rejected_count": response.scanned_symbols - len(response.matched_symbols),
                 "exception_count": response.duplicate_symbols_skipped
             })
+            # Update scan context counters from response
+            scan_ctx.valid = len(response.data_valid_symbols)
+            scan_ctx.eligible = len(response.eligible_symbols)
+            scan_ctx.matched = len(response.matched_symbols)
+            scan_ctx.buy = len(response.buy_candidate_symbols)
+            scan_ctx.watch = len(response.watch_candidate_symbols)
+            scan_ctx.reject = response.scanned_symbols - len(response.matched_symbols)
+            scan_ctx.symbols_processed = response.scanned_symbols
             
             try:
                 # Still add to ScannedCandidate if it's used elsewhere
@@ -779,6 +917,14 @@ async def automated_screening_job():
                 logger.info("Saved scan candidates and latest scan snapshot to database.")
                 
                 diagnostics.set_scanner_success(response.screener_name or f"scan-{start_t_iso}")
+                # Emit scan diagnostic summary
+                token_status = "valid" if token else "missing"
+                cache_status = "ok" if scan_ctx.cache_hits > 0 else "empty"
+                fyers_status = "ok" if scan_ctx.fyers_failures == 0 else f"failures={scan_ctx.fyers_failures}"
+                persistence_status = "ok"  # we just persisted successfully
+                overall = "healthy" if scan_ctx.valid > 0 else "degraded"
+                log_incident_summary(scan_ctx, token_status, cache_status, fyers_status, persistence_status, overall)
+                end_scan(scan_ctx)
                 logger_service.log_info(
                     message="Automated screening job completed successfully.",
                     source="JOB",
@@ -790,6 +936,7 @@ async def automated_screening_job():
                 logger.error("Failed to save scan candidates to DB: %s", db_e)
                 await db.rollback()
                 diagnostics.set_scanner_failed(str(db_e))
+                end_scan(scan_ctx)
                 logger_service.log_error(
                     message=f"Scheduled job failed to persist: {str(db_e)}",
                     source="JOB",
@@ -808,6 +955,7 @@ async def automated_screening_job():
         logger.exception("AUTOMATED SCREENING failed: %s", e)
         from .services.diagnostics_service import diagnostics
         diagnostics.set_scanner_failed(str(e))
+        end_scan(scan_ctx)
 
 
 async def track_strategy_drift_job():

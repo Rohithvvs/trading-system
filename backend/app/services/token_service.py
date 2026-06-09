@@ -199,9 +199,10 @@ async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str,
 
 async def get_current_access_token(db: AsyncSession) -> str | None:
     if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+        logger.info("TOKEN_LOAD_MEMORY | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
         return _CACHED_TOKEN
 
-    logger.info("Reading access token from database")
+    logger.info("TOKEN_LOAD_DB | source=database | reason=cache_miss_or_expired")
     row = await get_fyers_token_row(db)
     if row is None:
         logger.warning("No FyersToken row found in database")

@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from ..models.market_data import ScanSnapshot, ScanSnapshotRecord
 from ..schemas import ScreenerResponse
 from ..utils import get_logger
+from ..observability.scan_diagnostics import get_current_scan, log_scan_persist
 
 logger = get_logger("backend.app.services.latest_scan_service")
 
@@ -16,6 +17,9 @@ class LatestScanService:
 
     async def persist_successful_scan(self, response: ScreenerResponse, duration_ms: int):
         logger.info("Persisting successful scan snapshot")
+        scan_ctx = get_current_scan()
+        if scan_ctx:
+            log_scan_persist(scan_ctx, "SCAN_PERSIST_BEGIN")
         
         scan_id = str(uuid.uuid4())
         scan_timestamp = datetime.datetime.now(datetime.timezone.utc)
@@ -102,8 +106,19 @@ class LatestScanService:
             await self.db.flush()
             logger.info("scan_persist_completed | scan_id=%s | scan_timestamp=%s | duration_ms=%s | buy=%s | watch=%s | rejected=%s",
                         scan_id, scan_timestamp, duration_ms, snapshot.buy_count, snapshot.watch_count, snapshot.rejected_count)
+            if scan_ctx:
+                rows_written = len(processed_symbols)
+                log_scan_persist(
+                    scan_ctx, "SCAN_PERSIST_SUCCESS",
+                    buy_count=snapshot.buy_count,
+                    watch_count=snapshot.watch_count,
+                    reject_count=snapshot.rejected_count,
+                    rows_written=rows_written,
+                )
         except Exception as e:
             logger.error("scan_persist_failed | scan_id=%s | error=%s", scan_id, str(e))
+            if scan_ctx:
+                log_scan_persist(scan_ctx, "SCAN_PERSIST_FAILED")
             raise
 
     async def get_latest_completed_scan(self):
@@ -114,6 +129,8 @@ class LatestScanService:
         
         if not snapshot:
             logger.info("latest_scan_not_found")
+            from ..observability.scan_diagnostics import log_dashboard_request
+            log_dashboard_request(scan_id=None, endpoint="/scanner/latest", returned_records=0, query_duration_ms=0)
             return None
             
         # Get records
@@ -151,6 +168,9 @@ class LatestScanService:
         rejected_candidates.sort(key=lambda x: x["score"], reverse=True)
 
         logger.info("latest_scan_loaded | scan_id=%s", snapshot.scan_id)
+        from ..observability.scan_diagnostics import log_dashboard_request
+        total_records = len(buy_candidates) + len(watch_candidates) + len(rejected_candidates)
+        log_dashboard_request(scan_id=snapshot.scan_id, endpoint="/scanner/latest", returned_records=total_records, query_duration_ms=0)
         return {
             "scan_timestamp": snapshot.scan_timestamp.isoformat(),
             "last_scan_completed_at": snapshot.scan_timestamp.isoformat(),
