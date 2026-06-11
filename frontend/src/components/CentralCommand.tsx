@@ -23,7 +23,7 @@ export function CentralCommand() {
       qty: 10, // Default qty
     };
     try {
-      await placePaperOrder(ticket);
+      await placePaperOrder(ticket, crypto.randomUUID());
       alert("Order placed successfully");
     } catch (err: any) {
       alert("Order failed: " + err.message);

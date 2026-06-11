@@ -31,7 +31,7 @@ test("token management saves a token and backend confirms SQLite persistence", a
   const diagnostic = await request.get(`${apiBaseURL}/test-diagnostics/token`);
   expect(diagnostic.ok()).toBeTruthy();
   const body = await diagnostic.json();
-  expect(body.stored_in_sqlite).toBe(true);
+  expect(body.stored_in_db).toBe(true);
   expect(JSON.stringify(body)).not.toContain("e2e-access-token-1234567890");
 });
 

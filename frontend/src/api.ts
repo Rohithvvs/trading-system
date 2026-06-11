@@ -194,12 +194,15 @@ export async function resetPaperTradingAccount(startingBalance: number): Promise
   return response.json() as Promise<PaperTradingDashboardResponse>;
 }
 
-export async function placePaperOrder(ticket: PaperOrderTicketState): Promise<PaperOrderActionResponse> {
+export async function placePaperOrder(ticket: PaperOrderTicketState, idempotencyKey?: string): Promise<PaperOrderActionResponse> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Idempotency-Key": idempotencyKey || crypto.randomUUID()
+  };
+
   const response = await fetchWithDiagnostics("/paper-trading/orders", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       symbol: ticket.symbol,
       side: ticket.side,

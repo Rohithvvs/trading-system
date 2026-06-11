@@ -244,7 +244,25 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to set AnyIO thread limiter: {e}")
     # Startup
     if settings.app_env == "test":
-        logger.info("Test environment detected; skipping scheduler and background monitors.")
+        logger.info("Test environment detected; setting up tables and skipping scheduler/monitors.")
+        from .db.session import engine
+        from .db.base import Base
+        import backend.app.models  # ensure all models are registered
+        
+        # Patch SQLite JSONB support for testing
+        from sqlalchemy.ext.compiler import compiles
+        from sqlalchemy.dialects.postgresql import JSONB
+        
+        @compiles(JSONB, "sqlite")
+        def compile_jsonb_sqlite(type_, compiler, **kw):
+            return "JSON"
+
+        async def _init_db():
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        
+        await _init_db()
+        
         yield
         # Shutdown for test env: no scheduler running
         try:

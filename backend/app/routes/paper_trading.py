@@ -165,17 +165,28 @@ def place_order(
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     service: PaperTradingService = Depends(get_service),
 ) -> PaperOrderActionResponse:
+    logger = logging.getLogger("app.paper_trading")
+    logger.info("ORDER_REQUEST_RECEIVED | symbol=%s side=%s type=%s", payload.symbol, payload.side, payload.type)
     try:
         key = payload.idempotency_key or idempotency_key or x_idempotency_key
         if not key and settings.app_env == "test":
             key = f"test:{payload.symbol}:{payload.side}:{payload.type}:{payload.qty}:{datetime.datetime.utcnow().timestamp()}"
         if not key:
+            logger.warning("ORDER_IDEMPOTENCY_MISSING | symbol=%s", payload.symbol)
             raise HTTPException(status_code=400, detail="Idempotency-Key header or idempotency_key body field is required.")
+        logger.info("ORDER_IDEMPOTENCY_PRESENT | symbol=%s", payload.symbol)
         payload.idempotency_key = key.strip()
+        logger.info("ORDER_SUBMISSION_STARTED | symbol=%s side=%s type=%s", payload.symbol, payload.side, payload.type)
         response = service.place_order(payload)
+        logger.info("ORDER_SUBMISSION_SUCCESS | symbol=%s order_id=%s", payload.symbol, getattr(response, 'order_id', None))
+    except HTTPException:
+        logger.warning("ORDER_SUBMISSION_FAILED | symbol=%s reason=HTTPException", payload.symbol)
+        raise
     except ValueError as exc:
+        logger.warning("ORDER_SUBMISSION_FAILED | symbol=%s reason=ValueError error=%s", payload.symbol, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        logger.error("ORDER_SUBMISSION_FAILED | symbol=%s reason=Exception error=%s", payload.symbol, str(exc))
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc)) from exc

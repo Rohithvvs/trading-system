@@ -32,7 +32,14 @@ def mask_secret(value: Any) -> Any:
 async def reset_test_state(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     for table in reversed(Base.metadata.sorted_tables):
         await db.execute(table.delete())
-    await db.execute(text("TRUNCATE TABLE market_data.scan_results"))
+    
+    # SQLite does not support TRUNCATE and market_data schema might not exist
+    if "sqlite" not in settings.database_url:
+        try:
+            await db.execute(text("TRUNCATE TABLE market_data.scan_results"))
+        except Exception:
+            pass
+            
     await db.commit()
     return {"status": "ok"}
 
@@ -86,6 +93,14 @@ async def db_tables(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
         except Exception:
             counts[name] = -1
     return {"tables": table_names, "row_counts": counts}
+
+@router.get("/sqlite/table/{table_name}", dependencies=[Depends(require_test_mode)])
+async def dump_table(table_name: str, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    try:
+        rows = (await db.execute(text(f'SELECT * FROM "{table_name}"'))).mappings().all()
+        return {"table": table_name, "rows": [dict(row) for row in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/token", dependencies=[Depends(require_test_mode)])

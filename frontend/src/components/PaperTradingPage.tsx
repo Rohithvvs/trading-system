@@ -103,6 +103,7 @@ export function PaperTradingPage({
   const [isLivePricing, setIsLivePricing] = useState(true);
   const [accountSummary, setAccountSummary] = useState<any | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; level: string }>>([]);
   const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(null);
   const seenNotifications = useRef<Set<number>>(new Set());
@@ -522,8 +523,9 @@ export function PaperTradingPage({
         setEditingOrderId(null);
         await loadPositions(ticket.symbol);
       } else {
-        const response = await placePaperOrder(ticket);
+        const response = await placePaperOrder(ticket, idempotencyKey);
         setStatusMessage(response.message);
+        setIdempotencyKey(crypto.randomUUID()); // regenerate after successful submission
         if (listTab === "orders") {
           await loadPendingOrders(ticket.symbol);
         } else if (listTab === "history") {
