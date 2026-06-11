@@ -401,13 +401,22 @@ class FyersService:
         # Consider FYERS configured only when the SDK is available, app id is set,
         # and a manually-saved access token exists in the DB.
         if not fyersModel:
+            self.logger.warning("FYERS_CONFIGURATION_CHECK | sdk_available=False")
             return False
         if not (settings.fyers_app_id and settings.fyers_app_id.strip()):
+            self.logger.warning("FYERS_CONFIGURATION_CHECK | app_id_set=False")
             return False
         try:
-            from .token_service import has_cached_token
-            return has_cached_token()
-        except Exception:
+            from .token_service import get_current_access_token_sync
+            token, source = get_current_access_token_sync()
+            if source == "database":
+                self.logger.info("TOKEN_REFRESH_FROM_DB | FYERS configuration check rehydrated token from DB")
+            is_configured = bool(token)
+            if not is_configured:
+                self.logger.warning("FYERS_CONFIGURATION_CHECK | has_valid_token=False")
+            return is_configured
+        except Exception as e:
+            self.logger.error("FYERS_CONFIGURATION_CHECK | error=%s", e)
             return False
 
     def is_fyers_sdk_available(self) -> bool:
@@ -415,10 +424,11 @@ class FyersService:
 
     def has_fyers_credentials(self) -> bool:
         try:
-            from .token_service import has_cached_token
             if not (settings.fyers_app_id and settings.fyers_app_id.strip()):
                 return False
-            return has_cached_token()
+            from .token_service import get_current_access_token_sync
+            token, _ = get_current_access_token_sync()
+            return bool(token)
         except Exception:
             return False
 

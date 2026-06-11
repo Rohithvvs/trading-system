@@ -401,8 +401,17 @@ class PaperTradingService:
 
     def get_quote(self, symbol: str) -> PaperQuoteResponse:
         normalized_symbol = symbol.strip().upper()
+        self.logger.info("QUOTE_REQUEST_STARTED | symbol=%s", normalized_symbol)
         self._validate_symbol(normalized_symbol)
-        ltp = self.fyers_service.fetch_ltp(normalized_symbol)
+        
+        import asyncio; from ..db.session import main_event_loop
+        try:
+            future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(normalized_symbol), main_event_loop)
+            ltp = future.result(timeout=5)
+        except Exception as e:
+            self.logger.error("QUOTE_REQUEST_FAILURE | symbol=%s | error=%s", normalized_symbol, e)
+            ltp = None
+            
         source = "FYERS_QUOTE"
         if ltp is None:
             candles = self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2)
@@ -412,9 +421,11 @@ class PaperTradingService:
             else:
                 ltp = 0.0
                 source = "NO_DATA"
+                
+        self.logger.info("QUOTE_REQUEST_SUCCESS | symbol=%s | ltp=%s | source=%s", normalized_symbol, ltp, source)
         return PaperQuoteResponse(
             symbol=normalized_symbol,
-            current_price=round(ltp, 2),
+            current_price=round(ltp, 2) if ltp is not None else 0.0,
             source=source,  # type: ignore[arg-type]
             updated_at=datetime.now(timezone.utc),
         )
@@ -1097,8 +1108,12 @@ class PaperTradingService:
             current_price = 150.0
             source = "TEST_MOCK"
         elif current_price is None:
-            self.logger.warning("No current price available for symbol %s; using 0.0 default", symbol)
             current_price = 0.0
+
+        if current_price <= 0 and source != "TEST_MOCK":
+            self.logger.warning("PRICE_SNAPSHOT_FAILURE | No current price available for symbol %s; using 0.0 default", symbol)
+        else:
+            self.logger.info("PRICE_SNAPSHOT_SUCCESS | symbol=%s | ltp=%s | source=%s", symbol, current_price, source)
 
         frame = pd.DataFrame(
             {
