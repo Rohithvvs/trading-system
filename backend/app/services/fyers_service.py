@@ -828,6 +828,7 @@ class FyersService:
             self.logger.error("Scanner token unavailable. Token source used: %s", source)
 
         if not token:
+            self.logger.error("PRODUCTION_ALERT | category=TOKEN_MISSING | reason=Token unavailable or expired")
             # Clear, explicit error to callers so they can inform the user.
             raise FyersAuthInvalidError("No FYERS access token configured. Please add one in the UI.")
 

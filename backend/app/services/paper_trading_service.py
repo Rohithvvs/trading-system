@@ -422,6 +422,11 @@ class PaperTradingService:
                 ltp = 0.0
                 source = "NO_DATA"
                 
+        if source == "NO_DATA":
+            self.logger.warning("PAPER_PRICE_UNAVAILABLE | symbol=%s | source=%s", normalized_symbol, source)
+        else:
+            self.logger.info("PAPER_PRICE_UPDATE | symbol=%s | ltp=%s | source=%s", normalized_symbol, ltp, source)
+            
         self.logger.info("QUOTE_REQUEST_SUCCESS | symbol=%s | ltp=%s | source=%s", normalized_symbol, ltp, source)
         return PaperQuoteResponse(
             symbol=normalized_symbol,
@@ -685,6 +690,8 @@ class PaperTradingService:
             exit_reason="MANUAL",
         )
         self.db.add(trade)
+        
+        self.logger.info("PAPER_POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=MANUAL", getattr(position, "id", None), position.symbol, fill_price, round(pnl, 2), round(pnl_percent, 2))
         # Log transaction for manual SELL to SQLite (if configured)
         try:
             tx = PaperTransaction(
@@ -943,6 +950,8 @@ class PaperTradingService:
             exit_reason=reason,
         )
         self.db.add(trade)
+        
+        self.logger.info("PAPER_POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason)
 
         # Credit account and remove position
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))

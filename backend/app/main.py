@@ -68,11 +68,16 @@ def _scheduler_listener(event):
     from .services.diagnostics_service import diagnostics
     import time
     import datetime
+    
+    scheduled_time = getattr(event, "scheduled_run_time", None)
+    scheduled_time_str = scheduled_time.isoformat() if scheduled_time else "unknown"
+    actual_time_str = datetime.datetime.utcnow().isoformat()
+    
     if event.code == EVENT_JOB_SUBMITTED:
         _job_starts[event.job_id] = time.perf_counter()
+        logger.info("SCHEDULER_JOB_STARTED | job_name=%s | scheduled_time=%s | actual_time=%s", event.job_id, scheduled_time_str, actual_time_str)
         return
 
-    now = datetime.datetime.utcnow().isoformat()
     duration_ms = 0
     if event.job_id in _job_starts:
         duration_ms = int((time.perf_counter() - _job_starts[event.job_id]) * 1000)
@@ -84,32 +89,25 @@ def _scheduler_listener(event):
     elif event.code == EVENT_JOB_MISSED:
         status = "skipped"
 
-    scheduled_time = None
-    if hasattr(event, "scheduled_run_time") and event.scheduled_run_time:
-        scheduled_time = event.scheduled_run_time.isoformat()
-
     success = status == "success"
     failure_reason = ""
     if status == "error":
         failure_reason = str(getattr(event, "exception", "Unknown Error"))
+        logger.error("SCHEDULER_JOB_FAILED | job_name=%s | scheduled_time=%s | actual_time=%s | duration_ms=%s | error=%s", event.job_id, scheduled_time_str, actual_time_str, duration_ms, failure_reason)
     elif status == "skipped":
         failure_reason = "Missed schedule"
+        logger.warning("SCHEDULER_JOB_MISSED | job_name=%s | scheduled_time=%s | actual_time=%s | duration_ms=%s", event.job_id, scheduled_time_str, actual_time_str, duration_ms)
+    else:
+        logger.info("SCHEDULER_JOB_SUCCESS | job_name=%s | scheduled_time=%s | actual_time=%s | duration_ms=%s", event.job_id, scheduled_time_str, actual_time_str, duration_ms)
 
     diagnostics.record_scheduler_run({
         "job_name": event.job_id,
-        "scheduled_time": scheduled_time,
-        "actual_time": now,
+        "scheduled_time": scheduled_time_str,
+        "actual_time": actual_time_str,
         "duration_ms": duration_ms,
         "success": success,
         "failure_reason": failure_reason
     })
-    log_scheduler_event(
-        "SCHEDULER_COMPLETE" if success else "SCHEDULER_FAILED",
-        job_name=event.job_id,
-        duration_ms=duration_ms,
-        status=status,
-        scheduled_time=scheduled_time or "unknown",
-    )
 
 scheduler.add_listener(_scheduler_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED | EVENT_JOB_SUBMITTED)
 
@@ -233,6 +231,17 @@ async def lifespan(app: FastAPI):
     from .db import session as session_module
     import anyio
     session_module.main_event_loop = asyncio.get_running_loop()
+    
+    logger.info("APP_START | Application is starting")
+    try:
+        from .core.server_state import read_shutdown_time
+        last_shutdown = read_shutdown_time()
+        if last_shutdown:
+            logger.warning("APP_RESTART_DETECTED | Application was previously shutdown at %s", last_shutdown)
+    except Exception:
+        pass
+    logger.info("APP_LIFESPAN_INITIALIZED | Lifespan initialization started")
+    
     log_process_event("PROCESS_START")
     
     # Configure AnyIO thread pool for high concurrency (Phase E4.1)
@@ -551,9 +560,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("QUARANTINE MODE: Offline gap replay bypassed.")
 
+    logger.info("APP_LIFESPAN_COMPLETED | Lifespan startup fully completed")
     # yield control to the application
     yield
     # Shutdown
+    logger.info("APP_SHUTDOWN | Application is shutting down")
     log_process_event("PROCESS_STOP", reason="lifespan_shutdown")
     if settings.app_env != "test" and scheduler.running:
         scheduler.shutdown()

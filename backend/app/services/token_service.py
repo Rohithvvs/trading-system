@@ -24,7 +24,7 @@ def _clear_token_cache() -> None:
     _CACHED_TOKEN = None
     _TOKEN_EXPIRY = None
     _TOKEN_SAVED_AT = None
-    logger.info("TOKEN_CACHE_INVALIDATED | Local memory cache cleared")
+    logger.info("TOKEN_INVALIDATED | Local memory cache cleared")
 
 def has_cached_token() -> bool:
     return bool(_CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY)
@@ -72,7 +72,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             asyncio.to_thread(fyers_service.validate_token_sync, access_token),
             timeout=15.0
         )
-        logger.info("TOKEN_VALIDATION_SUCCESS | Token validation successful.")
+        logger.info("TOKEN_AUTH_RECOVERED | Token validation successful. Auth recovered.")
         
     except asyncio.TimeoutError:
         logger.error("TOKEN_VALIDATION_FAILURE | Token validation failed: FYERS API timeout")
@@ -223,7 +223,7 @@ async def get_current_access_token(db: AsyncSession) -> str | None:
     if _TOKEN_SAVED_AT and row.access_token_saved_at and row.access_token_saved_at < _TOKEN_SAVED_AT:
         logger.warning("TOKEN_GENERATION_MISMATCH | DB token is older than our last known token")
 
-    logger.info("TOKEN_CACHE_REFRESH | Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
+    logger.info("TOKEN_REFRESH_FROM_DB | Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
     _set_token_cache(row.access_token, row.access_token_saved_at)
     return row.access_token
 
@@ -256,7 +256,7 @@ def get_current_access_token_sync() -> tuple[str | None, str]:
                 if _TOKEN_SAVED_AT and row.access_token_saved_at and row.access_token_saved_at < _TOKEN_SAVED_AT:
                     logger.warning("TOKEN_GENERATION_MISMATCH | DB token is older than our last known token")
                     
-                logger.info("TOKEN_CACHE_REFRESH | Access token found in DB, status=%s, saved_at=%s", row.status, getattr(row, 'access_token_saved_at', None))
+                logger.info("TOKEN_REFRESH_FROM_DB | Access token found in DB, status=%s, saved_at=%s", row.status, getattr(row, 'access_token_saved_at', None))
                 _set_token_cache(row.access_token, getattr(row, 'access_token_saved_at', None))
                 return row.access_token, "database"
         except Exception as e:

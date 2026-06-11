@@ -55,7 +55,7 @@ class MarketEngineService:
         self._running = True
         self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._run_loop(), name="market-engine-loop")
-        self.logger.info("Market engine loop started")
+        self.logger.info("MARKET_ENGINE_STARTED | Market engine loop started")
 
     async def shutdown(self) -> None:
         if not self._running and (self._task is None or self._task.done()):
@@ -69,7 +69,7 @@ class MarketEngineService:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        self.logger.info("Market engine loop stopped")
+        self.logger.info("MARKET_ENGINE_STOPPED | Market engine loop stopped")
 
     async def request_start(self) -> MarketEngineSession:
         async with AsyncSessionLocal() as db:
@@ -99,7 +99,16 @@ class MarketEngineService:
             async with db.begin():
                 session = await self._get_or_create_session(db)
                 session.last_heartbeat_at = datetime.utcnow()
-                self.logger.info("Market engine heartbeat recorded | session_id=%s", session.id)
+                
+                # Try to load symbols/positions for logging
+                try:
+                    positions_count = len((await db.scalars(select(PaperPosition.id).where(PaperPosition.status == "OPEN"))).all())
+                    symbols_count = len(await self._desired_symbols(db))
+                except Exception:
+                    positions_count = 0
+                    symbols_count = 0
+                
+                self.logger.info("MARKET_ENGINE_HEARTBEAT | session_id=%s | active_positions=%s | subscribed_symbols=%s", session.id, positions_count, symbols_count)
 
     async def status(self) -> dict:
         async with AsyncSessionLocal() as db:
@@ -126,9 +135,13 @@ class MarketEngineService:
                     async with db.begin():
                         session = await self._get_or_create_session(db)
                         if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED", "WAITING_MARKET_OPEN"}:
+                            if session.status == "ERROR_RETRYING":
+                                session.status = "RUNNING"
+                                self.logger.info("MARKET_ENGINE_RECOVERED | Engine recovered from error state")
                             await self._reconcile_session(db, session)
-            except Exception:
-                self.logger.exception("Market engine loop failed")
+            except Exception as e:
+                self.logger.exception("MARKET_ENGINE_EXCEPTION | Market engine loop failed | error=%s", str(e))
+                self.logger.error("PRODUCTION_ALERT | category=MARKET_ENGINE_DOWN | error=%s", str(e))
                 await db.rollback()
             await asyncio.sleep(2)
 
@@ -213,7 +226,7 @@ class MarketEngineService:
                 filled_order.lifecycle_state = "ENTRY_FILLED"
                 if position:
                     position.lifecycle_state = "OPEN_POSITION"
-                self.logger.info("Entry filled | order_id=%s symbol=%s price=%s", order.id, symbol, price)
+                self.logger.info("PAPER_POSITION_OPENED | order_id=%s symbol=%s price=%s position_id=%s", order.id, symbol, price, getattr(position, "id", None))
                 await self._record_event(
                     db,
                     "ENTRY_FILLED",
@@ -243,18 +256,22 @@ class MarketEngineService:
         positions = list((await db.scalars(position_query)).all())
         for position in positions:
             if position.target is not None and price >= position.target:
-                self.logger.info("Target hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
+                self.logger.info("AUTO_EXIT_TARGET_TRIGGERED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, "TARGET_HIT")
                 try:
                     await service.auto_exit(position.id, price, "TARGET_HIT")
+                    self.logger.info("AUTO_EXIT_ORDER_CREATED | position_id=%s | symbol=%s | exit_price=%s | reason=%s", position.id, symbol, price, "TARGET_HIT")
                 except ValueError as exc:
-                    self.logger.warning("Target exit skipped | position_id=%s reason=%s", position.id, exc)
+                    self.logger.error("AUTO_EXIT_FAILED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, str(exc))
+                    self.logger.error("PRODUCTION_ALERT | category=AUTO_EXIT_FAILED | position_id=%s | reason=%s", position.id, str(exc))
                 await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:TARGET_HIT")
             elif position.stop_loss is not None and price <= position.stop_loss:
-                self.logger.info("Stop loss hit | position_id=%s symbol=%s price=%s", position.id, symbol, price)
+                self.logger.info("AUTO_EXIT_STOPLOSS_TRIGGERED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, "STOPLOSS_HIT")
                 try:
                     await service.auto_exit(position.id, price, "STOPLOSS_HIT")
+                    self.logger.info("AUTO_EXIT_ORDER_CREATED | position_id=%s | symbol=%s | exit_price=%s | reason=%s", position.id, symbol, price, "STOPLOSS_HIT")
                 except ValueError as exc:
-                    self.logger.warning("Stop-loss exit skipped | position_id=%s reason=%s", position.id, exc)
+                    self.logger.error("AUTO_EXIT_FAILED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, str(exc))
+                    self.logger.error("PRODUCTION_ALERT | category=AUTO_EXIT_FAILED | position_id=%s | reason=%s", position.id, str(exc))
                 await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:STOPLOSS_HIT")
 
     async def _desired_symbols(self, db) -> set[str]:
@@ -346,13 +363,19 @@ class MarketEngineService:
                     with SessionLocal() as s:
                         PaperTradingService(s).add_notification(acc_id, "Live market feed disconnected; monitoring degraded while retrying.", "error", "WEBSOCKET_DISCONNECTED", "engine", sid, dedupe_key=f"feed-disconnected:{sid}", commit=True)
                 await asyncio.to_thread(_add_err_notif, account_id, session.id)
+                self.logger.error("FYERS_WS_ERROR | Websocket connection failed | disconnect_reason=%s | downtime_seconds=0", str(message))
+                self.logger.error("PRODUCTION_ALERT | category=WEBSOCKET_DOWN | reason=%s", str(message))
 
     async def _on_connection_change(self, connected: bool) -> None:
         try:
             async with AsyncSessionLocal() as db:
                 async with db.begin():
                     session = await self._get_or_create_session(db)
-                    self.logger.info("Websocket connection state changed | connected=%s", connected)
+                    if connected:
+                        self.logger.info("FYERS_WS_CONNECTED | Websocket connection state changed | connected=True")
+                    else:
+                        self.logger.warning("FYERS_WS_DISCONNECTED | Websocket connection state changed | connected=False | disconnect_reason=connection_lost | downtime_seconds=0")
+                        self.logger.error("PRODUCTION_ALERT | category=WEBSOCKET_DOWN | reason=connection_lost")
                     session.websocket_connected = connected
         except Exception:
             self.logger.exception("Failed to persist websocket state change | connected=%s", connected)

@@ -386,6 +386,9 @@ class ScreenerService:
             lookback_window,
         )
 
+        scan_start_time = time.perf_counter()
+        self.logger.info("SCANNER_RUN_STARTED | stage=%s | symbols=%s", stage_name, total_requested)
+
         print(f"MEMORY_AUDIT stage=scanner_start rss_mb={get_rss_mb():.2f}")
 
         from .market_data_service import MarketDataService
@@ -585,6 +588,10 @@ class ScreenerService:
                     technical_signal="unknown", technical_score=0.0, candles_fetched=total_rows,
                     conditions={"processing_error": True}, matched=False
                 ))
+            except Exception as outer_e:
+                self.logger.exception("SCANNER_RUN_FAILED | Scanner loop failed unexpectedly")
+                self.logger.error("PRODUCTION_ALERT | category=SCANNER_FAILED | error=%s", str(outer_e))
+                raise
 
         # Release symbol_frames explicitly after scoring loop
         del symbol_frames
@@ -635,6 +642,9 @@ class ScreenerService:
         results.sort(key=lambda item: (-item.screener_score, item.symbol))
         
         print(f"MEMORY_AUDIT stage=scanner_completion rss_mb={get_rss_mb():.2f} symbols={len(results)}")
+        
+        duration_ms = int((time.perf_counter() - scan_start_time) * 1000)
+        self.logger.info("SCANNER_RUN_SUCCESS | stage=%s | symbols_scanned=%s | symbols_shortlisted=%s | duration_ms=%s", stage_name, total_requested, matched_count, duration_ms)
         
         return results
 
