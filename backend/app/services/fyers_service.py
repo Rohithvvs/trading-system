@@ -107,12 +107,18 @@ def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
     if code_int == -16 or "expired" in lower_msg:
         diagnostics.increment_fyers_metric("failed_request_count")
         diagnostics.increment_fyers_metric("auth_failures")
+        from . import token_service
+        token_service._clear_token_cache()
+        token_service.logger.error("TOKEN_AUTH_FAILURE | Fyers access token has expired")
         raise FyersAuthExpiredError("Fyers access token has expired. Please re-authenticate.")
 
     # Invalid token — FYERS returns code -15 or 'invalid token'
     if code_int == -15 or "invalid token" in lower_msg:
         diagnostics.increment_fyers_metric("failed_request_count")
         diagnostics.increment_fyers_metric("auth_failures")
+        from . import token_service
+        token_service._clear_token_cache()
+        token_service.logger.error("TOKEN_AUTH_FAILURE | Fyers access token is invalid")
         raise FyersAuthInvalidError("Fyers access token is invalid. Please check your credentials.")
 
     # Rate limit — FYERS returns code 429
@@ -802,13 +808,14 @@ class FyersService:
         client_id = (settings.fyers_app_id or "").strip().strip('"').strip("'")
 
         # Read token from DB (manual access token) via token_service helper.
-        token = None
-        
         from . import token_service
 
-        token = token_service._CACHED_TOKEN if token_service.has_cached_token() else None
+        token, source = token_service.get_current_access_token_sync()
         if token:
             token = str(token).strip().strip('"').strip("'")
+            self.logger.info("Scanner token loaded successfully. Token source used: %s", source)
+        else:
+            self.logger.error("Scanner token unavailable. Token source used: %s", source)
 
         if not token:
             # Clear, explicit error to callers so they can inform the user.

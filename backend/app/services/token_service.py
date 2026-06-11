@@ -13,22 +13,29 @@ logger = logging.getLogger("app.token")
 
 _CACHED_TOKEN: str | None = None
 _TOKEN_EXPIRY: datetime | None = None
+_TOKEN_SAVED_AT: datetime | None = None
 _TOKEN_CACHE_TTL = timedelta(minutes=int(os.getenv("FYERS_TOKEN_CACHE_MINUTES", "60")))
 
+import threading
+_TOKEN_LOCK = threading.Lock()
 
 def _clear_token_cache() -> None:
-    global _CACHED_TOKEN, _TOKEN_EXPIRY
+    global _CACHED_TOKEN, _TOKEN_EXPIRY, _TOKEN_SAVED_AT
     _CACHED_TOKEN = None
     _TOKEN_EXPIRY = None
+    _TOKEN_SAVED_AT = None
+    logger.info("TOKEN_CACHE_INVALIDATED | Local memory cache cleared")
 
 def has_cached_token() -> bool:
     return bool(_CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY)
 
 
-def _set_token_cache(access_token: str) -> None:
-    global _CACHED_TOKEN, _TOKEN_EXPIRY
+def _set_token_cache(access_token: str, saved_at: datetime | None = None) -> None:
+    global _CACHED_TOKEN, _TOKEN_EXPIRY, _TOKEN_SAVED_AT
     _CACHED_TOKEN = access_token
     _TOKEN_EXPIRY = datetime.utcnow() + _TOKEN_CACHE_TTL
+    if saved_at:
+        _TOKEN_SAVED_AT = saved_at
 
 async def get_fyers_token_row(db: AsyncSession) -> FyersToken | None:
     return (await db.scalars(select(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()))).first()
@@ -65,16 +72,16 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             asyncio.to_thread(fyers_service.validate_token_sync, access_token),
             timeout=15.0
         )
-        logger.info("Token validation successful.")
+        logger.info("TOKEN_VALIDATION_SUCCESS | Token validation successful.")
         
     except asyncio.TimeoutError:
-        logger.error("Token validation failed: FYERS API timeout")
+        logger.error("TOKEN_VALIDATION_FAILURE | Token validation failed: FYERS API timeout")
         return {"status": "error", "message": "Validation failed: FYERS API timeout"}
     except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
-        logger.error("Token validation failed: %s", str(e))
+        logger.error("TOKEN_VALIDATION_FAILURE | Token validation failed: %s", str(e))
         return {"status": "error", "message": f"Invalid token: {str(e)}"}
     except FyersAPIError as e:
-        logger.error("Token validation failed due to API error: %s", str(e))
+        logger.error("TOKEN_VALIDATION_FAILURE | Token validation failed due to API error: %s", str(e))
         return {"status": "error", "message": f"Validation failed: {str(e)}"}
     except Exception as e:
         logger.error("Unexpected error validating token: %s", str(e))
@@ -138,7 +145,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         # We must refresh outside the transaction block if expire_on_commit was true,
         # but since expire_on_commit=False, row retains state!
         # await db.refresh(row) is not strictly needed inside, but if needed, we can do it inside.
-        _set_token_cache(access_token)
+        _set_token_cache(access_token, row.access_token_saved_at)
         logger.info("STEP 4 RESULT: Commit successful. Final status=%s saved_at=%s", row.status, getattr(row, 'access_token_saved_at', None))
 
         # POST-COMMIT diagnostics
@@ -156,7 +163,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             logger.exception("VERIFY: failed to re-read token row from DB")
 
         logger.info("%s", "=" * 60)
-        logger.info("SAVE ACCESS TOKEN COMPLETED SUCCESSFULLY")
+        logger.info("TOKEN_SAVE_SUCCESS | SAVE ACCESS TOKEN COMPLETED SUCCESSFULLY")
         logger.info("%s", "=" * 60)
         return {"status": "ok", "saved_at": str(row.access_token_saved_at)}
 
@@ -199,19 +206,63 @@ async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str,
 
 async def get_current_access_token(db: AsyncSession) -> str | None:
     if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
-        logger.info("TOKEN_LOAD_MEMORY | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
+        logger.info("TOKEN_CACHE_HIT | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
         return _CACHED_TOKEN
 
-    logger.info("TOKEN_LOAD_DB | source=database | reason=cache_miss_or_expired")
+    logger.info("TOKEN_CACHE_MISS | source=database | reason=cache_miss_or_expired")
     row = await get_fyers_token_row(db)
     if row is None:
-        logger.warning("No FyersToken row found in database")
+        logger.warning("TOKEN_NOT_FOUND | No FyersToken row found in database")
         _clear_token_cache()
         return None
     if not row.access_token:
-        logger.warning("FyersToken row exists but access_token is empty")
+        logger.warning("TOKEN_NOT_FOUND | FyersToken row exists but access_token is empty")
         _clear_token_cache()
         return None
-    logger.info("Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
-    _set_token_cache(row.access_token)
+        
+    if _TOKEN_SAVED_AT and row.access_token_saved_at and row.access_token_saved_at < _TOKEN_SAVED_AT:
+        logger.warning("TOKEN_GENERATION_MISMATCH | DB token is older than our last known token")
+
+    logger.info("TOKEN_CACHE_REFRESH | Access token found in DB, status=%s, saved_at=%s", row.status, row.access_token_saved_at)
+    _set_token_cache(row.access_token, row.access_token_saved_at)
     return row.access_token
+
+
+def get_current_access_token_sync() -> tuple[str | None, str]:
+    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+        logger.info("TOKEN_CACHE_HIT | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
+        return _CACHED_TOKEN, "cache"
+
+    with _TOKEN_LOCK:
+        # Double checked locking
+        if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+            logger.info("TOKEN_CACHE_HIT | source=memory_cache | reason=double_check")
+            return _CACHED_TOKEN, "cache"
+
+        logger.info("TOKEN_CACHE_MISS | source=database | reason=cache_miss_or_expired")
+        from ..db.session import SessionLocal
+        try:
+            with SessionLocal() as db:
+                row = db.query(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()).first()
+                if row is None:
+                    logger.warning("TOKEN_NOT_FOUND | No FyersToken row found in database")
+                    _clear_token_cache()
+                    return None, "database"
+                if not row.access_token:
+                    logger.warning("TOKEN_NOT_FOUND | FyersToken row exists but access_token is empty")
+                    _clear_token_cache()
+                    return None, "database"
+                
+                if _TOKEN_SAVED_AT and row.access_token_saved_at and row.access_token_saved_at < _TOKEN_SAVED_AT:
+                    logger.warning("TOKEN_GENERATION_MISMATCH | DB token is older than our last known token")
+                    
+                logger.info("TOKEN_CACHE_REFRESH | Access token found in DB, status=%s, saved_at=%s", row.status, getattr(row, 'access_token_saved_at', None))
+                _set_token_cache(row.access_token, getattr(row, 'access_token_saved_at', None))
+                return row.access_token, "database"
+        except Exception as e:
+            logger.error("TOKEN_DB_UNAVAILABLE | Database unavailable during cache refresh: %s", str(e))
+            if _CACHED_TOKEN:
+                logger.warning("TOKEN_DB_UNAVAILABLE | Falling back to expired cached token due to DB outage")
+                return _CACHED_TOKEN, "cache_fallback"
+            return None, "error"
+
