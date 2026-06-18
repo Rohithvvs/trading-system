@@ -2,8 +2,8 @@ import pytest
 import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
-from app.services.lock_service import DistributedLockService, LockAcquisitionError
-from app.models.market_data import Base, SystemLock
+from backend.app.services.lock_service import DistributedLockService, LockAcquisitionError
+from backend.app.models.market_data import Base, SystemLock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import tempfile
@@ -20,8 +20,8 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 from alembic.config import Config
 from alembic import command
-from app.config import settings
-from app.config.settings import ROOT_DIR
+from backend.app.config import settings
+from backend.app.config.settings import ROOT_DIR
 alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))
 alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{test_db_path}")
 command.upgrade(alembic_cfg, "head")

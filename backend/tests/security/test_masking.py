@@ -1,5 +1,5 @@
 import pytest
-from app.services.token_service import _mask_token
+from backend.app.services.token_service import _mask_token
 
 def test_security_sql_injection_masking():
     """

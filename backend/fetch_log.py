@@ -1,7 +1,7 @@
 import asyncio
 import sys
 sys.path.append('F:/trading system01/trading system/backend')
-from app.db.session import AsyncSessionLocal
+from backend.app.db.session import AsyncSessionLocal
 from sqlalchemy import text
 
 async def main():

@@ -1479,7 +1479,7 @@ class PaperTradingService:
         return {"items": items, "page": page, "per_page": per_page, "total": total or 0, "total_pages": total_pages}
 
     async def get_engine_status(self) -> dict:
-        from app.services.market_engine_service import market_engine
+        from backend.app.services.market_engine_service import market_engine
         
         # Count open positions
         open_positions = self.db.scalar(

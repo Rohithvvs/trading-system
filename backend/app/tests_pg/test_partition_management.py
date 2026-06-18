@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import text
-from app.db.session import AsyncSessionLocal
-from app.services.partition_manager import verify_and_create_partitions
+from backend.app.db.session import AsyncSessionLocal
+from backend.app.services.partition_manager import verify_and_create_partitions
 
 @pytest.mark.asyncio
 async def test_partition_auto_creation():

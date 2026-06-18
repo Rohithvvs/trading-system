@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Add backend to path for importing app modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app.db.session import AsyncSessionLocal
-from app.models.paper_trading import PaperTradingAccount
+from backend.app.db.session import AsyncSessionLocal
+from backend.app.models.paper_trading import PaperTradingAccount
 
 MIGRATION_LOCK_ID = 999999
 
@@ -238,7 +238,7 @@ async def migrate_accounts(sqlite_conn: aiosqlite.Connection, pg_session: AsyncS
                 await pg_session.commit()
                 print(f"LIVE: Committed chunk {chunk_idx} of {len(rows)} accounts (Up to ID: {max_id}).")
 
-from app.models.paper_trading import PaperOrder, PaperPosition, PaperTransaction, PaperTradeHistory
+from backend.app.models.paper_trading import PaperOrder, PaperPosition, PaperTransaction, PaperTradeHistory
 
 def get_row(row, key, default=None):
     try:

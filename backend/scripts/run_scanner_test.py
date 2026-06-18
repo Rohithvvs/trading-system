@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.services.screener_service import ScreenerService
-from app.config.settings import settings
+from backend.app.services.screener_service import ScreenerService
+from backend.app.config.settings import settings
 
 
 class FakeFyersService:

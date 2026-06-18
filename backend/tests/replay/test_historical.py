@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from app.services.market_data_feed import FyersMarketDataFeed
+from backend.app.services.market_data_feed import FyersMarketDataFeed
 
 @pytest.mark.asyncio
 async def test_deterministic_market_replay():

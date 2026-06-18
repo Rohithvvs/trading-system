@@ -1,5 +1,5 @@
-from app.db.session import engine, init_db
-from app.db.base import Base
+from backend.app.db.session import engine, init_db
+from backend.app.db.base import Base
 
 try:
     print("Initializing DB...")

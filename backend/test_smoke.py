@@ -1,7 +1,7 @@
 import pytest
 import os
 from fastapi.testclient import TestClient
-from app.main import app
+from backend.app.main import app
 
 def test_environment_parsing():
     """
@@ -10,7 +10,7 @@ def test_environment_parsing():
     """
     os.environ["APP_ENV"] = "STAGING"
     # We just ensure pulling the config doesn't crash
-    from app.config import settings
+    from backend.app.config import settings
     assert settings.app_env is not None
 
 def test_smoke_health_endpoint():

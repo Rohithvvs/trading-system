@@ -5,8 +5,8 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 import gc
 
-from app.main import app
-from app.db.session import AsyncSessionLocal, engine, Base
+from backend.app.main import app
+from backend.app.db.session import AsyncSessionLocal, engine, Base
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -19,8 +19,8 @@ def event_loop():
 async def initialize_db():
     from alembic.config import Config
     from alembic import command
-    from app.config import settings
-    from app.config.settings import ROOT_DIR
+    from backend.app.config import settings
+    from backend.app.config.settings import ROOT_DIR
     
     # Alembic relies on env.py, which uses settings.database_url natively.
     alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))

@@ -5,9 +5,9 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 import gc
 
-from app.main import app
-from app.db.session import AsyncSessionLocal, engine, Base
-from app.config import settings
+from backend.app.main import app
+from backend.app.db.session import AsyncSessionLocal, engine, Base
+from backend.app.config import settings
 
 # Verify we are running against PostgreSQL
 if "sqlite" in settings.database_url:
@@ -23,8 +23,8 @@ def event_loop():
 async def initialize_db():
     from alembic.config import Config
     from alembic import command
-    from app.config import settings
-    from app.config.settings import ROOT_DIR
+    from backend.app.config import settings
+    from backend.app.config.settings import ROOT_DIR
     
     alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))
     import asyncio

@@ -1,8 +1,8 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
-from app.db.session import AsyncSessionLocal
-from app.services.candle_reconciliation_service import CandleReconciliationService
+from backend.app.db.session import AsyncSessionLocal
+from backend.app.services.candle_reconciliation_service import CandleReconciliationService
 
 @pytest.mark.asyncio
 async def test_empty_gap_cache_unlogged_persistence():

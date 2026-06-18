@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, patch
 from threading import Event
 
-from app.services.market_data_feed import FyersMarketDataFeed
+from backend.app.services.market_data_feed import FyersMarketDataFeed
 
 @pytest.fixture
 def mock_callbacks():

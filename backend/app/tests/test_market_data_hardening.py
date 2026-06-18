@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import patch, MagicMock
 from sqlalchemy.exc import OperationalError
-from app.services.market_data_service import MarketDataService
-from app.models.market_data import Base
+from backend.app.services.market_data_service import MarketDataService
+from backend.app.models.market_data import Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -25,8 +25,8 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 from alembic.config import Config
 from alembic import command
-from app.config import settings
-from app.config.settings import ROOT_DIR
+from backend.app.config import settings
+from backend.app.config.settings import ROOT_DIR
 alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))
 alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{test_db_path}")
 command.upgrade(alembic_cfg, "head")

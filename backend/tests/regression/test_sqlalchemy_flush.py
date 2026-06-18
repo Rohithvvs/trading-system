@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy.exc import InvalidRequestError, IntegrityError
-from app.db.session import SessionLocal
-from app.models import FyersToken
+from backend.app.db.session import SessionLocal
+from backend.app.models import FyersToken
 
 def test_sqlalchemy_flush_race_condition_regression():
     """

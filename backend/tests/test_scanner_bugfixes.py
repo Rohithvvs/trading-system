@@ -3,10 +3,10 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 import pandas as pd
 
-from app.services.market_data_service import MarketDataService
-from app.services.cache_state import CacheState
-from app.services.fyers_service import FyersService, QUARANTINED_SYMBOLS
-from app.schemas import AnalysisMode
+from backend.app.services.market_data_service import MarketDataService
+from backend.app.services.cache_state import CacheState
+from backend.app.services.fyers_service import FyersService, QUARANTINED_SYMBOLS
+from backend.app.schemas import AnalysisMode
 
 @pytest.fixture
 def md_svc():

@@ -6,9 +6,9 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models.paper_trading import Base, PaperTradingAccount, PaperOrder, PaperPosition
-from app.services.paper_trading_service import PaperTradingService
-from app.schemas.paper_trading import PaperOrderCreateRequest
+from backend.app.models.paper_trading import Base, PaperTradingAccount, PaperOrder, PaperPosition
+from backend.app.services.paper_trading_service import PaperTradingService
+from backend.app.schemas.paper_trading import PaperOrderCreateRequest
 
 # Use a real sqlite file to properly test locking/contention (WAL mode enabled via connect_args typically, but SQLite does default file locking here)
 test_db_path = os.path.join(tempfile.gettempdir(), "test_trading_execution.db")
@@ -21,7 +21,7 @@ engine = create_engine(
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-from app.models.paper_trading import Base
+from backend.app.models.paper_trading import Base
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"

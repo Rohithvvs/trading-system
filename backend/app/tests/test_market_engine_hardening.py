@@ -10,10 +10,10 @@ from unittest.mock import patch, MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
-from app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, ExecutionEvent
-from app.services.market_engine_service import MarketEngineService
-from app.utils.symbol import canonical_symbol, fyers_symbol
+from backend.app.db.base import Base
+from backend.app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, ExecutionEvent
+from backend.app.services.market_engine_service import MarketEngineService
+from backend.app.utils.symbol import canonical_symbol, fyers_symbol
 
 @pytest.fixture(scope="function")
 def isolated_db():
@@ -25,7 +25,7 @@ def isolated_db():
         connect_args={"check_same_thread": False, "timeout": 15}
     )
     
-    from app.db.session import init_db
+    from backend.app.db.session import init_db
     with patch("app.db.session.engine", engine):
         with patch("app.db.session.settings.database_url", f"sqlite:///{db_path}"):
             init_db()

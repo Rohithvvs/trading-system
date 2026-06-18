@@ -9,10 +9,10 @@ from unittest.mock import patch, MagicMock
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, MarketEngineSession
-from app.models.market_data import SystemLock
-from app.services.market_engine_service import MarketEngineService
-from app.services.lock_service import DistributedLockService
+from backend.app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, MarketEngineSession
+from backend.app.models.market_data import SystemLock
+from backend.app.services.market_engine_service import MarketEngineService
+from backend.app.services.lock_service import DistributedLockService
 
 @pytest.fixture(scope="function")
 def isolated_db():
@@ -20,7 +20,7 @@ def isolated_db():
     os.close(db_fd)
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False, "timeout": 15})
     
-    from app.db.session import init_db
+    from backend.app.db.session import init_db
     with patch("app.db.session.engine", engine):
         with patch("app.db.session.settings.database_url", f"sqlite:///{db_path}"):
             init_db()

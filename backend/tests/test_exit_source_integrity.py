@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-from app.services.paper_trading_service import PaperTradingService
-from app.models.paper_trading import PaperTradeHistory
+from backend.app.services.paper_trading_service import PaperTradingService
+from backend.app.models.paper_trading import PaperTradeHistory
 
 @pytest.fixture
 def paper_service():

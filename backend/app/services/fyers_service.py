@@ -51,7 +51,7 @@ import concurrent.futures
 _SYNC_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 def _run_sync(coro):
-    import app.db.session as session_module
+    import backend.app.db.session as session_module
     import asyncio
     main_loop = getattr(session_module, "main_event_loop", None)
     
@@ -834,11 +834,11 @@ class FyersService:
         return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
     def _normalize_symbol(self, symbol: str) -> str:
-        from app.utils.symbol import fyers_symbol, canonical_symbol
+        from backend.app.utils.symbol import fyers_symbol, canonical_symbol
         return fyers_symbol(canonical_symbol(symbol))
 
     def _cache_symbol(self, symbol: str) -> str:
-        from app.utils.symbol import canonical_symbol
+        from backend.app.utils.symbol import canonical_symbol
         return canonical_symbol(symbol)
 
     def _store_ohlcv_cache(

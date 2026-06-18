@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import os
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app.db.session import AsyncSessionLocal
+from backend.app.db.session import AsyncSessionLocal
 
 def localize_utc(naive_dt_str: str | None) -> datetime | None:
     if naive_dt_str is None:

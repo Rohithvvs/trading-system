@@ -1,8 +1,8 @@
 import pytest
 import asyncio
 from sqlalchemy import text
-from app.db.locks import acquire_singleton_lease, transaction_advisory_lock
-from app.db.session import AsyncSessionLocal
+from backend.app.db.locks import acquire_singleton_lease, transaction_advisory_lock
+from backend.app.db.session import AsyncSessionLocal
 
 @pytest.mark.asyncio
 async def test_singleton_lease_acquire_and_release():

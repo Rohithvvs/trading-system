@@ -36,7 +36,7 @@ def test_utc_timezone_parsing():
 @pytest.mark.asyncio
 async def test_partial_batch_rollback_safety(db: AsyncSession):
     # Simulate a partial batch insert where one row succeeds but the batch fails
-    from app.models.paper_trading import PaperTradingAccount
+    from backend.app.models.paper_trading import PaperTradingAccount
     from sqlalchemy import select
     
     # 1. Start a transaction block
@@ -65,7 +65,7 @@ async def test_partial_batch_rollback_safety(db: AsyncSession):
 @pytest.mark.asyncio
 async def test_sequence_reseed_validation(db: AsyncSession):
     from sqlalchemy import text
-    from app.models.paper_trading import PaperPosition
+    from backend.app.models.paper_trading import PaperPosition
     
     # Simulate reseeding after migration
     await db.execute(text("SELECT setval(pg_get_serial_sequence('paper_trading_positions', 'id'), 5000)"))

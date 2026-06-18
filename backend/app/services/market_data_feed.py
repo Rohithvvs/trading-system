@@ -131,5 +131,5 @@ class FyersMarketDataFeed:
             self._socket.unsubscribe(symbols=[self._normalize_symbol(s) for s in to_remove], data_type="SymbolUpdate")
 
     def _normalize_symbol(self, symbol: str) -> str:
-        from app.utils.symbol import fyers_symbol, canonical_symbol
+        from backend.app.utils.symbol import fyers_symbol, canonical_symbol
         return fyers_symbol(canonical_symbol(symbol))

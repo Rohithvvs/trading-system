@@ -176,16 +176,20 @@ class Settings(BaseSettings):
             return []
 
         symbols: list[str] = []
-        with csv_path.open(newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle)
-            from app.utils.symbol import canonical_symbol
-            for row in reader:
-                symbol = (row.get("Symbol") or "").strip().upper()
-                series = (row.get("Series") or "").strip().upper()
-                if not symbol:
-                    continue
-                combined = f"{symbol}-{series}" if series else symbol
-                symbols.append(canonical_symbol(combined))
+        try:
+            with csv_path.open(newline="", encoding="utf-8-sig") as handle:
+                reader = csv.DictReader(handle)
+                from backend.app.utils.symbol import canonical_symbol
+                for row in reader:
+                    symbol = (row.get("Symbol") or "").strip().upper()
+                    series = (row.get("Series") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    combined = f"{symbol}-{series}" if series else symbol
+                    symbols.append(canonical_symbol(combined))
+        except Exception:
+            # Degrade gracefully if file is malformed, empty, or unreadable
+            return []
         return list(dict.fromkeys(symbols))
 
 settings = Settings()

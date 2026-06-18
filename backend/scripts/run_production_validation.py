@@ -6,10 +6,10 @@ from httpx import AsyncClient
 import pytest
 from sqlalchemy import select, update, delete
 
-from app.main import app
-from app.db.session import AsyncSessionLocal
-from app.models.paper_trading import PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperTransaction
-from app.services.market_engine_service import MarketEngineService, market_engine
+from backend.app.main import app
+from backend.app.db.session import AsyncSessionLocal
+from backend.app.models.paper_trading import PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperTransaction
+from backend.app.services.market_engine_service import MarketEngineService, market_engine
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

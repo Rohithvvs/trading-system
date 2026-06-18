@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import os
 from unittest.mock import patch, MagicMock
-from app.services.candle_reconciliation_service import CandleReconciliationService
+from backend.app.services.candle_reconciliation_service import CandleReconciliationService
 
 @pytest.fixture
 def recon_service():

@@ -2,9 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, AsyncMock
 
-from app.main import app
-from app.services.paper_trading_service import PaperTradingService
-from app.routes.paper_trading import get_service
+from backend.app.main import app
+from backend.app.services.paper_trading_service import PaperTradingService
+from backend.app.routes.paper_trading import get_service
 
 @pytest.fixture
 def test_client():

@@ -3,8 +3,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.orm import selectinload
 
-from app.services.market_engine_service import MarketEngineService
-from app.models.paper_trading import PaperPosition
+from backend.app.services.market_engine_service import MarketEngineService
+from backend.app.models.paper_trading import PaperPosition
 
 @pytest.fixture
 def market_engine():

@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError, DBAPIError
 
-from app.db.session import AsyncSessionLocal
+from backend.app.db.session import AsyncSessionLocal
 
 @pytest.fixture(autouse=True)
 async def cleanup_failures(db: AsyncSession):
