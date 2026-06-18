@@ -787,16 +787,12 @@ class FyersService:
         return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
     def _normalize_symbol(self, symbol: str) -> str:
-        normalized = symbol.strip().upper()
-        if ":" in normalized:
-            return normalized
-        return f"NSE:{normalized}"
+        from app.utils.symbol import fyers_symbol, canonical_symbol
+        return fyers_symbol(canonical_symbol(symbol))
 
     def _cache_symbol(self, symbol: str) -> str:
-        normalized = symbol.strip().upper()
-        if ":" in normalized:
-            _, normalized = normalized.split(":", 1)
-        return normalized.replace("-EQ", "")
+        from app.utils.symbol import canonical_symbol
+        return canonical_symbol(symbol)
 
     def _store_ohlcv_cache(
         self,

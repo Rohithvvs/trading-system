@@ -69,7 +69,7 @@ class MarketEngineService:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        self.logger.info("MARKET_ENGINE_STOPPED | Market engine loop stopped")
+        self.logger.info("Market engine loop stopped")
 
     async def request_start(self) -> MarketEngineSession:
         async with AsyncSessionLocal() as db:
@@ -90,7 +90,7 @@ class MarketEngineService:
                 session.stopped_at = datetime.utcnow()
                 session.websocket_connected = False
                 await db.refresh(session)
-                self.logger.info("Market engine stop requested | session_id=%s", session.id)
+                self.logger.info("MARKET_ENGINE_STOPPED | session_id=%s", session.id)
         self._feed.stop()
         return session
 
@@ -104,11 +104,18 @@ class MarketEngineService:
                 try:
                     positions_count = len((await db.scalars(select(PaperPosition.id).where(PaperPosition.status == "OPEN"))).all())
                     symbols_count = len(await self._desired_symbols(db))
+                    actual_subscribed = len(self._feed._symbols) if self._feed else 0
+                    connected = getattr(self._feed, 'connected', False)
                 except Exception:
                     positions_count = 0
                     symbols_count = 0
+                    actual_subscribed = 0
+                    connected = False
                 
-                self.logger.info("MARKET_ENGINE_HEARTBEAT | session_id=%s | active_positions=%s | subscribed_symbols=%s", session.id, positions_count, symbols_count)
+                if symbols_count != actual_subscribed:
+                    self.logger.warning("HEARTBEAT_DRIFT_DETECTED | desired_symbols=%s | actual_subscribed_symbols=%s", symbols_count, actual_subscribed)
+                
+                self.logger.info("MARKET_ENGINE_HEARTBEAT | session_id=%s | active_positions=%s | desired_symbols=%s | actual_subscribed_symbols=%s | connection_state=%s", session.id, positions_count, symbols_count, actual_subscribed, connected)
 
     async def status(self) -> dict:
         async with AsyncSessionLocal() as db:
@@ -171,6 +178,8 @@ class MarketEngineService:
             session.paused_reason = None
             if session.started_at is None:
                 session.started_at = datetime.utcnow()
+                positions_count = len((await db.scalars(select(PaperPosition.id).where(PaperPosition.status == "OPEN"))).all())
+                self.logger.info("MARKET_ENGINE_STARTED | session_id=%s | active_positions=%s | symbols=%s", session.id, positions_count, len(desired))
             await self._poll_missing_prices(desired)
         except (FyersAuthExpiredError, FyersAuthInvalidError):
             await self._pause_for_token(db, session)
@@ -179,9 +188,20 @@ class MarketEngineService:
             session.status = "ERROR_RETRYING"
 
     async def _poll_missing_prices(self, symbols: set[str]) -> None:
+        import time
         missing = [sym for sym in symbols if sym not in self.latest_ltp]
         if not missing:
             return
+            
+        start_time = time.perf_counter()
+        open_positions = 0
+        try:
+            async with AsyncSessionLocal() as db:
+                open_positions = len((await db.scalars(select(PaperPosition.id).where(PaperPosition.status == "OPEN"))).all())
+        except Exception:
+            pass
+            
+        self.logger.info("RECONCILIATION_STARTED | open_positions=%s", open_positions)
             
         sem = asyncio.Semaphore(10)
         
@@ -189,26 +209,33 @@ class MarketEngineService:
             async with sem:
                 ltp = await self.fyers.fetch_ltp(sym)
                 if ltp is not None:
-                    await self._on_tick(sym, ltp)
+                    await self._on_tick(sym, ltp, is_reconciliation=True)
 
         await asyncio.gather(*(fetch_and_process(sym) for sym in missing))
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        self.logger.info("RECONCILIATION_COMPLETED | duration_ms=%s | positions_checked=%s", duration_ms, open_positions)
 
-    async def _on_tick(self, symbol: str, price: float) -> None:
-        normalized = symbol.replace("NSE:", "").upper()
+    async def _on_tick(self, symbol: str, price: float, is_reconciliation: bool = False) -> None:
+        from app.utils.symbol import canonical_symbol
+        normalized = canonical_symbol(symbol)
+        
+        self.logger.info("SYMBOL_NORMALIZED | raw_symbol=%s | canonical_symbol=%s", symbol, normalized)
+        self.logger.debug("TICK_RECEIVED | raw_symbol=%s | canonical_symbol=%s | price=%s", symbol, normalized, price)
+        
         self.latest_ltp[normalized] = price
         try:
             async with AsyncSessionLocal() as db:
-                async with db.begin():
-                    await self._process_symbol(db, normalized, price)
-                    session = await self._get_or_create_session(db)
-                    session.last_tick_at = datetime.utcnow()
-        except Exception as e:
-            self.logger.error("Tick processing error for %s: %s", normalized, e)
+                await self._process_symbol(db, normalized, price, raw_symbol=symbol, is_reconciliation=is_reconciliation)
+                session = await self._get_or_create_session(db)
+                session.last_tick_at = datetime.utcnow()
+                await db.commit()
+        except Exception:
+            self.logger.exception("Tick processing error for raw_symbol=%s canonical_symbol=%s", symbol, normalized)
 
-    async def _process_symbol(self, db, symbol: str, price: float) -> None:
+    async def _process_symbol(self, db, symbol: str, price: float, raw_symbol: str = "", is_reconciliation: bool = False) -> None:
         service = PaperTradingService(db)
         order_query = select(PaperOrder).where(
-            PaperOrder.symbol == symbol,
+            PaperOrder.symbol.in_([symbol, f"{symbol}-EQ", f"NSE:{symbol}-EQ"]),
             PaperOrder.lifecycle_state.in_(ACTIVE_ORDER_STATES),
             PaperOrder.status == "PENDING",
             PaperOrder.monitor_enabled.is_(True),
@@ -220,19 +247,26 @@ class MarketEngineService:
             prior = order.lifecycle_state
             order.last_seen_ltp = price
             order.last_evaluated_at = datetime.utcnow()
-            account = await service._get_or_create_account(for_update=True)
-            filled_order, position, _, _ = await service._try_fill_order(account, order, price)
-            if filled_order.status == "FILLED":
-                filled_order.lifecycle_state = "ENTRY_FILLED"
-                if position:
-                    position.lifecycle_state = "OPEN_POSITION"
-                self.logger.info("PAPER_POSITION_OPENED | order_id=%s symbol=%s price=%s position_id=%s", order.id, symbol, price, getattr(position, "id", None))
+            def _fill_order_sync(session, order_id, ltp):
+                svc = PaperTradingService(session)
+                acc = svc._get_or_create_account(for_update=True)
+                ord_obj = session.get(PaperOrder, order_id)
+                fo, pos, _, _ = svc._try_fill_order(acc, ord_obj, ltp)
+                if fo.status == "FILLED":
+                    fo.lifecycle_state = "ENTRY_FILLED"
+                    if pos:
+                        pos.lifecycle_state = "OPEN_POSITION"
+                return fo.status, getattr(pos, "id", None)
+
+            fo_status, pos_id = await db.run_sync(_fill_order_sync, order.id, price)
+            if fo_status == "FILLED":
+                self.logger.info("PAPER_POSITION_OPENED | order_id=%s symbol=%s price=%s position_id=%s", order.id, symbol, price, pos_id)
                 await self._record_event(
                     db,
                     "ENTRY_FILLED",
                     symbol,
                     order.id,
-                    getattr(position, "id", None),
+                    pos_id,
                     prior,
                     "ENTRY_FILLED",
                     price,
@@ -246,33 +280,58 @@ class MarketEngineService:
                 await asyncio.to_thread(_add_notif, account_id, order.id)
 
         position_query = select(PaperPosition).where(
-            PaperPosition.symbol == symbol,
+            PaperPosition.symbol.in_([symbol, f"{symbol}-EQ", f"NSE:{symbol}-EQ"]),
             PaperPosition.status == "OPEN",
             PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
             PaperPosition.monitor_enabled.is_(True),
         )
         if db.bind and db.bind.dialect.name == "postgresql":
             position_query = position_query.with_for_update(skip_locked=True)
+        
         positions = list((await db.scalars(position_query)).all())
-        for position in positions:
-            if position.target is not None and price >= position.target:
-                self.logger.info("AUTO_EXIT_TARGET_TRIGGERED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, "TARGET_HIT")
-                try:
-                    await service.auto_exit(position.id, price, "TARGET_HIT")
-                    self.logger.info("AUTO_EXIT_ORDER_CREATED | position_id=%s | symbol=%s | exit_price=%s | reason=%s", position.id, symbol, price, "TARGET_HIT")
-                except ValueError as exc:
-                    self.logger.error("AUTO_EXIT_FAILED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, str(exc))
-                    self.logger.error("PRODUCTION_ALERT | category=AUTO_EXIT_FAILED | position_id=%s | reason=%s", position.id, str(exc))
-                await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:TARGET_HIT")
-            elif position.stop_loss is not None and price <= position.stop_loss:
-                self.logger.info("AUTO_EXIT_STOPLOSS_TRIGGERED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, "STOPLOSS_HIT")
-                try:
-                    await service.auto_exit(position.id, price, "STOPLOSS_HIT")
-                    self.logger.info("AUTO_EXIT_ORDER_CREATED | position_id=%s | symbol=%s | exit_price=%s | reason=%s", position.id, symbol, price, "STOPLOSS_HIT")
-                except ValueError as exc:
-                    self.logger.error("AUTO_EXIT_FAILED | position_id=%s | symbol=%s | entry_price=%s | target_price=%s | stoploss_price=%s | exit_price=%s | reason=%s", position.id, symbol, position.entry_price, position.target, position.stop_loss, price, str(exc))
-                    self.logger.error("PRODUCTION_ALERT | category=AUTO_EXIT_FAILED | position_id=%s | reason=%s", position.id, str(exc))
-                await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:STOPLOSS_HIT")
+        
+        if not positions:
+            self.logger.debug("POSITION_MATCH_MISS | incoming_symbol=%s", symbol)
+        else:
+            for position in positions:
+                self.logger.info("POSITION_MATCH_FOUND | position_id=%s | symbol=%s", position.id, position.symbol)
+                
+                if is_reconciliation:
+                    self.logger.info("RECONCILIATION_POSITION_CHECK | position_id=%s | symbol=%s | target=%s | stop_loss=%s | ltp=%s", position.id, position.symbol, position.target, position.stop_loss, price)
+                else:
+                    self.logger.debug("POSITION_CHECK | position_id=%s | symbol=%s | target=%s | stop_loss=%s | price=%s", position.id, position.symbol, position.target, position.stop_loss, price)
+
+                if position.target is not None and price >= position.target:
+                    if is_reconciliation:
+                        self.logger.info("RECONCILIATION_TARGET_HIT | position_id=%s | symbol=%s | price=%s | target=%s", position.id, position.symbol, price, position.target)
+                    else:
+                        self.logger.info("TARGET_HIT | position_id=%s | symbol=%s | price=%s | target=%s", position.id, position.symbol, price, position.target)
+                        
+                    self.logger.info("EXIT_ORDER_TRIGGERED | position_id=%s | symbol=%s | reason=%s", position.id, position.symbol, "TARGET_HIT")
+                    try:
+                        def _auto_exit_target_sync(session, p_id, ltp):
+                            return PaperTradingService(session).auto_exit(p_id, ltp, "TARGET_HIT")
+                        await db.run_sync(_auto_exit_target_sync, position.id, price)
+                        self.logger.info("EXIT_ORDER_SUCCESS | position_id=%s | symbol=%s", position.id, position.symbol)
+                    except Exception as exc:
+                        self.logger.exception("EXIT_ORDER_FAILED | position_id=%s | symbol=%s | error=%s", position.id, position.symbol, str(exc))
+                    await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:TARGET_HIT")
+                
+                elif position.stop_loss is not None and price <= position.stop_loss:
+                    if is_reconciliation:
+                        self.logger.info("RECONCILIATION_STOPLOSS_HIT | position_id=%s | symbol=%s | price=%s | stop_loss=%s", position.id, position.symbol, price, position.stop_loss)
+                    else:
+                        self.logger.info("STOPLOSS_HIT | position_id=%s | symbol=%s | price=%s | stop_loss=%s", position.id, position.symbol, price, position.stop_loss)
+                        
+                    self.logger.info("EXIT_ORDER_TRIGGERED | position_id=%s | symbol=%s | reason=%s", position.id, position.symbol, "STOPLOSS_HIT")
+                    try:
+                        def _auto_exit_stop_sync(session, p_id, ltp):
+                            return PaperTradingService(session).auto_exit(p_id, ltp, "STOPLOSS_HIT")
+                        await db.run_sync(_auto_exit_stop_sync, position.id, price)
+                        self.logger.info("EXIT_ORDER_SUCCESS | position_id=%s | symbol=%s", position.id, position.symbol)
+                    except Exception as exc:
+                        self.logger.exception("EXIT_ORDER_FAILED | position_id=%s | symbol=%s | error=%s", position.id, position.symbol, str(exc))
+                    await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", price, dedupe_key=f"exit-filled:{position.id}:STOPLOSS_HIT")
 
     async def _desired_symbols(self, db) -> set[str]:
         order_symbols = set(

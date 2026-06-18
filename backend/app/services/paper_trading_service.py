@@ -409,7 +409,7 @@ class PaperTradingService:
             future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(normalized_symbol), main_event_loop)
             ltp = future.result(timeout=5)
         except Exception as e:
-            self.logger.error("QUOTE_REQUEST_FAILURE | symbol=%s | error=%s", normalized_symbol, e)
+            self.logger.exception("QUOTE_REQUEST_FAILURE | symbol=%s | error=%s", normalized_symbol, e)
             ltp = None
             
         source = "FYERS_QUOTE"
@@ -691,7 +691,7 @@ class PaperTradingService:
         )
         self.db.add(trade)
         
-        self.logger.info("PAPER_POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=MANUAL", getattr(position, "id", None), position.symbol, fill_price, round(pnl, 2), round(pnl_percent, 2))
+        self.logger.info("POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=MANUAL", getattr(position, "id", None), position.symbol, fill_price, round(pnl, 2), round(pnl_percent, 2))
         # Log transaction for manual SELL to SQLite (if configured)
         try:
             tx = PaperTransaction(
@@ -951,7 +951,7 @@ class PaperTradingService:
         )
         self.db.add(trade)
         
-        self.logger.info("PAPER_POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason)
+        self.logger.info("POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason)
 
         # Credit account and remove position
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))
@@ -1098,7 +1098,7 @@ class PaperTradingService:
             future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(symbol), main_event_loop)
             ltp = future.result(timeout=2)
         except Exception as e:
-            self.logger.error(f'Error fetching ltp: {e}')
+            self.logger.exception(f'Error fetching ltp: {e}')
             ltp = None
 
         source = "FYERS_QUOTE"

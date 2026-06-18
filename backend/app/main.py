@@ -396,7 +396,7 @@ async def lifespan(app: FastAPI):
     # FYERS refresh automation removed. Manual access-token workflow only.
     if not settings.quarantine_mode:
         scheduler.start()
-        logger.info("Scheduler started — nightly sync at 18:30 IST")
+        logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", scheduler.timezone.zone, len(scheduler.get_jobs()))
     else:
         logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 

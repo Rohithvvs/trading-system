@@ -216,7 +216,8 @@ class PaperOrderCreateRequest(BaseModel):
     @field_validator("symbol")
     @classmethod
     def validate_symbol(cls, value: str) -> str:
-        symbol = value.strip().upper()
+        from app.utils.symbol import canonical_symbol
+        symbol = canonical_symbol(value)
         if not symbol:
             raise ValueError("Symbol is required.")
         return symbol
