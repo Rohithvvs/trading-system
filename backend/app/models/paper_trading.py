@@ -40,6 +40,8 @@ class PaperPosition(Base):
     target: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     monitor_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     paused_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_signal: Mapped[str | None] = mapped_column(String(16), nullable=True)
     source_score: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
@@ -115,6 +117,7 @@ class PaperTradeHistory(Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     exit_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    exit_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 

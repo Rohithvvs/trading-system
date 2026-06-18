@@ -348,6 +348,15 @@ export type PaperTradeHistoryItem = {
   closed_at: string;
   holding_period_hours: number;
   exit_reason?: string | null;
+  exit_source?: string | null;
+};
+
+export type MarketEngineHealth = {
+  status: string;
+  last_tick_at?: string | null;
+  last_reconciliation_at?: string | null;
+  open_positions: number;
+  tracked_symbols: number;
 };
 
 export type TransactionItem = {

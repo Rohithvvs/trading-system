@@ -688,6 +688,7 @@ class PaperTradingService:
             opened_at=position.created_at,
             closed_at=datetime.utcnow(),
             exit_reason="MANUAL",
+            exit_source="MANUAL",
         )
         self.db.add(trade)
         
@@ -893,7 +894,7 @@ class PaperTradingService:
             print(f"ERROR adding notification for triggered alert: {e}")
             self.logger.exception("Failed to add notification for triggered alert")
 
-    def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL") -> PaperOrderActionResponse:
+    def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL", source: str = "MANUAL") -> PaperOrderActionResponse:
         account = self._get_or_create_account(for_update=True)
         query = select(PaperPosition).where(
             PaperPosition.id == position_id,
@@ -924,7 +925,7 @@ class PaperTradingService:
             target=None,
             status="FILLED",
             lifecycle_state="EXIT_FILLED",
-            notes=f"Auto exit: {reason}",
+            notes=f"Auto exit: {reason} (Source: {source})",
             filled_price=fill_price_dec,
             filled_at=datetime.utcnow(),
         )
@@ -948,10 +949,11 @@ class PaperTradingService:
             opened_at=position.created_at,
             closed_at=datetime.utcnow(),
             exit_reason=reason,
+            exit_source=source,
         )
         self.db.add(trade)
         
-        self.logger.info("POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason)
+        self.logger.info("POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s | source=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason, source)
 
         # Credit account and remove position
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))
@@ -1289,6 +1291,7 @@ class PaperTradingService:
             opened_at=trade.opened_at,
             closed_at=trade.closed_at,
             exit_reason=getattr(trade, "exit_reason", None),
+            exit_source=getattr(trade, "exit_source", None),
             holding_period_hours=round(holding_period, 2),
         )
 
@@ -1474,3 +1477,27 @@ class PaperTradingService:
             })
         total_pages = (total + per_page - 1) // per_page if total else 0
         return {"items": items, "page": page, "per_page": per_page, "total": total or 0, "total_pages": total_pages}
+
+    async def get_engine_status(self) -> dict:
+        from app.services.market_engine_service import market_engine
+        
+        # Count open positions
+        open_positions = self.db.scalar(
+            select(func.count(PaperPosition.id))
+            .where(PaperPosition.status == "OPEN")
+        ) or 0
+        
+        # Max last_reconciled_at
+        last_reconciliation_at = self.db.scalar(
+            select(func.max(PaperPosition.last_reconciled_at))
+        )
+        
+        engine_status = await market_engine.get_status()
+        
+        return {
+            "status": engine_status.get("status", "STOPPED"),
+            "last_tick_at": engine_status.get("last_tick_at"),
+            "last_reconciliation_at": last_reconciliation_at,
+            "open_positions": open_positions,
+            "tracked_symbols": engine_status.get("active_monitored_symbols_count", 0),
+        }

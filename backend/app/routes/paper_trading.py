@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
 import logging
+import time
 from zoneinfo import ZoneInfo
 
 from ..db import get_sync_db
@@ -550,3 +551,23 @@ def get_analytics(service: PaperTradingService = Depends(get_service)):
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(data))
+
+@router.get("/engine-status")
+async def get_engine_status(service: PaperTradingService = Depends(get_service)):
+    logger = logging.getLogger("app.http")
+    logger.info("ENGINE_STATUS_REQUESTED | timestamp=%s", datetime.datetime.utcnow().isoformat())
+    start_time = time.time()
+    try:
+        status = await service.get_engine_status()
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(
+            "ENGINE_STATUS_RESPONSE | timestamp=%s | response_duration_ms=%s | open_positions=%s | tracked_symbols=%s",
+            datetime.datetime.utcnow().isoformat(),
+            duration_ms,
+            status.get("open_positions", 0),
+            status.get("tracked_symbols", 0)
+        )
+        return JSONResponse(content=sanitize_for_json(status))
+    except Exception as e:
+        logger.error("ENGINE_STATUS_FAILED | timestamp=%s | error=%s", datetime.datetime.utcnow().isoformat(), str(e))
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e

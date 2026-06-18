@@ -243,6 +243,12 @@ export async function fetchMarketEngineStatus(): Promise<MarketEngineStatus> {
   return response.json() as Promise<MarketEngineStatus>;
 }
 
+export async function fetchPaperTradingEngineStatus(): Promise<import('./types').MarketEngineHealth> {
+  const response = await fetchWithDiagnostics("/paper-trading/engine-status", undefined, "Paper engine status");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load paper engine status");
+  return response.json() as Promise<import('./types').MarketEngineHealth>;
+}
+
 export async function cancelPaperOrder(orderId: number): Promise<PaperOrderActionResponse> {
   const response = await fetchWithDiagnostics(`/paper-trading/orders/${orderId}/cancel`, {
     method: "POST",

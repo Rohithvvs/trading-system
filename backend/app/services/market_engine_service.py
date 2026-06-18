@@ -28,6 +28,7 @@ class MarketEngineService:
         self.latest_ltp: dict[str, float] = {}
         self._active_positions_cache: dict[str, list[PaperPosition]] = {}
         self._task: asyncio.Task | None = None
+        self._recon_task: asyncio.Task | None = None
         self._running = False
         self._feed = FyersMarketDataFeed(
             self._sync_on_tick, 
@@ -55,6 +56,7 @@ class MarketEngineService:
         self._running = True
         self._loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._run_loop(), name="market-engine-loop")
+        self._recon_task = asyncio.create_task(self._reconciliation_loop(), name="market-reconciliation-loop")
         self.logger.info("MARKET_ENGINE_STARTED | Market engine loop started")
 
     async def shutdown(self) -> None:
@@ -67,6 +69,12 @@ class MarketEngineService:
             self._task.cancel()
             try:
                 await self._task
+            except asyncio.CancelledError:
+                pass
+        if self._recon_task:
+            self._recon_task.cancel()
+            try:
+                await self._recon_task
             except asyncio.CancelledError:
                 pass
         self.logger.info("Market engine loop stopped")
@@ -294,6 +302,7 @@ class MarketEngineService:
             self.logger.debug("POSITION_MATCH_MISS | incoming_symbol=%s", symbol)
         else:
             for position in positions:
+                position.last_evaluated_at = datetime.utcnow()
                 self.logger.info("POSITION_MATCH_FOUND | position_id=%s | symbol=%s", position.id, position.symbol)
                 
                 if is_reconciliation:
@@ -310,7 +319,7 @@ class MarketEngineService:
                     self.logger.info("EXIT_ORDER_TRIGGERED | position_id=%s | symbol=%s | reason=%s", position.id, position.symbol, "TARGET_HIT")
                     try:
                         def _auto_exit_target_sync(session, p_id, ltp):
-                            return PaperTradingService(session).auto_exit(p_id, ltp, "TARGET_HIT")
+                            return PaperTradingService(session).auto_exit(p_id, ltp, "TARGET_HIT", "LIVE")
                         await db.run_sync(_auto_exit_target_sync, position.id, price)
                         self.logger.info("EXIT_ORDER_SUCCESS | position_id=%s | symbol=%s", position.id, position.symbol)
                     except Exception as exc:
@@ -326,7 +335,7 @@ class MarketEngineService:
                     self.logger.info("EXIT_ORDER_TRIGGERED | position_id=%s | symbol=%s | reason=%s", position.id, position.symbol, "STOPLOSS_HIT")
                     try:
                         def _auto_exit_stop_sync(session, p_id, ltp):
-                            return PaperTradingService(session).auto_exit(p_id, ltp, "STOPLOSS_HIT")
+                            return PaperTradingService(session).auto_exit(p_id, ltp, "STOPLOSS_HIT", "LIVE")
                         await db.run_sync(_auto_exit_stop_sync, position.id, price)
                         self.logger.info("EXIT_ORDER_SUCCESS | position_id=%s | symbol=%s", position.id, position.symbol)
                     except Exception as exc:
@@ -486,6 +495,176 @@ class MarketEngineService:
         if local.weekday() >= 5:
             return False
         return time(9, 0) <= local.time() <= time(16, 0)
+
+    async def _reconciliation_loop(self) -> None:
+        """
+        Independent background task to reconcile OHLC paths.
+        Runs every 5 minutes (300 seconds).
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(300)
+                if self.is_market_hours():
+                    await self._sweep_historical_positions()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.exception("RECONCILIATION_SWEEP_ERROR | error=%s", str(e))
+
+    async def _sweep_historical_positions(self) -> None:
+        from datetime import timedelta
+        try:
+            async with AsyncSessionLocal() as db:
+                five_mins_ago = datetime.utcnow() - timedelta(minutes=5)
+                # Find OPEN positions where last_reconciled_at is NULL or older than 5 mins
+                stmt = select(PaperPosition).where(
+                    PaperPosition.status == "OPEN",
+                    PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
+                    PaperPosition.monitor_enabled.is_(True)
+                )
+                positions = list((await db.scalars(stmt)).all())
+                
+                # Filter locally to avoid complex timezone null checks in sqlite/postgres mix
+                target_positions = [
+                    p for p in positions 
+                    if p.last_reconciled_at is None or p.last_reconciled_at.replace(tzinfo=None) < five_mins_ago.replace(tzinfo=None)
+                ]
+                
+                if not target_positions:
+                    return
+                    
+                self.logger.info("RECONCILIATION_SWEEP_STARTED | active_positions=%s | target_symbols=%s", len(positions), len(target_positions))
+                
+                # Semaphore to protect FYERS API
+                sem = asyncio.Semaphore(3)
+                
+                async def reconcile_pos(pos: PaperPosition):
+                    async with sem:
+                        await self._reconcile_ohlcv_sequence(pos.id)
+                
+                await asyncio.gather(*(reconcile_pos(p) for p in target_positions))
+                self.logger.info("RECONCILIATION_SWEEP_COMPLETED | target_symbols=%s", len(target_positions))
+                
+        except Exception as e:
+            self.logger.exception("RECONCILIATION_SWEEP_FAILED | error=%s", str(e))
+
+    async def _reconcile_ohlcv_sequence(self, position_id: int) -> None:
+        from ..schemas import AnalysisMode
+        from datetime import timedelta
+        
+        def _normalize_utc(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
+        try:
+            async with AsyncSessionLocal() as db:
+                # Use FOR UPDATE SKIP LOCKED
+                stmt = select(PaperPosition).where(
+                    PaperPosition.id == position_id,
+                    PaperPosition.status == "OPEN"
+                )
+                if db.bind and db.bind.dialect.name == "postgresql":
+                    stmt = stmt.with_for_update(skip_locked=True)
+                
+                position = await db.scalar(stmt)
+                if not position:
+                    # Locked by live tick, or already closed. Skip cleanly.
+                    return
+
+                # Calculate replay start time
+                # Uses max(last_reconciled_at, last_evaluated_at, created_at)
+                times = [t for t in [position.last_reconciled_at, position.last_evaluated_at, position.created_at] if t is not None]
+                if not times:
+                    return
+                replay_start = max(times)
+                replay_start_utc = _normalize_utc(replay_start)
+                
+                gap_duration = _normalize_utc(datetime.utcnow()) - replay_start_utc
+                if gap_duration < timedelta(minutes=1):
+                    self.logger.info("RECONCILIATION_SKIPPED_NO_GAP | symbol=%s | gap_seconds=%s", position.symbol, gap_duration.total_seconds())
+                    position.last_reconciled_at = datetime.utcnow()
+                    await db.commit()
+                    return
+
+                # Calculate lookback window in days (approximate 1 min candles)
+                lookback_days = max(1, gap_duration.days + 1)
+                
+                symbol = position.symbol
+                
+            # Fetch candles outside DB lock
+            def _fetch_sync():
+                return self.fyers.fetch_ohlcv(symbol, AnalysisMode.intraday, "1", lookback_days)
+                
+            candles = await asyncio.to_thread(_fetch_sync)
+            
+            if not candles:
+                return
+                
+            # Filter candles: A 1-minute candle's closure must be strictly after our replay_start
+            valid_candles = [c for c in candles if _normalize_utc(c.timestamp) + timedelta(minutes=1) > replay_start_utc]
+            
+            if not valid_candles:
+                # Do NOT update last_reconciled_at to utcnow().
+                # If FYERS is lagging or the market is closed, we must retain the old
+                # watermark and wait for new candles to arrive.
+                return
+
+            self.logger.info("RECONCILIATION_OHLC_FETCHED | symbol=%s | start_time=%s | end_time=%s | candles_count=%s", 
+                symbol, valid_candles[0].timestamp, valid_candles[-1].timestamp, len(valid_candles))
+
+            async with AsyncSessionLocal() as db:
+                # Re-acquire lock to process
+                stmt = select(PaperPosition).where(
+                    PaperPosition.id == position_id,
+                    PaperPosition.status == "OPEN"
+                )
+                if db.bind and db.bind.dialect.name == "postgresql":
+                    stmt = stmt.with_for_update(skip_locked=True)
+                
+                position = await db.scalar(stmt)
+                if not position:
+                    return
+
+                exited = False
+                for candle in valid_candles:
+                    target_breached = position.target is not None and candle.high >= position.target
+                    stop_breached = position.stop_loss is not None and candle.low <= position.stop_loss
+                    
+                    if target_breached or stop_breached:
+                        conflict_resolved_as = "STOPLOSS_HIT" if stop_breached else "TARGET_HIT"
+                        self.logger.info("RECONCILIATION_GAP_DETECTED | symbol=%s | target_breached=%s | stop_breached=%s | conflict_resolved_as=%s",
+                            symbol, target_breached, stop_breached, conflict_resolved_as)
+                        
+                        exit_price = candle.low if stop_breached else candle.high
+                        
+                        try:
+                            def _auto_exit_sync(session, p_id, ltp, reason):
+                                return PaperTradingService(session).auto_exit(p_id, float(ltp), reason, "RECONCILIATION")
+                            await db.run_sync(_auto_exit_sync, position.id, exit_price, conflict_resolved_as)
+                            self.logger.info("RECONCILIATION_EXIT_TRIGGERED | position_id=%s | reason=%s | retroactive_time=%s | exit_price=%s",
+                                position.id, conflict_resolved_as, candle.timestamp, exit_price)
+                            await self._record_event(db, "EXIT_FILLED", symbol, None, position.id, "OPEN_POSITION", "EXIT_FILLED", float(exit_price), dedupe_key=f"exit-filled:{position.id}:{conflict_resolved_as}")
+                            exited = True
+                            break # Stop processing further candles for this position
+                        except Exception as exc:
+                            self.logger.exception("RECONCILIATION_EXIT_FAILED | position_id=%s | error=%s", position.id, str(exc))
+                
+                # Updating last_reconciled_at AFTER the full symbol replay completes safely.
+                # Reason: Guarantees crash safety. If the server crashes mid-replay, 
+                # the transaction rolls back, and no progress is committed.
+                # Upon restart, the engine will safely fetch the OHLC block again.
+                # Because auto_exit is idempotent (requires OPEN status), replaying 
+                # historical candles is mathematically safe and prevents missed exits.
+                if not exited:
+                    # CRITICAL FIX: Anchor watermark exclusively to the last evaluated candle's
+                    # closure timestamp. If FYERS is lagging, using utcnow() creates a blind spot.
+                    last_candle_close = _normalize_utc(valid_candles[-1].timestamp) + timedelta(minutes=1)
+                    position.last_reconciled_at = last_candle_close
+                    await db.commit()
+
+        except Exception as e:
+            self.logger.warning("RECONCILIATION_FAILED | position_id=%s | error=%s", position_id, str(e))
 
 
 market_engine = MarketEngineService()

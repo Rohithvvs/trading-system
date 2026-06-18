@@ -15,13 +15,13 @@ class LatestScanService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def persist_successful_scan(self, response: ScreenerResponse, duration_ms: int):
+    async def persist_successful_scan(self, response: ScreenerResponse, duration_ms: int, scan_id: str | None = None):
         logger.info("Persisting successful scan snapshot")
         scan_ctx = get_current_scan()
         if scan_ctx:
             log_scan_persist(scan_ctx, "SCAN_PERSIST_BEGIN")
         
-        scan_id = str(uuid.uuid4())
+        scan_id = scan_id or str(uuid.uuid4())
         scan_timestamp = datetime.datetime.now(datetime.timezone.utc)
         
         buy_candidates = response.buy_candidate_symbols or []
@@ -35,18 +35,32 @@ class LatestScanService:
         # We need the full list of candidates that were recommended or rejected.
         # Let's extract from response.
         
-        snapshot = ScanSnapshot(
-            scan_id=scan_id,
-            scan_timestamp=scan_timestamp,
-            scan_duration_ms=duration_ms,
-            total_scanned=response.scanned_symbols,
-            valid_symbols=len(response.data_valid_symbols),
-            buy_count=len(buy_candidates),
-            watch_count=len(watch_candidates),
-            rejected_count=0 # Will update below
-        )
+        stmt = select(ScanSnapshot).where(ScanSnapshot.scan_id == scan_id)
+        result = await self.db.execute(stmt)
+        snapshot = result.scalar_one_or_none()
         
-        self.db.add(snapshot)
+        if not snapshot:
+            snapshot = ScanSnapshot(
+                scan_id=scan_id,
+                scan_timestamp=scan_timestamp,
+                scan_duration_ms=duration_ms,
+                total_scanned=response.scanned_symbols,
+                valid_symbols=len(response.data_valid_symbols),
+                buy_count=len(buy_candidates),
+                watch_count=len(watch_candidates),
+                rejected_count=0,
+                status="COMPLETED",
+                error_type=None
+            )
+            self.db.add(snapshot)
+        else:
+            snapshot.scan_duration_ms = duration_ms
+            snapshot.total_scanned = response.scanned_symbols
+            snapshot.valid_symbols = len(response.data_valid_symbols)
+            snapshot.buy_count = len(buy_candidates)
+            snapshot.watch_count = len(watch_candidates)
+            snapshot.status = "COMPLETED"
+            snapshot.error_type = None
         
         # Let's process the ones in analysis (buy, watch, some rejected)
         processed_symbols = set()

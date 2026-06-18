@@ -396,7 +396,10 @@ async def lifespan(app: FastAPI):
     # FYERS refresh automation removed. Manual access-token workflow only.
     if not settings.quarantine_mode:
         scheduler.start()
-        logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", scheduler.timezone.zone, len(scheduler.get_jobs()))
+        try:
+            logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", str(scheduler.timezone), len(scheduler.get_jobs()))
+        except Exception as e:
+            logger.warning(f"Failed to log scheduler start: {e}")
     else:
         logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 
@@ -674,8 +677,11 @@ async def log_http_requests(request: Request, call_next):
 
 
 
+from .routes import scheduler as scheduler_router
+
 app.include_router(api_router)
 app.include_router(fyers_router)
+app.include_router(scheduler_router.router)
 
 
 async def nightly_candle_sync():

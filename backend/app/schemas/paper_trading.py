@@ -124,6 +124,7 @@ class PaperTradeHistoryItem(BaseModel):
     closed_at: datetime
     holding_period_hours: float
     exit_reason: str | None = None
+    exit_source: str | None = None
 
 
 class PaperWorkspaceSnapshot(BaseModel):

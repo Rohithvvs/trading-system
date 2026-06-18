@@ -99,54 +99,19 @@ async def screener_full(payload: ScreenerRequest):
     )
 
     q = asyncio.Queue()
-    loop = asyncio.get_running_loop()
 
-    def progress_callback(update_dict: dict):
-        loop.call_soon_threadsafe(q.put_nowait, update_dict)
+    from ..services.scan_execution_service import ScanExecutionService
+    from ..services.lock_service import LockAcquisitionError
 
-    async def run_scan_in_background():
-        import time
-        from ..services.latest_scan_service import LatestScanService
-        from ..db.session import AsyncSessionLocal
-        try:
-            await asyncio.sleep(2.0)
-            start_t = time.perf_counter()
-            response = await RouterAgent(None).screener_full(payload, progress_callback=progress_callback)
-            duration_ms = int((time.perf_counter() - start_t) * 1000)
-            result = sanitize_for_json(response.model_dump(mode="json"))
-            
-            async with AsyncSessionLocal() as db:
-                scan_service = LatestScanService(db)
-                await scan_service.persist_successful_scan(response, duration_ms)
-                await db.commit()
-                
-            await save_latest_scan(result) # preserve existing behaviour if needed somewhere
-            logger.info(
-                "API EXIT | endpoint=/analysis/screener/full | scanned=%s | valid=%s | eligible=%s | matched=%s | shortlisted=%s | buy=%s | watch=%s | data_source=%s | stopped_at=%s",
-                response.scanned_symbols,
-                len(response.data_valid_symbols),
-                len(response.eligible_symbols),
-                len(response.matched_symbols),
-                len(response.shortlisted_symbols),
-                len(response.buy_candidate_symbols),
-                len(response.watch_candidate_symbols),
-                response.data_source,
-                response.stopped_at_stage,
-            )
-            await q.put({"status": "complete", "result": result})
-        except asyncio.CancelledError:
-            logger.warning("Scan cancelled")
-            raise
-        except Exception as e:
-            logger.exception("Screener failed")
-            await q.put({"status": "error", "message": str(e)})
-
-    asyncio.create_task(run_scan_in_background())
+    try:
+        await ScanExecutionService.execute_scan(payload, progress_queue=q, trigger_source="ui")
+    except LockAcquisitionError:
+        return JSONResponse(status_code=409, content={"status": "scan_in_progress"})
 
     async def event_stream():
         while True:
             msg = await q.get()
-            if "status" in msg:
+            if "status" in msg and msg["status"] in ("complete", "error"):
                 yield f"event: result\ndata: {json.dumps(msg)}\n\n"
                 break
             else:

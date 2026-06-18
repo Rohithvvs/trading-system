@@ -25,6 +25,26 @@ _BLACKLIST_LOCK = threading.Lock()
 _FYERS_HISTORY_SEMAPHORE = threading.BoundedSemaphore(3)
 _FYERS_MAX_RETRIES = 3
 
+import requests
+_local_timeout = threading.local()
+_original_session_request = requests.Session.request
+
+def _timeout_patched_request(self, method, url, **kwargs):
+    timeout = getattr(_local_timeout, "timeout", None)
+    if timeout is not None:
+        kwargs.setdefault("timeout", timeout)
+    return _original_session_request(self, method, url, **kwargs)
+
+requests.Session.request = _timeout_patched_request
+
+class NetworkTimeoutContext:
+    def __init__(self, timeout: float):
+        self.timeout = timeout
+    def __enter__(self):
+        _local_timeout.timeout = self.timeout
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        _local_timeout.timeout = None
+
 import asyncio
 import concurrent.futures
 
@@ -158,7 +178,19 @@ class FyersService:
             token=token.strip(),
             log_path="",
         )
-        response = client.get_profile()
+        self.logger.info("FYERS_REQUEST_STARTED | symbol=VALIDATE_TOKEN | endpoint=get_profile")
+        request_start = time.time()
+        try:
+            with NetworkTimeoutContext(5.0):
+                response = client.get_profile()
+            duration_ms = int((time.time() - request_start) * 1000)
+            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=VALIDATE_TOKEN | endpoint=get_profile | duration_ms=%s | attempt=1", duration_ms)
+        except Exception as exc:
+            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower():
+                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=VALIDATE_TOKEN | endpoint=get_profile | attempt=1 | timeout_sec=5.0")
+            self.logger.error("FYERS_REQUEST_FAILED | symbol=VALIDATE_TOKEN | endpoint=get_profile | error_type=%s", type(exc).__name__)
+            raise
+
         _check_fyers_response(response, "VALIDATE_TOKEN")
 
     async def fetch_ltp(self, symbol: str) -> float | None:
@@ -255,10 +287,17 @@ class FyersService:
             return {}
         try:
             client = self._client()
-            response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
+            request_start = time.time()
+            with NetworkTimeoutContext(3.0):
+                response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+            duration_ms = int((time.time() - request_start) * 1000)
+            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=1", symbol, duration_ms)
             _check_fyers_response(response, symbol)
         except Exception as exc:  # pragma: no cover - provider/network failure
-            self.logger.warning("FYERS quote profile request failed | symbol=%s | error=%s", symbol, exc)
+            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower():
+                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
+            self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
             return {}
 
         if not isinstance(response, dict):
@@ -435,21 +474,29 @@ class FyersService:
     async def _fetch_fyers_ltp(self, symbol: str) -> float | None:
         import asyncio
         try:
-            start = time.time()
             client = self._client()
-            # Task 3: Isolate Blocking I/O using asyncio.to_thread
+            
+            def fetch_quotes_with_timeout():
+                with NetworkTimeoutContext(3.0):
+                    return client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+                    
+            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
+            request_start = time.time()
+            
             response = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
                     FyersService._network_pool,
-                    lambda: client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+                    fetch_quotes_with_timeout
                 ),
                 timeout=5.0
             )
-            response_ms = int((time.time() - start) * 1000)
+            response_ms = int((time.time() - request_start) * 1000)
+            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=1", symbol, response_ms)
             _check_fyers_response(response, symbol)
         except Exception as exc:  # pragma: no cover - network/provider failure
-            # If we raised a Fyers*Error above it will be caught by callers
-            self.logger.warning("FYERS quotes request failed | symbol=%s | error=%s", symbol, exc)
+            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError, asyncio.TimeoutError)) or "timeout" in str(exc).lower():
+                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
+            self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
             try:
                 fyers_logger.warning("QUOTES_REQUEST_FAILED | symbol=%s | error=%s", symbol, exc)
             except Exception:
@@ -843,6 +890,7 @@ class FyersService:
         last_error: Exception | None = None
         for attempt in range(1, _FYERS_MAX_RETRIES + 1):
             scan_ctx = get_current_scan()
+            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=history | attempt=%s | timeout_sec=10.0", symbol, attempt)
             request_start = time.time()
             if scan_ctx:
                 log_fyers_request(
@@ -855,49 +903,42 @@ class FyersService:
                 )
             with _FYERS_HISTORY_SEMAPHORE:
                 try:
-                    response = client.history(data=payload)
+                    with NetworkTimeoutContext(10.0):
+                        response = client.history(data=payload)
                     _check_fyers_response(response, symbol)
                     response_ms = int((time.time() - request_start) * 1000)
+                    self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=history | duration_ms=%s | attempt=%s", symbol, response_ms, attempt)
                     candle_count = len(response.get("candles", [])) if isinstance(response, dict) else 0
                     if scan_ctx:
                         log_fyers_response(scan_ctx, symbol=symbol, candles_returned=candle_count, response_time_ms=response_ms)
                     return response if isinstance(response, dict) else {}
-                except FyersInvalidSymbolError:
+                except (FyersInvalidSymbolError, FyersAuthExpiredError, FyersAuthInvalidError):
                     raise
-                except FyersRateLimitError as exc:
-                    last_error = exc
-                    if scan_ctx:
-                        log_fyers_failure(scan_ctx, symbol=symbol, exception_type="FyersRateLimitError", exception_message=str(exc), retry_count=attempt)
                 except Exception as exc:
                     last_error = exc
-                    if isinstance(exc, (TimeoutError, ConnectionError)) or "timeout" in str(exc).lower():
+                    duration_ms = int((time.time() - request_start) * 1000)
+                    is_timeout = isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower()
+                    if is_timeout:
+                        self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=history | attempt=%s | timeout_sec=10.0", symbol, attempt)
                         from .diagnostics_service import diagnostics
                         diagnostics.increment_fyers_metric("timeout_count")
-                    if not self._is_rate_limit_error(exc):
+                    
+                    self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=history | error_type=%s | attempt=%s", symbol, type(exc).__name__, attempt)
+                    
+                    # Retry logic: retry on rate limits, connection errors, and timeouts.
+                    if not (is_timeout or isinstance(exc, (ConnectionError, requests.exceptions.ConnectionError, requests.exceptions.RequestException, FyersRateLimitError))):
                         break
+                    
                     if scan_ctx:
                         log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=attempt)
 
             if attempt < _FYERS_MAX_RETRIES:
-                wait_seconds = 2 * attempt
+                wait_seconds = 2 ** attempt  # Exponential backoff (2, 4, 8)
                 from .diagnostics_service import diagnostics
                 diagnostics.increment_fyers_metric("retry_count")
-                self.logger.warning(
-                    "FYERS history retry | symbol=%s | attempt=%s/%s | backoff=%ss | error=%s",
-                    symbol,
-                    attempt,
-                    _FYERS_MAX_RETRIES,
-                    wait_seconds,
-                    last_error,
-                )
+                self.logger.warning("FYERS_REQUEST_RETRY | symbol=%s | endpoint=history | attempt=%s | backoff_sec=%s | error=%s", symbol, attempt, wait_seconds, type(last_error).__name__)
                 time.sleep(wait_seconds)
 
-        self.logger.error(
-            "FYERS history failed after %s attempts | symbol=%s | error=%s",
-            _FYERS_MAX_RETRIES,
-            symbol,
-            last_error,
-        )
         raise last_error or FyersNetworkException(f"FYERS history failed for {symbol}")
 
     def _fetch_yfinance_candles(self, symbol: str, lookback_window: int, points: int) -> list[OHLCVPoint]:

@@ -41,7 +41,95 @@ import type {
   PaperTradingDashboardResponse,
   RecommendationPrefillRequest,
   MarketEngineStatus,
+  MarketEngineHealth,
 } from "../types";
+import { fetchPaperTradingEngineStatus } from "../api";
+
+function TradeDetailsModal({ trade, onClose }: { trade: PaperTradeHistoryItem | null; onClose: () => void }) {
+  if (!trade) return null;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose} style={{ zIndex: 9999 }}>
+      <div className="confirm-modal" onClick={e => e.stopPropagation()} style={{ minWidth: 400, maxWidth: 500 }}>
+        <h2>Trade Exit Details</h2>
+        <div style={{ marginTop: 16, marginBottom: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <div className="muted-copy">Reason:</div>
+            <div style={{ fontWeight: 600 }}>{trade.exit_reason ?? "MANUAL_EXIT"}</div>
+          </div>
+          <div>
+            <div className="muted-copy">Source:</div>
+            <div style={{ fontWeight: 600 }}>{trade.exit_source ?? "MANUAL"}</div>
+          </div>
+          <div>
+            <div className="muted-copy">Exit Price:</div>
+            <div style={{ fontWeight: 600 }}>₹{trade.exit_price.toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="muted-copy">Exit Time:</div>
+            <div style={{ fontWeight: 600 }}>{new Date(trade.closed_at).toLocaleTimeString()}</div>
+          </div>
+        </div>
+        
+        {trade.exit_source === "RECONCILIATION" && (
+          <div style={{ background: '#083544', padding: 12, borderRadius: 6, marginBottom: 24, fontSize: '0.9rem' }}>
+            <strong>Recovered During Historical Reconciliation</strong>
+          </div>
+        )}
+
+        <div className="modal-actions" style={{ marginTop: 0 }}>
+          <button type="button" className="button ghost-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function MarketEngineHealthWidget({ health, lastSuccessfulPoll, errorCount }: { health: MarketEngineHealth | null; lastSuccessfulPoll: number | null; errorCount: number }) {
+  if (!health && errorCount === 0) return null;
+
+  const isStale = errorCount * 10000 > 30000;
+  const displayStatus = errorCount > 0 ? 'DEGRADED' : health?.status ?? 'UNKNOWN';
+  const statusColor = displayStatus === 'RUNNING' ? '🟢' : displayStatus === 'DEGRADED' ? '🟡' : '🔴';
+  
+  return (
+    <section className="panel" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <p className="section-label" style={{ marginBottom: 0 }}>Market Engine Status</p>
+          {isStale && <span style={{ color: '#ffcc00', fontSize: '0.8rem', fontWeight: 600 }}>⚠ Data may be stale</span>}
+        </div>
+        <h2 style={{ fontSize: '1.2rem', marginTop: 4 }}>
+          {statusColor} {displayStatus}
+        </h2>
+        {lastSuccessfulPoll && (
+          <div style={{ fontSize: '0.8rem', color: '#8b949e', marginTop: 4 }}>
+            Last Updated: {new Date(lastSuccessfulPoll).toLocaleTimeString()}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 24, textAlign: 'right' }}>
+        <div>
+          <div className="muted-copy">Last Tick</div>
+          <div style={{ fontWeight: 600 }}>{health?.last_tick_at ? new Date(health.last_tick_at).toLocaleTimeString() : '--'}</div>
+        </div>
+        <div>
+          <div className="muted-copy">Last Reconciliation</div>
+          <div style={{ fontWeight: 600 }}>{health?.last_reconciliation_at ? new Date(health.last_reconciliation_at).toLocaleTimeString() : '--'}</div>
+        </div>
+        <div>
+          <div className="muted-copy">Open Positions</div>
+          <div style={{ fontWeight: 600 }}>{health?.open_positions ?? '--'}</div>
+        </div>
+        <div>
+          <div className="muted-copy">Tracked Symbols</div>
+          <div style={{ fontWeight: 600 }}>{health?.tracked_symbols ?? '--'}</div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 type PaperTradingPageProps = {
   recommendationPrefill?: RecommendationPrefillRequest | null;
@@ -106,6 +194,10 @@ export function PaperTradingPage({
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; level: string }>>([]);
   const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(null);
+  const [engineHealth, setEngineHealth] = useState<MarketEngineHealth | null>(null);
+  const [lastSuccessfulHealthPoll, setLastSuccessfulHealthPoll] = useState<number | null>(null);
+  const [healthPollErrorCount, setHealthPollErrorCount] = useState<number>(0);
+  const [selectedTrade, setSelectedTrade] = useState<PaperTradeHistoryItem | null>(null);
   const seenNotifications = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -138,6 +230,40 @@ export function PaperTradingPage({
     }
     void loadEngineStatus();
     const id = window.setInterval(() => void loadEngineStatus(), 10000);
+    return () => {
+      mounted = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadEngineHealth() {
+      try {
+        const health = await fetchPaperTradingEngineStatus();
+        if (mounted) {
+          setEngineHealth(health);
+          setLastSuccessfulHealthPoll(Date.now());
+          setHealthPollErrorCount(c => {
+            if (c > 0) console.info("ENGINE_STATUS_RECOVERED");
+            return 0;
+          });
+        }
+      } catch (err) {
+        if (mounted) {
+          console.warn("ENGINE_STATUS_POLL_FAILED", err);
+          setHealthPollErrorCount(c => {
+             const next = c + 1;
+             if (next * 10000 > 30000 && c * 10000 <= 30000) {
+                 console.warn("ENGINE_STATUS_STALE");
+             }
+             return next;
+          });
+        }
+      }
+    }
+    void loadEngineHealth();
+    const id = window.setInterval(() => void loadEngineHealth(), 10000);
     return () => {
       mounted = false;
       window.clearInterval(id);
@@ -807,6 +933,8 @@ export function PaperTradingPage({
       </section>
 
       <AccountSummaryStrip dashboard={dashboard} />
+      
+      <MarketEngineHealthWidget health={engineHealth} lastSuccessfulPoll={lastSuccessfulHealthPoll} errorCount={healthPollErrorCount} />
 
       <PaperAccountWidgets
         summary={accountSummary}
@@ -1532,7 +1660,7 @@ function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
         </thead>
         <tbody>
           {trades.map((trade) => (
-            <tr key={trade.id} data-testid="history-row">
+            <tr key={trade.id} data-testid="history-row" onClick={() => setSelectedTrade(trade)} style={{ cursor: 'pointer' }}>
               <td>{trade.symbol}</td>
               <td>{trade.qty}</td>
               <td className="number-cell">{trade.entry_price.toFixed(2)}</td>
@@ -1549,6 +1677,7 @@ function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
           ))}
         </tbody>
       </table>
+      <TradeDetailsModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
     </div>
   );
 }

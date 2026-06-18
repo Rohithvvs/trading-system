@@ -559,7 +559,8 @@ class OrchestratorAgent:
 
         technical_score = max(result.score for result in technical_results)
         best_backtest = max(backtests, key=lambda item: item.total_return)
-        recommendation = self.recommendation_agent.run(
+        recommendation = await asyncio.to_thread(
+            self.recommendation_agent.run,
             symbol=symbol,
             technical_results=technical_results,
             sentiment_label=sentiment_label,
