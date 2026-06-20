@@ -43,7 +43,8 @@ class LatestScanService:
             valid_symbols=len(response.data_valid_symbols),
             buy_count=len(buy_candidates),
             watch_count=len(watch_candidates),
-            rejected_count=0 # Will update below
+            rejected_count=0, # Will update below
+            status="completed"
         )
         
         self.db.add(snapshot)

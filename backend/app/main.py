@@ -396,7 +396,7 @@ async def lifespan(app: FastAPI):
     # FYERS refresh automation removed. Manual access-token workflow only.
     if not settings.quarantine_mode:
         scheduler.start()
-        logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", scheduler.timezone.zone, len(scheduler.get_jobs()))
+        logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", str(scheduler.timezone), len(scheduler.get_jobs()))
     else:
         logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 
@@ -416,7 +416,7 @@ async def lifespan(app: FastAPI):
                 token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
                 token_age_min = 0.0
                 if token_row and token_row.access_token_saved_at:
-                    token_age_min = (datetime.utcnow() - token_row.access_token_saved_at).total_seconds() / 60.0
+                    token_age_min = (datetime.now(token_row.access_token_saved_at.tzinfo) - token_row.access_token_saved_at).total_seconds() / 60.0
                 logger.info(
                     "STARTUP_TOKEN_VERIFICATION | token_found=%s | saved_at=%s | age_minutes=%.1f",
                     bool(token), token_saved_at, token_age_min,

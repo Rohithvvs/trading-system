@@ -65,15 +65,21 @@ class OrchestratorAgent:
         candles_by_symbol_and_mode = {}
         
         async def fetch_for_symbol(symbol: str):
-            candles_by_mode = {
-                mode: self.fyers_service.fetch_ohlcv(
+            import time
+            start = time.perf_counter()
+            self.logger.info(f"Starting OHLCV fetch | symbol={symbol}")
+            candles_by_mode = {}
+            for mode in modes:
+                candles_by_mode[mode] = await asyncio.to_thread(
+                    self.fyers_service.fetch_ohlcv,
                     symbol=symbol,
                     mode=mode,
                     resolution=self._resolution_for_mode(mode, request),
                     lookback_window=request.timeframe.lookback_window,
                 )
-                for mode in modes
-            }
+            elapsed = time.perf_counter() - start
+            total_rows = sum(len(c) for c in candles_by_mode.values())
+            self.logger.info(f"Completed OHLCV fetch | symbol={symbol} | rows={total_rows} | elapsed={elapsed:.2f}s")
             candles_by_symbol_and_mode[symbol] = candles_by_mode
             
         async def prefetch_all():
