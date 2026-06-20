@@ -35,9 +35,17 @@ class LatestScanService:
         # We need the full list of candidates that were recommended or rejected.
         # Let's extract from response.
         
-        stmt = select(ScanSnapshot).where(ScanSnapshot.scan_id == scan_id)
-        result = await self.db.execute(stmt)
-        snapshot = result.scalar_one_or_none()
+        snapshot = ScanSnapshot(
+            scan_id=scan_id,
+            scan_timestamp=scan_timestamp,
+            scan_duration_ms=duration_ms,
+            total_scanned=response.scanned_symbols,
+            valid_symbols=len(response.data_valid_symbols),
+            buy_count=len(buy_candidates),
+            watch_count=len(watch_candidates),
+            rejected_count=0, # Will update below
+            status="completed"
+        )
         
         if not snapshot:
             snapshot = ScanSnapshot(
