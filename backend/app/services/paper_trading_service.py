@@ -414,7 +414,8 @@ class PaperTradingService:
             
         source = "FYERS_QUOTE"
         if ltp is None:
-            candles = self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2)
+            from app.services.fyers_service import _run_sync
+            candles = _run_sync(self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2))
             if candles:
                 ltp = candles[-1].close
                 source = "CANDLE_FALLBACK"
@@ -1087,7 +1088,8 @@ class PaperTradingService:
         return cache
 
     def _price_snapshot(self, symbol: str) -> PriceSnapshot:
-        candles = self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90)
+        from app.services.fyers_service import _run_sync
+        candles = _run_sync(self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90))
         if not candles:
             self.logger.warning("No OHLCV candles available for price snapshot | symbol=%s", symbol)
 

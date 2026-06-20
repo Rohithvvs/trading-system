@@ -25,7 +25,7 @@ def mock_externals(monkeypatch):
     class FakeFyersService:
         def __init__(self, *args, **kwargs): pass
         def get_candles_cached(self, *args, **kwargs): return candles
-        def fetch_ohlcv(self, *args, **kwargs): return candles
+        async def fetch_ohlcv(self, *args, **kwargs): return candles
         def fetch_incremental_ohlcv(self, *args, **kwargs): return candles
         def combine_candles(self, *args, **kwargs): return candles
         def get_ohlcv_source(self, *args, **kwargs): return "MOCK"

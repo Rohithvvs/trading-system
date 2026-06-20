@@ -116,7 +116,7 @@ async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
     pre_fetched_candles = {}
     for symbol in all_symbols:
         try:
-            pre_fetched_candles[symbol] = await asyncio.to_thread(fyers_service.fetch_ohlcv, symbol, AnalysisMode.intraday, "1m", lookback_days, allow_mock=False)
+            pre_fetched_candles[symbol] = await fyers_service.fetch_ohlcv(symbol, AnalysisMode.intraday, "1m", lookback_days, allow_mock=False)
         except Exception as e:
             logger.error("[GAP_REPLAY] Failed to fetch candles for %s: %s", symbol, e)
 

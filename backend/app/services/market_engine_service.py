@@ -593,10 +593,7 @@ class MarketEngineService:
                 symbol = position.symbol
                 
             # Fetch candles outside DB lock
-            def _fetch_sync():
-                return self.fyers.fetch_ohlcv(symbol, AnalysisMode.intraday, "1", lookback_days)
-                
-            candles = await asyncio.to_thread(_fetch_sync)
+            candles = await self.fyers.fetch_ohlcv(symbol, AnalysisMode.intraday, "1", lookback_days)
             
             if not candles:
                 return

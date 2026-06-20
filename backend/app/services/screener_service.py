@@ -105,16 +105,13 @@ class ScreenerService:
         # Begin symbol scanning
         self.logger.info("STEP 1/8 | Begin symbol screening | stage=%s | symbol=%s", stage_name, symbol)
         if candles is None:
-            import asyncio
-            def _fetch():
-                return self.fyers_service.get_candles_cached(
-                    symbol=symbol,
-                    mode=AnalysisMode.swing,
-                    resolution="1d",
-                    lookback_window=max(lookback_window, 240),
-                    allow_mock=False,
-                )
-            candles = await asyncio.to_thread(_fetch)
+            candles = await self.fyers_service.get_candles_cached(
+                symbol=symbol,
+                mode=AnalysisMode.swing,
+                resolution="1d",
+                lookback_window=max(lookback_window, 240),
+                allow_mock=False,
+            )
         candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1d")
         if not candle_source or candle_source == "unknown":
             candle_source = "CANDLE_CACHE_DB"

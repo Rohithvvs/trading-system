@@ -70,8 +70,7 @@ class OrchestratorAgent:
             self.logger.info(f"Starting OHLCV fetch | symbol={symbol}")
             candles_by_mode = {}
             for mode in modes:
-                candles_by_mode[mode] = await asyncio.to_thread(
-                    self.fyers_service.fetch_ohlcv,
+                candles_by_mode[mode] = await self.fyers_service.fetch_ohlcv(
                     symbol=symbol,
                     mode=mode,
                     resolution=self._resolution_for_mode(mode, request),

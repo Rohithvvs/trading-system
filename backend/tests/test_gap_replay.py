@@ -27,7 +27,7 @@ class FakeFyers:
     def __init__(self, candles):
         self.candles = candles
 
-    def fetch_ohlcv(self, symbol, analysis_mode, interval, lookback_days, allow_mock=False):
+    async def fetch_ohlcv(self, symbol, analysis_mode, interval, lookback_days, allow_mock=False):
         return self.candles
 
 

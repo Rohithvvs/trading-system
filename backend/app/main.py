@@ -474,8 +474,8 @@ async def lifespan(app: FastAPI):
                                 else: ltp = ltp_coro
 
                                 if ltp is None:
-                                    candles = await asyncio.to_thread(
-                                        fyers.fetch_ohlcv, a["symbol"], AnalysisMode.swing, "1d", 2
+                                    candles = await fyers.fetch_ohlcv(
+                                        a["symbol"], AnalysisMode.swing, "1d", 2
                                     )
                                     if candles and len(candles) > 0:
                                         ltp = candles[-1].close
@@ -640,6 +640,7 @@ async def log_http_requests(request: Request, call_next):
         
         # Log to DB and return 500 gracefully
         tb = traceback.format_exc()
+        print(f"EXCEPTION CAUGHT IN MIDDLEWARE:\n{tb}")
         await log_to_db(
             level="ERROR",
             module="http_middleware_exception",
@@ -695,7 +696,7 @@ async def nightly_candle_sync():
     async def _sync_symbol(symbol: str):
         async with sem:
             try:
-                await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
+                await fyers.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
                 logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
             except Exception as e:
                 logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)

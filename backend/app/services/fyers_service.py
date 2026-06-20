@@ -51,7 +51,7 @@ import concurrent.futures
 _SYNC_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 def _run_sync(coro):
-    import backend.app.db.session as session_module
+    import app.db.session as session_module
     import asyncio
     main_loop = getattr(session_module, "main_event_loop", None)
     
@@ -325,7 +325,7 @@ class FyersService:
             "year52_low": self._to_float(pick("year52_low", "year52Low", "52_week_low", "fiftyTwoWeekLow")),
         }
 
-    def fetch_ohlcv(
+    async def fetch_ohlcv(
         self,
         symbol: str,
         mode: AnalysisMode,
@@ -336,11 +336,11 @@ class FyersService:
         points = 40 if mode == AnalysisMode.intraday else max(lookback_window, 260)
         cache_key = (self._cache_symbol(symbol), mode.value, resolution.lower())
         
-        with FyersService._ohlcv_thread_lock:
-            if cache_key not in FyersService._ohlcv_thread_locks:
-                FyersService._ohlcv_thread_locks[cache_key] = threading.Lock()
+        import asyncio
+        if cache_key not in FyersService._ohlcv_thread_locks:
+            FyersService._ohlcv_thread_locks[cache_key] = asyncio.Lock()
                 
-        with FyersService._ohlcv_thread_locks[cache_key]:
+        async with FyersService._ohlcv_thread_locks[cache_key]:
             cached = FyersService._ohlcv_cache.get(cache_key)
             now = time.time()
             # 300 second TTL for OHLCV memory cache
@@ -386,7 +386,7 @@ class FyersService:
             )
         
             if self._is_fyers_configured():
-                candles = self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
+                candles = await self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
                 if candles:
                     try:
                         fyers_logger.info(
@@ -541,7 +541,7 @@ class FyersService:
                 pass
             return None
 
-    def _fetch_fyers_candles(
+    async def _fetch_fyers_candles(
         self,
         symbol: str,
         resolution: str,
@@ -564,7 +564,7 @@ class FyersService:
         )
         import asyncio
 
-        def request_history(range_from: str, range_to: str) -> list[list[object]]:
+        async def request_history(range_from: str, range_to: str) -> list[list[object]]:
             payload = {
                 "symbol": self._normalize_symbol(symbol),
                 "resolution": self._map_resolution(resolution),
@@ -588,7 +588,7 @@ class FyersService:
                 range_to,
                 payload["resolution"],
             )
-            response = self._request_history_with_retries(client, payload, symbol)
+            response = await asyncio.to_thread(self._request_history_with_retries, client, payload, symbol)
             candle_rows = response.get("candles", []) if isinstance(response, dict) else []
             if not candle_rows:
                 self.logger.warning(
@@ -607,7 +607,7 @@ class FyersService:
             if mapped_resolution != "1D":
                 # FYERS allows max 100 days for intraday. We cap at 90 to be safe.
                 start_date = today - timedelta(days=min(lookback_window, 90))
-                candle_rows = request_history(start_date.isoformat(), today.isoformat())
+                candle_rows = await request_history(start_date.isoformat(), today.isoformat())
                 parsed: list[OHLCVPoint] = []
                 for row in candle_rows:
                     if len(row) < 6:
@@ -624,11 +624,11 @@ class FyersService:
                     )
                 return parsed[-points:]
 
-            db_count = _run_sync(get_candle_count(clean_symbol))
-            last_date = _run_sync(get_last_stored_date(clean_symbol))
+            db_count = await get_candle_count(clean_symbol)
+            last_date = await get_last_stored_date(clean_symbol)
 
             if db_count >= points and last_date is not None:
-                candle_rows = request_history(last_date, today.isoformat())
+                candle_rows = await request_history(last_date, today.isoformat())
                 new_rows: list[dict[str, object]] = []
                 for row in candle_rows:
                     if len(row) < 6:
@@ -645,7 +645,7 @@ class FyersService:
                         }
                     )
                 if new_rows:
-                    _run_sync(save_candles(clean_symbol, new_rows))
+                    await save_candles(clean_symbol, new_rows)
                     self.logger.info(
                         "OHLCV DB SAVE | symbol=%s | saved=%s",
                         symbol,
@@ -656,7 +656,9 @@ class FyersService:
                 range_1_to = (today - timedelta(days=365)).isoformat()
                 range_2_from = (today - timedelta(days=365)).isoformat()
                 range_2_to = today.isoformat()
-                candle_rows = request_history(range_1_from, range_1_to) + request_history(range_2_from, range_2_to)
+                rows_1 = await request_history(range_1_from, range_1_to)
+                rows_2 = await request_history(range_2_from, range_2_to)
+                candle_rows = rows_1 + rows_2
 
                 deduped_rows: dict[str, dict[str, object]] = {}
                 for row in candle_rows:
@@ -673,7 +675,7 @@ class FyersService:
                     }
                 if deduped_rows:
                     all_rows = [deduped_rows[key] for key in sorted(deduped_rows)]
-                    _run_sync(save_candles(clean_symbol, all_rows))
+                    await save_candles(clean_symbol, all_rows)
                     self.logger.info(
                         "OHLCV DB SAVE | symbol=%s | saved=%s",
                         symbol,
@@ -693,7 +695,7 @@ class FyersService:
             return []
 
         two_years_ago = (today - timedelta(days=730)).isoformat()
-        db_rows = _run_sync(load_candles(clean_symbol, two_years_ago))
+        db_rows = await load_candles(clean_symbol, two_years_ago)
         if not db_rows or len(db_rows) < points:
             fallback = self._fetch_yfinance_candles(symbol, lookback_window, points)
             if fallback:
@@ -724,7 +726,7 @@ class FyersService:
             )
         return parsed[-points:]
 
-    def get_candles_cached(
+    async def get_candles_cached(
         self,
         symbol: str,
         mode: AnalysisMode,
@@ -747,25 +749,24 @@ class FyersService:
             except Exception:
                 # If the cache module is not available, fall back to live fetch
                 self.logger.warning("CANDLE STORE not available, falling back to live fetch | symbol=%s", symbol)
-                return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
+                return await self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
 
             clean_symbol = self._cache_symbol(symbol)
 
             cache_key = (clean_symbol, mode.value, resolution.lower())
-            cache_reusable = _run_sync(candle_store.is_cache_fresh(
-                clean_symbol,
-                max_age_minutes=30,
-            )) or _run_sync(candle_store.has_completed_daily_session(clean_symbol))
+            cache_reusable = await candle_store.is_cache_fresh(
+                clean_symbol, max_age_minutes=cache_ttl_minutes
+            ) or await candle_store.has_completed_daily_session(clean_symbol)
             if cache_reusable:
                 # Ensure cached DB has sufficient rows for the requested `points`.
                 try:
-                    cached_count = _run_sync(candle_store.get_candle_count(clean_symbol))
+                    cached_count = await candle_store.get_candle_count(clean_symbol)
                 except Exception:
                     cached_count = 0
 
                 if cached_count >= points:
-                    df = _run_sync(candle_store.load_candles(clean_symbol))
+                    df = await candle_store.load_candles(clean_symbol)
                     parsed: list[OHLCVPoint] = []
                     for _, row in df.iterrows():
                         parsed.append(
@@ -793,7 +794,7 @@ class FyersService:
                     points,
                 )
 
-            last_stored = _run_sync(candle_store.get_last_stored_date(clean_symbol))
+            last_stored = await candle_store.get_last_stored_date(clean_symbol)
             self.logger.info(
                 "CACHE MISS | symbol=%s | last_stored=%s | source=FYERS fetching now",
                 symbol,
@@ -823,7 +824,7 @@ class FyersService:
                         for p in fetched
                     ]
                     df = pd.DataFrame(rows)
-                    _run_sync(candle_store.store_candles(clean_symbol, df))
+                    await candle_store.store_candles(clean_symbol, df)
                     self.logger.info("CACHE STORED | symbol=%s | rows=%s", symbol, len(df))
                 except Exception as exc:  # pragma: no cover - best-effort cache write
                     self.logger.warning("Failed to persist candles to cache | symbol=%s | error=%s", symbol, exc)
@@ -831,14 +832,14 @@ class FyersService:
             return fetched
 
         # Non-daily resolutions: fall back to existing fetch behaviour
-        return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
+        return await self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
     def _normalize_symbol(self, symbol: str) -> str:
-        from backend.app.utils.symbol import fyers_symbol, canonical_symbol
+        from app.utils.symbol import fyers_symbol, canonical_symbol
         return fyers_symbol(canonical_symbol(symbol))
 
     def _cache_symbol(self, symbol: str) -> str:
-        from backend.app.utils.symbol import canonical_symbol
+        from app.utils.symbol import canonical_symbol
         return canonical_symbol(symbol)
 
     def _store_ohlcv_cache(
@@ -1101,8 +1102,6 @@ class FyersService:
             except Exception as exc:
                 wait_time = 2 ** retry_count
                 self.logger.warning("Network drop fetching incremental candle | symbol=%s | attempt=%s | wait=%ss | error=%s", symbol, retry_count + 1, wait_time, exc)
-                if scan_ctx:
-                    log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=retry_count + 1)
                 time.sleep(wait_time)
         
         self.logger.error("All 3 attempts failed for incremental candle | symbol=%s", symbol)

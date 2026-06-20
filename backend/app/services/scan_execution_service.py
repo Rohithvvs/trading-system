@@ -61,7 +61,7 @@ class ScanExecutionService:
                     buy_count=0,
                     watch_count=0,
                     rejected_count=0,
-                    status="STARTED",
+                    status="completed",
                     error_type=None
                 )
                 db.add(snapshot)
