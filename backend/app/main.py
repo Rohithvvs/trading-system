@@ -345,13 +345,14 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
-    # JOB 2: Pre-Market Deep Scan
-    scheduler.add_job(
-        automated_screening_job,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="Asia/Kolkata"),
-        id="pre_market_deep_scan",
-        replace_existing=True,
-    )
+    # JOB 2: Pre-Market Deep Scan (Disabled)
+    logger.info("Automatic scheduled scanner execution is disabled.")
+    # scheduler.add_job(
+    #     automated_screening_job,
+    #     CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="Asia/Kolkata"),
+    #     id="pre_market_deep_scan",
+    #     replace_existing=True,
+    # )
 
     # JOB 3a: Intraday Engine Heartbeat Loop (09:15 AM to 09:45 AM)
     scheduler.add_job(

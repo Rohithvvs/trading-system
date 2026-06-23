@@ -283,7 +283,8 @@ async def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEn
             should_run = True
 
     if should_run:
-        background_tasks.add_task(_run_automated_background_scan)
+        logger.info("Auto scan from heartbeat is disabled.")
+        # background_tasks.add_task(_run_automated_background_scan)
 
     return JSONResponse(content=sanitize_for_json(await market_engine.status()))
 

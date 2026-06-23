@@ -71,9 +71,9 @@ async def save_access_token_route(payload: FyersTokenCreate, background_tasks: B
             elif recent_scan:
                 logger.info("AUTO_SCAN_SKIPPED_RECENT_SCAN: Last completed scanner execution is < 15 minutes old.")
             else:
-                logger.info("Auto-triggering scanner in background.")
-                from ..main import automated_screening_job
-                background_tasks.add_task(automated_screening_job)
+                logger.info("Auto scan after token save is disabled.")
+                # from ..main import automated_screening_job
+                # background_tasks.add_task(automated_screening_job)
         else:
             logger.info("AUTO_SCAN_SKIPPED_OUTSIDE_WINDOW: Auto-trigger scanner only allowed between 09:15 and 22:00 IST.")
     except Exception as e:
