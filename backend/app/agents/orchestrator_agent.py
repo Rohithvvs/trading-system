@@ -181,7 +181,7 @@ class OrchestratorAgent:
 
         if progress_callback:
             progress_callback({"stage": "Loading Market Universe...", "progress": 20})
-        universes = self._prioritized_universes()
+        universes = await self._prioritized_universes()
         self.logger.info(
             "Universe scan plan | stages=%s | stage_list=%s",
             len(universes),
@@ -422,14 +422,14 @@ class OrchestratorAgent:
             duplicate_symbols_skipped=duplicate_symbols_skipped,
         )
 
-    def _prioritized_universes(self) -> list[tuple[str, list[str]]]:
-        stages = [
-            ("NIFTY 500", settings.nifty500_symbols),
-            ("NIFTY NEXT 500", settings.nifty_next_500_symbols),
-            ("BSE 500", settings.bse500_symbols),
-            ("BSE 1000", settings.bse1000_symbols),
-        ]
-        return [(name, symbols) for name, symbols in stages if symbols]
+    async def _prioritized_universes(self) -> list[tuple[str, list[str]]]:
+        from ..services.universe_service import UniverseService
+        stages = []
+        for u in ["NIFTY500", "NIFTY100", "FNO", "CUSTOM"]:
+            symbols = await UniverseService.get_active_symbols(u)
+            if symbols:
+                stages.append((u, symbols))
+        return stages
 
     def _dedupe_symbols(
         self,

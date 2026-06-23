@@ -51,7 +51,7 @@ import concurrent.futures
 _SYNC_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 def _run_sync(coro):
-    import app.db.session as session_module
+    from ..db import session as session_module
     import asyncio
     main_loop = getattr(session_module, "main_event_loop", None)
     
@@ -835,11 +835,11 @@ class FyersService:
         return await self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
     def _normalize_symbol(self, symbol: str) -> str:
-        from app.utils.symbol import fyers_symbol, canonical_symbol
+        from ..utils.symbol import fyers_symbol, canonical_symbol
         return fyers_symbol(canonical_symbol(symbol))
 
     def _cache_symbol(self, symbol: str) -> str:
-        from app.utils.symbol import canonical_symbol
+        from ..utils.symbol import canonical_symbol
         return canonical_symbol(symbol)
 
     def _store_ohlcv_cache(
@@ -1062,8 +1062,12 @@ class FyersService:
                 client = self._client()
                 range_from_str = (last_cached_dt + timedelta(days=1)).isoformat()
                 today_str = today_dt.isoformat()
+                self.logger.debug("Normalizing symbol")
+                normalized_sym = self._normalize_symbol(symbol)
+                self.logger.debug("Symbol normalized")
+
                 payload = {
-                    "symbol": self._normalize_symbol(symbol),
+                    "symbol": normalized_sym,
                     "resolution": "1D",
                     "date_format": "1",
                     "range_from": range_from_str,
@@ -1099,6 +1103,9 @@ class FyersService:
             except FyersInvalidSymbolError:
                 self._blacklist_symbol(symbol)
                 return []
+            except (ModuleNotFoundError, ImportError):
+                self.logger.exception("Import failure during incremental fetch")
+                raise
             except Exception as exc:
                 wait_time = 2 ** retry_count
                 self.logger.warning("Network drop fetching incremental candle | symbol=%s | attempt=%s | wait=%ss | error=%s", symbol, retry_count + 1, wait_time, exc)

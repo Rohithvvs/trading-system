@@ -309,8 +309,15 @@ async def lifespan(app: FastAPI):
         logger.info("STARTUP PROGRESS: settings module loaded successfully.")
         
         # Run startup validation for screener health
+        from .services.universe_service import UniverseService
+        active_symbols = await UniverseService.get_all_active_symbols()
+        count = len(active_symbols)
+        logger.info(f"UNIVERSE_LOADED | count={count}")
+        if count == 0:
+            raise RuntimeError("Startup failed: Universe count is 0. Please import stocks_master.")
+
         screener_svc = ScreenerService()
-        await screener_svc.validate_startup_health(list(settings.nifty500_symbols))
+        await screener_svc.validate_startup_health(active_symbols)
         logger.info("STARTUP SUCCESS: Scanner health bootstrap completed successfully.")
     except Exception as e:
         logger.critical("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan: %s", repr(e))

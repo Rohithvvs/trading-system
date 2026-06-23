@@ -105,7 +105,7 @@ class DistributedLockService:
     async def release(self):
         if not self._is_locked:
             return
-        self.stop_heartbeat()
+        await self.stop_heartbeat()
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 stmt = delete(SystemLock).where(
