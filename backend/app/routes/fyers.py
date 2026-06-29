@@ -19,10 +19,13 @@ logger = logging.getLogger("app.fyers")
 @router.post("/token")
 async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends(get_db)):
     """Save a new FYERS token. Deactivate any existing tokens first."""
-    from ..services import token_service
+    from ..services.fyers_service import FyersService
     
     try:
-        result = await token_service.save_access_token(payload.access_token, db)
+        fyers_service = FyersService()
+        result = await fyers_service.save_tokens(payload.access_token, payload.refresh_token, db)
+        if result.get("status") != "ok":
+            raise HTTPException(status_code=400, detail=result.get("message", "Failed to save token"))
         return {"status": "success", "message": "Token saved successfully", "token_id": result.get("token_id")}
     except Exception as e:
         logger.error("Failed to save fyers token: %s", e)
@@ -31,18 +34,11 @@ async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends
 
 @router.get("/token/status")
 async def fyers_token_status(db: AsyncSession = Depends(get_db)):
+    from ..services.fyers_service import FyersService
     try:
-        row = (await db.scalars(select(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()))).first()
-        if not row:
-            return JSONResponse(content={"has_token": False, "created_at": None, "expires_at": None, "is_active": False})
-        return JSONResponse(
-            content={
-                "has_token": True,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "expires_at": row.expires_at.isoformat() if row.expires_at else None,
-                "is_active": bool(row.is_active),
-            }
-        )
+        fyers_service = FyersService()
+        status = await fyers_service.get_token_status_with_refresh_info(db)
+        return JSONResponse(content=status)
     except Exception as exc:
         logger.exception("Failed to read token status: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))

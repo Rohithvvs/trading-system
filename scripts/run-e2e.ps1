@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Frontend = Join-Path $Root "frontend"
-$Artifacts = Join-Path $Root "tests\artifacts"
+$Artifacts = Join-Path $Root "backend\tests\artifacts"
 $BackendLog = Join-Path $Artifacts "e2e-backend.out.log"
 $BackendErr = Join-Path $Artifacts "e2e-backend.err.log"
 $FrontendLog = Join-Path $Artifacts "e2e-frontend.out.log"
@@ -60,7 +60,7 @@ try {
   )
   $backendEnv = @{
     APP_ENV = "test"
-    DATABASE_URL = "sqlite:///./tests/artifacts/e2e_app.db"
+    DATABASE_URL = "sqlite:///./backend/tests/artifacts/e2e_app.db"
     NIFTY500_SYMBOLS = "INFY-EQ,TCS-EQ,RELIANCE-EQ"
   }
   foreach ($key in $backendEnv.Keys) {

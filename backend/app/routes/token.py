@@ -84,8 +84,10 @@ async def save_access_token_route(payload: FyersTokenCreate, background_tasks: B
 
 @router.get("/status")
 async def token_status(db: AsyncSession = Depends(get_db)):
+    from ..services.fyers_service import FyersService
     try:
-        status = await token_service.get_token_status(db)
+        fyers_service = FyersService()
+        status = await fyers_service.get_token_status_with_refresh_info(db)
     except Exception as exc:
         logger.exception("Failed to load token status: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))

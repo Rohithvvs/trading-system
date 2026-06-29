@@ -27,6 +27,7 @@ class ScanExecutionService:
         logger.info("SCAN_LOCK_ACQUIRED | trigger_source=%s | scan_id=%s | lock_owner=%s | timestamp=%s", trigger_source, scan_id, lock.worker_id, time.time())
         lock.start_heartbeat()
         asyncio.create_task(ScanExecutionService._run_scan_task(payload, progress_queue, trigger_source, scan_id, lock))
+        return scan_id
 
     @staticmethod
     async def _run_scan_task(payload: ScreenerRequest, progress_queue: asyncio.Queue | None, trigger_source: str, scan_id: str, lock: DistributedLockService):
@@ -107,7 +108,7 @@ class ScanExecutionService:
                 )
 
                 if progress_queue is not None:
-                    await progress_queue.put({"status": "complete", "result": result})
+                    await progress_queue.put({"status": "complete", "scan_id": scan_id, "result": result})
 
             except asyncio.CancelledError:
                 error_type = "CancelledError"
@@ -127,7 +128,7 @@ class ScanExecutionService:
                     await db.commit()
                 logger.exception("SCAN_FAILED | trigger_source=%s | error_type=%s | timestamp=%s", trigger_source, error_type, time.time())
                 if progress_queue is not None:
-                    await progress_queue.put({"status": "error", "message": str(e)})
+                    await progress_queue.put({"status": "error", "scan_id": scan_id, "message": str(e), "error_type": error_type})
         finally:
             if duration_ms == 0:
                 duration_ms = int((time.perf_counter() - start_t) * 1000)

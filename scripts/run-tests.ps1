@@ -10,7 +10,7 @@ if (-not (Test-Path $Python)) {
   $Python = "python"
 }
 
-New-Item -ItemType Directory -Force -Path (Join-Path $Root "tests\artifacts") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $Root "backend\tests\artifacts") | Out-Null
 
 switch ($Suite) {
   "fast" {

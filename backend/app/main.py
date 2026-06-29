@@ -136,6 +136,44 @@ if not settings.nifty500_symbols:
         "Nifty 500 universe is empty | Check NIFTY500_CSV_PATH, ind_nifty500list.csv, or NIFTY500_SYMBOLS"
     )
 
+async def job_auto_token_refresh():
+    from .services.logger_service import logger_service
+    from .services.lock_service import DistributedLockService
+    from .db.session import AsyncSessionLocal
+    
+    logger_service.log_info(
+        message="Auto token refresh triggered.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="job_auto_token_refresh"
+    )
+    lock_svc = DistributedLockService()
+    has_lock = await lock_svc.acquire_lock("job_auto_token_refresh", ttl_seconds=300)
+    if not has_lock:
+        logger.info("CRON_SKIPPED: job_auto_token_refresh (lock held by another worker)")
+        return
+        
+    try:
+        from .services.fyers_service import FyersService
+        async with AsyncSessionLocal() as db:
+            svc = FyersService()
+            await svc.auto_refresh_access_token(db)
+            
+        logger_service.log_info(
+            message="Auto token refresh completed.",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_auto_token_refresh"
+        )
+    except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_auto_token_refresh",
+            error=e
+        )
+
 async def job_market_engine_spin_up():
     from .services.logger_service import logger_service
     logger_service.log_info(
@@ -342,6 +380,14 @@ async def lifespan(app: FastAPI):
         job_market_engine_spin_up,
         CronTrigger(day_of_week="mon-fri", hour=8, minute=55, timezone="Asia/Kolkata"),
         id="market_engine_spin_up",
+        replace_existing=True,
+    )
+
+    # JOB 1b: Auto Token Refresh
+    scheduler.add_job(
+        job_auto_token_refresh,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=30, timezone="Asia/Kolkata"),
+        id="job_auto_token_refresh",
         replace_existing=True,
     )
 

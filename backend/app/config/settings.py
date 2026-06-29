@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     fyers_secret_id: str = ""
     fyers_pin: str = ""
     fyers_redirect_uri: str = ""
+    fyers_token_encryption_key: str = ""
     mongo_url: str = ""
     mongo_db_name: str = ""
     nifty500_csv_path: str = "ind_nifty500list.csv"

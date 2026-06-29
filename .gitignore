@@ -1,4 +1,4 @@
-# Python virtual environments
+﻿# Python virtual environments
 .venv/
 venv/
 
@@ -44,3 +44,4 @@ backend/server_state.json
 
 backend/tests/data/*.db
 backend/tests/data/*.bak
+backend/data/

@@ -22,6 +22,9 @@ class FyersToken(Base):
 
     access_token = Column(Text, nullable=False)
     refresh_token = Column(Text, nullable=True)
+    refresh_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_auto_renewal_at = Column(DateTime(timezone=True), nullable=True)
+    last_auto_renewal_status = Column(String(32), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, server_default=text("true"))

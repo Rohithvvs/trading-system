@@ -1,22 +1,15 @@
 import { useEffect, useState } from "react";
-import { getTokenHistory, getTokenStatus, saveAccessToken, getLatestScan } from "../api";
-
-type Status = {
-  access_token_active: boolean;
-  access_token_saved_at: string | null;
-  validated_at?: string | null;
-  status: string | null;
-  last_error: string | null;
-};
+import { getTokenHistory, getTokenStatus, saveAccessToken, getLatestScan, TokenStatusResponse } from "../api";
 
 export default function TokenStatus() {
-  const [status, setStatus] = useState<Status | null>(null);
+  const [status, setStatus] = useState<TokenStatusResponse | null>(null);
   const [lastScanAt, setLastScanAt] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [accessInput, setAccessInput] = useState("");
+  const [refreshInput, setRefreshInput] = useState("");
 
   async function load() {
     try {
@@ -54,15 +47,32 @@ export default function TokenStatus() {
 
   function badge() {
     if (!status || status.status === "no_token") {
-      return <span data-testid="token-status-badge" className="badge neutral">No token</span>;
+      return <span data-testid="token-status-badge" className="badge neutral">No access token</span>;
     }
     if (status.status === "active") {
-      return <span data-testid="token-status-badge" className="badge green">Token Active</span>;
+      return <span data-testid="token-status-badge" className="badge green">Access Token Active</span>;
     }
     if (status.status === "inactive") {
-      return <span data-testid="token-status-badge" className="badge yellow">Token Inactive</span>;
+      return <span data-testid="token-status-badge" className="badge yellow">Access Token Inactive</span>;
     }
     return <span data-testid="token-status-badge" className="badge neutral">{status.status}</span>;
+  }
+
+  function renderRefreshBanner() {
+    if (!status || !status.has_refresh_token) {
+      return null;
+    }
+    
+    const days = status.refresh_token_days_remaining;
+    if (days === null || days === undefined) return null;
+    
+    if (days >= 4) {
+      return <div className="success-box" style={{ marginBottom: 12 }}>Refresh Token Valid: {days} days remaining</div>;
+    } else if (days > 0) {
+      return <div className="warning-box" style={{ marginBottom: 12, backgroundColor: '#fff3cd', color: '#856404', padding: '8px', borderRadius: '4px', border: '1px solid #ffeeba' }}>Refresh Token Expiring Soon: {days} days remaining</div>;
+    } else {
+      return <div className="error-box" style={{ marginBottom: 12 }}>Refresh Token Expired. Please provide a new token.</div>;
+    }
   }
 
   async function handleSave() {
@@ -70,11 +80,12 @@ export default function TokenStatus() {
     setError(null);
     setSuccessMessage(null);
     try {
-      await saveAccessToken(accessInput.trim());
+      await saveAccessToken(accessInput.trim(), refreshInput.trim() || null);
       await load();
       await loadHistory();
       setSuccessMessage("Token successfully verified and saved.");
       setAccessInput("");
+      setRefreshInput("");
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -86,6 +97,7 @@ export default function TokenStatus() {
     <section className="panel token-management" data-testid="token-management-panel">
       <h3>FYERS Access Token</h3>
       <div style={{ marginBottom: 8 }}>{badge()}</div>
+      {renderRefreshBanner()}
 
       <div style={{ marginBottom: 12 }}>
         <div style={{ marginBottom: 8 }}>
@@ -99,8 +111,16 @@ export default function TokenStatus() {
               <td>{status?.status ?? "no_token"}</td>
             </tr>
             <tr>
-              <td>Last Token Validation</td>
+              <td>Last Access Token Validation</td>
               <td>{status?.validated_at ? new Date(status.validated_at).toLocaleString() : "-"}</td>
+            </tr>
+            <tr>
+              <td>Auto Renewal Status</td>
+              <td>{status?.has_refresh_token ? (status.last_auto_renewal_status || "Pending") : "Not configured"}</td>
+            </tr>
+            <tr>
+              <td>Last Auto Renewal</td>
+              <td>{status?.last_auto_renewal_at ? new Date(status.last_auto_renewal_at).toLocaleString() : "-"}</td>
             </tr>
             <tr>
               <td>Last Successful Scan</td>
@@ -128,13 +148,21 @@ export default function TokenStatus() {
         {error && <div className="error-box" style={{ marginTop: 8 }}>{error}</div>}
         {successMessage && <div className="success-box" style={{ marginTop: 8 }}>{successMessage}</div>}
 
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
           <input
             data-testid="access-token-input"
-            placeholder="Access token"
+            placeholder="Access token (Required)"
             type="password"
             value={accessInput}
             onChange={(e) => setAccessInput(e.target.value)}
+            disabled={saving}
+          />
+          <input
+            data-testid="refresh-token-input"
+            placeholder="Refresh token (Optional - for 15-day auto-renewal)"
+            type="password"
+            value={refreshInput}
+            onChange={(e) => setRefreshInput(e.target.value)}
             disabled={saving}
           />
           <button 
@@ -142,6 +170,7 @@ export default function TokenStatus() {
             className="button primary-button" 
             onClick={handleSave} 
             disabled={saving || !accessInput.trim()}
+            style={{ alignSelf: "flex-start" }}
           >
             {saving ? (
               <>
