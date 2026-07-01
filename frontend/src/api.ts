@@ -575,24 +575,37 @@ export async function deleteAlert(alertId: number) {
 }
 
 export async function saveAccessToken(access_token: string, refresh_token: string | null = null) {
-  const body = { access_token, refresh_token };
-  const response = await fetchWithDiagnostics('/fyers/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }, 'Validate and save access token');
-  
-  if (!response.ok) {
-    let errorMessage = 'Failed to validate access token';
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.detail || errorData.message || errorMessage;
-    } catch {
-      errorMessage = await response.text() || errorMessage;
+  try {
+    console.log("[API] POST /fyers/token called");
+    const body = { access_token, refresh_token };
+    const response = await fetchWithDiagnostics('/fyers/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, 'Validate and save access token');
+
+    console.log("[API] Response status:", response.status);
+
+    if (!response.ok) {
+      let errorMessage = 'Failed to validate access token';
+      try {
+        const errorData = await response.json();
+        console.log("[API] Response body:", errorData);
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch (err) {
+        console.error("[API ERROR] Token save failed:", err instanceof Error ? err.message : String(err));
+        errorMessage = await response.text() || errorMessage;
+      }
+      throw new Error(errorMessage);
     }
-    throw new Error(errorMessage);
+
+    const data = await response.json();
+    console.log("[API] Response body:", data);
+    return data;
+  } catch (err) {
+    console.error("[API ERROR] Token save failed:", err instanceof Error ? err.message : String(err));
+    throw err;
   }
-  return response.json();
 }
 
 export interface TokenStatusResponse {

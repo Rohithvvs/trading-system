@@ -199,6 +199,23 @@ export function PaperTradingPage({
   const [healthPollErrorCount, setHealthPollErrorCount] = useState<number>(0);
   const [selectedTrade, setSelectedTrade] = useState<PaperTradeHistoryItem | null>(null);
   const seenNotifications = useRef<Set<number>>(new Set());
+  const lastConnectionToastAt = useRef<number>(0);
+
+  function showConnectionRetryToast() {
+    const now = Date.now();
+    if (now - lastConnectionToastAt.current < 10000) {
+      return;
+    }
+    lastConnectionToastAt.current = now;
+    const id = now;
+    setToasts((current) => [
+      ...current,
+      { id, message: "Connection lost - retrying...", level: "warning" },
+    ]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 6000);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -345,6 +362,10 @@ export function PaperTradingPage({
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn("[PaperTrading] Auto-refresh failed:", err);
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("Failed to fetch")) {
+          showConnectionRetryToast();
+        }
       }
     }
     const id = window.setInterval(() => void refresh(), 10000);
@@ -945,7 +966,7 @@ export function PaperTradingPage({
       {/* Toast area for notifications */}
       <div style={{ position: 'fixed', right: 20, top: 80, zIndex: 1200 }}>
         {toasts.map((t) => (
-          <div key={t.id} style={{ marginBottom: 8, padding: 12, borderRadius: 6, minWidth: 260, boxShadow: '0 2px 6px rgba(0,0,0,0.12)', background: t.level === 'success' ? '#083f07' : t.level === 'error' ? '#4a0b0b' : '#083544', color: '#fff' }}>
+          <div key={t.id} style={{ marginBottom: 8, padding: 12, borderRadius: 6, minWidth: 260, boxShadow: '0 2px 6px rgba(0,0,0,0.12)', background: t.level === 'success' ? '#083f07' : t.level === 'error' ? '#4a0b0b' : t.level === 'warning' ? '#9a6700' : '#083544', color: '#fff' }}>
             <div style={{ fontWeight: 600 }}>{t.message}</div>
           </div>
         ))}
