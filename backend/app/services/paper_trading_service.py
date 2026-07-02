@@ -8,7 +8,7 @@ from math import isfinite
 
 import pandas as pd
 from sqlalchemy import delete, select, func
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from ta.trend import EMAIndicator
 
@@ -35,7 +35,6 @@ from ..schemas.paper_trading import (
 from ..services.fyers_service import FyersService
 from ..utils import get_logger
 from ..core.log_manager import trading_logger
-from ..db.retry import retry_on_db_error
 from ..utils.money import as_float, dec, q_pnl, q_price, q_qty
 from ..observability.metrics import DUPLICATE_EXECUTIONS, ORDER_EXECUTIONS
 
@@ -1302,12 +1301,7 @@ class PaperTradingService:
         if not symbol:
             return None
         snapshot = cache.get(symbol) or self._price_snapshot(symbol)
-        query = select(PaperPosition).where(PaperPosition.symbol == symbol)
-        try:
-            position = self.db.scalar(query)
-        except OperationalError:
-            print("[DB ERROR] SSL drop caught, rolling back and retrying...")
-            position = retry_on_db_error(lambda: self.db.scalar(query), self.db, retries=1)
+        position = self.db.scalar(select(PaperPosition).where(PaperPosition.symbol == symbol))
         return self._workspace_from_snapshot(
             snapshot,
             position.source_signal if position else None,

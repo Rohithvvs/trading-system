@@ -76,8 +76,6 @@ export default function TokenStatus() {
   }
 
   async function handleSave() {
-    console.log("[TOKEN FORM] Save clicked");
-    console.log("[TOKEN FORM] refresh_token length:", refreshInput?.length);
     setSaving(true);
     setError(null);
     setSuccessMessage(null);
@@ -85,11 +83,7 @@ export default function TokenStatus() {
       await saveAccessToken(accessInput.trim(), refreshInput.trim() || null);
       await load();
       await loadHistory();
-      if (refreshInput.trim()) {
-        setSuccessMessage("Refresh token saved. New access token generated.");
-      } else {
-        setSuccessMessage("Token successfully verified and saved.");
-      }
+      setSuccessMessage("Token successfully verified and saved.");
       setAccessInput("");
       setRefreshInput("");
     } catch (e: any) {
@@ -175,7 +169,7 @@ export default function TokenStatus() {
             data-testid="save-access-token-button" 
             className="button primary-button" 
             onClick={handleSave} 
-            disabled={saving || (!accessInput.trim() && !refreshInput.trim())}
+            disabled={saving || !accessInput.trim()}
             style={{ alignSelf: "flex-start" }}
           >
             {saving ? (

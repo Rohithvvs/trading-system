@@ -1135,7 +1135,7 @@ class FyersService:
             return f.encrypt(token.encode('utf-8')).decode('utf-8')
         except Exception as e:
             self.logger.error("Failed to encrypt token: %s", str(e))
-            raise ValueError(f"Encryption failed: {str(e)}")
+            return token
 
     def decrypt_token(self, encrypted_token: str) -> str:
         if not encrypted_token:
@@ -1149,78 +1149,32 @@ class FyersService:
             return f.decrypt(encrypted_token.encode('utf-8')).decode('utf-8')
         except Exception as e:
             self.logger.error("Failed to decrypt token: %s", str(e))
-            raise ValueError(f"Decryption failed: {str(e)}")
+            return encrypted_token
 
-    async def save_tokens(self, access_token: str | None, refresh_token: str | None, db) -> dict:
-        from .token_service import _set_token_cache
-        from ..models import FyersToken, FyersTokenHistory
+    async def save_tokens(self, access_token: str, refresh_token: str | None, db) -> dict:
+        from .token_service import save_access_token, get_fyers_token_row
         from datetime import datetime, timedelta
-        from sqlalchemy import select, update
-        from fastapi import HTTPException
-        import traceback
         
-        print("[FYERS SERVICE] Starting combined token save...")
-        now = datetime.utcnow()
-        try:
-            row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one_or_none()
+        result = await save_access_token(access_token, db)
+        if result.get("status") != "ok":
+            return result
             
-            if not row:
-                await db.execute(update(FyersToken).values(is_active=False, status="inactive"))
-                row = FyersToken(
-                    id=1,
-                    access_token=access_token or "",
-                    created_at=now,
-                    is_active=True,
-                    status="active",
-                )
-            else:
-                row.is_active = True
-                row.status = "active"
+        if refresh_token:
+            encrypted_refresh = self.encrypt_token(refresh_token)
+            try:
+                # Need to run in an async block. save_access_token commits its transaction.
+                async with db.begin():
+                    row = await get_fyers_token_row(db)
+                    if row:
+                        row.refresh_token = encrypted_refresh
+                        row.refresh_token_expires_at = datetime.utcnow() + timedelta(days=15)
+                        db.add(row)
+                self.logger.info("Refresh token successfully saved and encrypted.")
+            except Exception as e:
+                self.logger.error("Failed to save refresh token: %s", str(e))
+                return {"status": "error", "message": f"Saved access token but failed to save refresh token: {str(e)}"}
                 
-            print("[FYERS SERVICE] Setting both access + refresh token on single row")
-            if access_token:
-                row.access_token = access_token
-                row.access_token_saved_at = now
-                row.validated_at = now
-                
-            if refresh_token:
-                row.refresh_token = self.encrypt_token(refresh_token)
-                row.refresh_token_expires_at = now + timedelta(days=15)
-                row.last_auto_renewal_status = "saved"
-                
-            db.add(row)
-            
-            history = FyersTokenHistory(
-                token_id=1,
-                action="save_manual",
-                status="active",
-                note="Manual save via UI (access/refresh token merged)",
-                access_token_masked=access_token[:4] + "***" if access_token else None
-            )
-            db.add(history)
-            
-            await db.commit()
-            print("[FYERS SERVICE] Single db.commit() called")
-            await db.refresh(row)
-            
-            if access_token:
-                _set_token_cache(access_token, now)
-                
-            if refresh_token:
-                print("[FYERS SERVICE] Auto-generating access token from refresh token...")
-                auto_result = await self.auto_refresh_access_token(db)
-                if auto_result.get("status") != "ok":
-                    return auto_result
-                    
-            return {"status": "ok", "saved_at": str(now), "token_id": row.id}
-            
-        except Exception as e:
-            print(f"[FYERS SERVICE ERROR] {e}")
-            traceback.print_exc()
-            await db.rollback()
-            if isinstance(e, HTTPException):
-                raise
-            raise HTTPException(status_code=400, detail=str(e))
+        return result
 
     async def get_token_status_with_refresh_info(self, db) -> dict:
         from .token_service import get_fyers_token_row
@@ -1278,7 +1232,6 @@ class FyersService:
         from .token_service import get_fyers_token_row, _set_token_cache
         import httpx
         from datetime import datetime
-        import traceback
         
         row = await get_fyers_token_row(db)
         if not row or not row.refresh_token:
@@ -1313,60 +1266,48 @@ class FyersService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(url, json=payload)
-                print(f"[FYERS SERVICE] Fyers API response status: {response.status_code}")
                 data = response.json()
                 
             if response.status_code == 200 and data.get("s") == "ok":
                 new_access_token = data.get("access_token")
-                if not new_access_token:
-                    raise ValueError("FYERS API did not return an access_token")
                 
-                row = await get_fyers_token_row(db)
-                if row:
-                    refreshed_at = datetime.utcnow()
-                    row.access_token = new_access_token
-                    row.access_token_saved_at = refreshed_at
-                    row.last_auto_renewal_at = refreshed_at
-                    row.last_auto_renewal_status = "success"
-                    row.last_error = None
-                    db.add(row)
-                    await db.commit()
-                    await db.refresh(row)
+                async with db.begin():
+                    row = await get_fyers_token_row(db)
+                    if row:
+                        row.access_token = new_access_token
+                        row.access_token_saved_at = datetime.utcnow()
+                        row.last_auto_renewal_at = datetime.utcnow()
+                        row.last_auto_renewal_status = "success"
+                        row.last_error = None
+                        db.add(row)
                 
                 _set_token_cache(new_access_token, datetime.utcnow())
-                print("[FYERS SERVICE] New access token saved to DB")
                 self.logger.info("Auto-refresh successful.")
                 return {"status": "ok", "message": "Token refreshed successfully"}
             else:
                 error_message = data.get("message", "Unknown error from FYERS API")
                 self.logger.error("Auto-refresh failed from API: %s", error_message)
                 
-                row = await get_fyers_token_row(db)
-                if row:
-                    row.last_auto_renewal_at = datetime.utcnow()
-                    row.last_auto_renewal_status = "error"
-                    row.last_error = error_message
-                    db.add(row)
-                    await db.commit()
+                async with db.begin():
+                    row = await get_fyers_token_row(db)
+                    if row:
+                        row.last_auto_renewal_at = datetime.utcnow()
+                        row.last_auto_renewal_status = "error"
+                        row.last_error = error_message
+                        db.add(row)
                     
                 await self._handle_refresh_failure(error_message)
                 return {"status": "error", "message": error_message}
                 
         except Exception as e:
-            print(f"[FYERS SERVICE ERROR] {e}")
-            traceback.print_exc()
             self.logger.error("Network or parsing error during auto-refresh: %s", str(e))
-            try:
-                await db.rollback()
+            async with db.begin():
                 row = await get_fyers_token_row(db)
                 if row:
                     row.last_auto_renewal_at = datetime.utcnow()
                     row.last_auto_renewal_status = "error"
                     row.last_error = str(e)
                     db.add(row)
-                    await db.commit()
-            except Exception:
-                await db.rollback()
                 
             await self._handle_refresh_failure(str(e))
             return {"status": "error", "message": str(e)}

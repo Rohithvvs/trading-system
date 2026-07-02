@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 
 class FyersTokenCreate(BaseModel):
-    access_token: Optional[str] = None
+    access_token: str
     refresh_token: Optional[str] = None
     expires_at: Optional[datetime] = None
 

@@ -1,7 +1,6 @@
 from sqlalchemy import select, update
 from datetime import datetime
 import logging
-import traceback
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -20,9 +19,6 @@ logger = logging.getLogger("app.fyers")
 @router.post("/token")
 async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends(get_db)):
     """Save a new FYERS token. Deactivate any existing tokens first."""
-    print("[TOKEN ROUTE] Request received")
-    print(f"[TOKEN ROUTE] access_token present: {bool(payload.access_token)}")
-    print(f"[TOKEN ROUTE] refresh_token present: {bool(payload.refresh_token)}")
     from ..services.fyers_service import FyersService
     
     try:
@@ -31,13 +27,9 @@ async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends
         if result.get("status") != "ok":
             raise HTTPException(status_code=400, detail=result.get("message", "Failed to save token"))
         return {"status": "success", "message": "Token saved successfully", "token_id": result.get("token_id")}
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"[FYERS SERVICE ERROR] {e}")
-        traceback.print_exc()
         logger.error("Failed to save fyers token: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/token/status")

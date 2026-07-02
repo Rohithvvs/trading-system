@@ -320,12 +320,6 @@ async def lifespan(app: FastAPI):
             logger.exception("Failed to write shutdown time on shutdown")
         return
 
-    if not (settings.fyers_token_encryption_key or "").strip():
-        raise RuntimeError("FERNET_KEY/FYERS_TOKEN_ENCRYPTION_KEY is missing or empty")
-    if not (settings.database_url or "").startswith("postgresql"):
-        raise RuntimeError("DATABASE_URL must start with postgresql")
-    print("[STARTUP] All env vars verified OK")
-
     worker_lease = await acquire_singleton_lease("trading-system:singleton-workers")
     app.state.singleton_worker_lease = worker_lease
     app.state.task_supervisor = TaskSupervisor()
