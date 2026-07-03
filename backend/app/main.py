@@ -830,25 +830,45 @@ async def automated_screening_job():
                 end_scan(scan_ctx)
                 return
             except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
-                logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS Token Expired")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
+                logger.warning("Scan token validation failed (%s). Attempting recovery via stored refresh token...", e)
                 token_service._clear_token_cache()
-                from .services.paper_trading_service import PaperTradingService
-                PaperTradingService(db).add_notification(
-                    account_id=1,
-                    message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
-                    level="error",
-                    event_type="TOKEN_EXPIRED",
-                    entity_type="system",
-                    dedupe_key="TOKEN_EXPIRED_ALERT",
-                    commit=True
-                )
-                logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
-                return
+                recovered = False
+                try:
+                    from .services.fyers_service import FyersService
+                    # Reuse existing auto-refresh (it will use stored refresh_token if present)
+                    refresh_res = await FyersService().auto_refresh_access_token(db)
+                    if refresh_res.get("status") == "ok":
+                        token = await token_service.get_current_access_token(db)
+                        if token:
+                            # Re-validate the freshly generated token
+                            await asyncio.wait_for(
+                                asyncio.to_thread(fyers_service.validate_token_sync, token),
+                                timeout=15.0
+                            )
+                            recovered = True
+                            logger.info("TOKEN_RECOVERED_VIA_REFRESH | proceeding with scan")
+                except Exception as rec_e:
+                    logger.error("Refresh recovery attempt failed: %s", rec_e)
+
+                if not recovered:
+                    logger.error("Scan aborted: TOKEN_EXPIRED or invalid after recovery attempt.")
+                    from .services.diagnostics_service import diagnostics
+                    diagnostics.set_scanner_failed("FYERS Token Expired")
+                    scan_ctx.token_loaded = False
+                    scan_ctx.token_source = "none"
+                    end_scan(scan_ctx)
+                    from .services.paper_trading_service import PaperTradingService
+                    PaperTradingService(db).add_notification(
+                        account_id=1,
+                        message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
+                        level="error",
+                        event_type="TOKEN_EXPIRED",
+                        entity_type="system",
+                        dedupe_key="TOKEN_EXPIRED_ALERT",
+                        commit=True
+                    )
+                    logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
+                    return
             except FyersAPIError as e:
                 logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
                 from .services.diagnostics_service import diagnostics

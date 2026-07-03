@@ -8,7 +8,6 @@ export default function TokenStatus() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [accessInput, setAccessInput] = useState("");
   const [refreshInput, setRefreshInput] = useState("");
 
   async function load() {
@@ -80,11 +79,10 @@ export default function TokenStatus() {
     setError(null);
     setSuccessMessage(null);
     try {
-      await saveAccessToken(accessInput.trim(), refreshInput.trim() || null);
+      await saveAccessToken(refreshInput.trim());
       await load();
       await loadHistory();
-      setSuccessMessage("Token successfully verified and saved.");
-      setAccessInput("");
+      setSuccessMessage("Refresh token saved. Access token generated automatically.");
       setRefreshInput("");
     } catch (e: any) {
       setError(e.message || String(e));
@@ -95,13 +93,13 @@ export default function TokenStatus() {
 
   return (
     <section className="panel token-management" data-testid="token-management-panel">
-      <h3>FYERS Access Token</h3>
+      <h3>FYERS Authentication (Refresh Token)</h3>
       <div style={{ marginBottom: 8 }}>{badge()}</div>
       {renderRefreshBanner()}
 
       <div style={{ marginBottom: 12 }}>
         <div style={{ marginBottom: 8 }}>
-          Paste your manually generated FYERS access token here. This token must be renewed manually when it expires.
+          Paste your FYERS Refresh Token here. This token only needs to be entered once for continuous 15-day access.
         </div>
         <strong>Token Info</strong>
         <table className="token-table">
@@ -143,23 +141,15 @@ export default function TokenStatus() {
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <strong>Update access token</strong>
+        <strong>Provide Refresh Token (Access token is generated automatically)</strong>
         
         {error && <div className="error-box" style={{ marginTop: 8 }}>{error}</div>}
         {successMessage && <div className="success-box" style={{ marginTop: 8 }}>{successMessage}</div>}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
           <input
-            data-testid="access-token-input"
-            placeholder="Access token (Required)"
-            type="password"
-            value={accessInput}
-            onChange={(e) => setAccessInput(e.target.value)}
-            disabled={saving}
-          />
-          <input
             data-testid="refresh-token-input"
-            placeholder="Refresh token (Optional - for 15-day auto-renewal)"
+            placeholder="Refresh token (Required)"
             type="password"
             value={refreshInput}
             onChange={(e) => setRefreshInput(e.target.value)}
@@ -169,13 +159,13 @@ export default function TokenStatus() {
             data-testid="save-access-token-button" 
             className="button primary-button" 
             onClick={handleSave} 
-            disabled={saving || !accessInput.trim()}
+            disabled={saving || !refreshInput.trim()}
             style={{ alignSelf: "flex-start" }}
           >
             {saving ? (
               <>
                 <span className="spinner"></span>
-                Validating with broker...
+                Generating Access Token...
               </>
             ) : "Save Token"}
           </button>

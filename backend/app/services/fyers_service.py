@@ -129,6 +129,7 @@ def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
         diagnostics.increment_fyers_metric("auth_failures")
         from . import token_service
         token_service._clear_token_cache()
+        token_service._force_refresh_on_next_get()   # signal that next token get must attempt refresh from refresh_token
         token_service.logger.error("TOKEN_AUTH_FAILURE | Fyers access token has expired")
         raise FyersAuthExpiredError("Fyers access token has expired. Please re-authenticate.")
 
@@ -138,6 +139,7 @@ def _check_fyers_response(response: dict | object, symbol: str = "") -> None:
         diagnostics.increment_fyers_metric("auth_failures")
         from . import token_service
         token_service._clear_token_cache()
+        token_service._force_refresh_on_next_get()
         token_service.logger.error("TOKEN_AUTH_FAILURE | Fyers access token is invalid")
         raise FyersAuthInvalidError("Fyers access token is invalid. Please check your credentials.")
 
@@ -285,20 +287,31 @@ class FyersService:
         """
         if not self._is_fyers_configured():
             return {}
-        try:
-            client = self._client()
-            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
-            request_start = time.time()
-            with NetworkTimeoutContext(3.0):
-                response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
-            duration_ms = int((time.time() - request_start) * 1000)
-            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=1", symbol, duration_ms)
-            _check_fyers_response(response, symbol)
-        except Exception as exc:  # pragma: no cover - provider/network failure
-            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower():
-                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
-            self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
-            return {}
+        for attempt in range(1, 3):
+            try:
+                client = self._client()
+                self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
+                request_start = time.time()
+                with NetworkTimeoutContext(3.0):
+                    response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+                duration_ms = int((time.time() - request_start) * 1000)
+                self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=%s", symbol, duration_ms, attempt)
+                _check_fyers_response(response, symbol)
+                break
+            except (FyersAuthExpiredError, FyersAuthInvalidError):
+                if attempt == 2:
+                    raise
+                from . import token_service
+                token_service._clear_token_cache()
+                token_service._force_refresh_on_next_get()
+                self.logger.info("AUTH_RETRY | quote_profile | symbol=%s", symbol)
+                time.sleep(0.05)
+                continue
+            except Exception as exc:  # pragma: no cover - provider/network failure
+                if isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower():
+                    self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
+                self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
+                return {}
 
         if not isinstance(response, dict):
             return {}
@@ -473,43 +486,84 @@ class FyersService:
 
     async def _fetch_fyers_ltp(self, symbol: str) -> float | None:
         import asyncio
-        try:
-            client = self._client()
-            
-            def fetch_quotes_with_timeout():
-                with NetworkTimeoutContext(3.0):
-                    return client.quotes(data={"symbols": self._normalize_symbol(symbol)})
-                    
-            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
-            request_start = time.time()
-            
-            response = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(
-                    FyersService._network_pool,
-                    fetch_quotes_with_timeout
-                ),
-                timeout=5.0
-            )
-            response_ms = int((time.time() - request_start) * 1000)
-            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=1", symbol, response_ms)
-            _check_fyers_response(response, symbol)
-        except Exception as exc:  # pragma: no cover - network/provider failure
-            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError, asyncio.TimeoutError)) or "timeout" in str(exc).lower():
-                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
-            self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
-            try:
-                fyers_logger.warning("QUOTES_REQUEST_FAILED | symbol=%s | error=%s", symbol, exc)
-            except Exception:
-                pass
-            return None
 
-        if not isinstance(response, dict):
-            self.logger.warning("FYERS quotes returned non-dict response | symbol=%s", symbol)
+        for attempt in range(1, 3):
             try:
-                fyers_logger.warning("QUOTES_NON_DICT | symbol=%s | response_type=%s", symbol, type(response))
-            except Exception:
-                pass
-            return None
+                client = self._client()
+                
+                def fetch_quotes_with_timeout():
+                    with NetworkTimeoutContext(3.0):
+                        return client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+                        
+                self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
+                request_start = time.time()
+                
+                response = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        FyersService._network_pool,
+                        fetch_quotes_with_timeout
+                    ),
+                    timeout=5.0
+                )
+                response_ms = int((time.time() - request_start) * 1000)
+                self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=%s", symbol, response_ms, attempt)
+                _check_fyers_response(response, symbol)
+
+                if not isinstance(response, dict):
+                    self.logger.warning("FYERS quotes returned non-dict response | symbol=%s", symbol)
+                    try:
+                        fyers_logger.warning("QUOTES_NON_DICT | symbol=%s | response_type=%s", symbol, type(response))
+                    except Exception:
+                        pass
+                    return None
+
+                quotes = response.get("d") or []
+                if not quotes:
+                    self.logger.warning(
+                        "FYERS quotes returned no data | symbol=%s | response_keys=%s",
+                        symbol,
+                        list(response.keys()),
+                    )
+                    try:
+                        fyers_logger.warning("QUOTES_EMPTY | symbol=%s | response_keys=%s", symbol, list(response.keys()))
+                    except Exception:
+                        pass
+                    return None
+
+                value = quotes[0].get("v", {}) if isinstance(quotes[0], dict) else {}
+                ltp = value.get("lp") or value.get("ltp")
+                try:
+                    numeric = float(ltp) if ltp is not None else None
+                    try:
+                        fyers_logger.info("QUOTES_RESPONSE | symbol=%s | ltp=%s | response_ms=%s | status=OK", symbol, numeric, response_ms)
+                    except Exception:
+                        pass
+                    return numeric
+                except (TypeError, ValueError):
+                    self.logger.warning("FYERS quotes returned invalid LTP | symbol=%s | ltp=%s", symbol, ltp)
+                    try:
+                        fyers_logger.warning("QUOTES_INVALID_LTP | symbol=%s | ltp=%s", symbol, ltp)
+                    except Exception:
+                        pass
+                    return None
+
+            except (FyersAuthExpiredError, FyersAuthInvalidError):
+                if attempt == 2:
+                    # flag was already set by _check; upper layers or next call will have fresh token
+                    self.logger.error("FYERS_REQUEST_FAILED_AUTH_AFTER_RETRY | symbol=%s | endpoint=quotes", symbol)
+                    raise
+                self.logger.info("AUTH_RETRY | ltp | symbol=%s | attempt=%s | will refresh on next token get", symbol, attempt)
+                await asyncio.sleep(0.05)
+                continue
+            except Exception as exc:  # pragma: no cover - network/provider failure
+                if isinstance(exc, (requests.exceptions.Timeout, TimeoutError, asyncio.TimeoutError)) or "timeout" in str(exc).lower():
+                    self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=%s | timeout_sec=3.0", symbol, attempt)
+                self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
+                try:
+                    fyers_logger.warning("QUOTES_REQUEST_FAILED | symbol=%s | error=%s", symbol, exc)
+                except Exception:
+                    pass
+                return None
 
         quotes = response.get("d") or []
         if not quotes:
@@ -889,7 +943,10 @@ class FyersService:
 
     def _request_history_with_retries(self, client, payload: dict[str, object], symbol: str) -> dict:
         last_error: Exception | None = None
-        for attempt in range(1, _FYERS_MAX_RETRIES + 1):
+        auth_retry_done = False
+        max_attempts = _FYERS_MAX_RETRIES + 1  # allow one extra for auth recovery
+
+        for attempt in range(1, max_attempts + 1):
             scan_ctx = get_current_scan()
             self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=history | attempt=%s | timeout_sec=10.0", symbol, attempt)
             request_start = time.time()
@@ -913,8 +970,21 @@ class FyersService:
                     if scan_ctx:
                         log_fyers_response(scan_ctx, symbol=symbol, candles_returned=candle_count, response_time_ms=response_ms)
                     return response if isinstance(response, dict) else {}
-                except (FyersInvalidSymbolError, FyersAuthExpiredError, FyersAuthInvalidError):
+                except (FyersInvalidSymbolError,):
                     raise
+                except (FyersAuthExpiredError, FyersAuthInvalidError) as auth_exc:
+                    if auth_retry_done:
+                        raise
+                    auth_retry_done = True
+                    # Trigger refresh for the retry of *this* request
+                    from . import token_service
+                    token_service._clear_token_cache()
+                    token_service._force_refresh_on_next_get()
+                    self.logger.info("AUTH_RETRY | history | symbol=%s | will retry with fresh token from refresh_token", symbol)
+                    # brief yield so refresh can complete if async path is involved
+                    time.sleep(0.1)
+                    last_error = auth_exc
+                    continue
                 except Exception as exc:
                     last_error = exc
                     duration_ms = int((time.time() - request_start) * 1000)
@@ -933,8 +1003,8 @@ class FyersService:
                     if scan_ctx:
                         log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=attempt)
 
-            if attempt < _FYERS_MAX_RETRIES:
-                wait_seconds = 2 ** attempt  # Exponential backoff (2, 4, 8)
+            if attempt < max_attempts:
+                wait_seconds = 2 ** min(attempt, 4)
                 from .diagnostics_service import diagnostics
                 diagnostics.increment_fyers_metric("retry_count")
                 self.logger.warning("FYERS_REQUEST_RETRY | symbol=%s | endpoint=history | attempt=%s | backoff_sec=%s | error=%s", symbol, attempt, wait_seconds, type(last_error).__name__)
@@ -1127,7 +1197,7 @@ class FyersService:
             return token
         key = (settings.fyers_token_encryption_key or "").strip()
         if not key:
-            self.logger.warning("No FYERS_TOKEN_ENCRYPTION_KEY set. Cannot encrypt refresh token.")
+            self.logger.error("SECURITY: No FYERS_TOKEN_ENCRYPTION_KEY set. Storing refresh token in plaintext. Generate a key (from cryptography.fernet import Fernet; print(Fernet.generate_key())) and set FYERS_TOKEN_ENCRYPTION_KEY in .env for encrypted storage.")
             return token
         try:
             from cryptography.fernet import Fernet

@@ -19,6 +19,16 @@ _TOKEN_CACHE_TTL = timedelta(minutes=int(os.getenv("FYERS_TOKEN_CACHE_MINUTES", 
 import threading
 _TOKEN_LOCK = threading.Lock()
 
+# Internal flag to force a refresh attempt on the next get_current call
+# (set by auth failure paths so that "retry the original request" can succeed transparently)
+_FORCE_REFRESH_NEXT_GET = False
+
+def _force_refresh_on_next_get() -> None:
+    """Called when an auth error is detected during a live FYERS call.
+    Makes the next get_current_* run the refresh logic even if DB still shows a (now bad) access token."""
+    global _FORCE_REFRESH_NEXT_GET
+    _FORCE_REFRESH_NEXT_GET = True
+
 def _clear_token_cache() -> None:
     global _CACHED_TOKEN, _TOKEN_EXPIRY, _TOKEN_SAVED_AT
     _CACHED_TOKEN = None
@@ -121,11 +131,10 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
                 )
                 db.add(row)
 
-            # Step 3: Add history
+            # Step 3: Add history (use only fields that exist in FyersTokenHistory model)
             logger.info("STEP 3: Adding token history entry...")
             history = FyersTokenHistory(
-                token_id=1,
-                action="save_manual",
+                access_token_masked=_mask_token(access_token),
                 status="active",
                 note="Manual save via UI",
             )
@@ -179,6 +188,88 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         return {"status": "error", "message": str(e)}
 
 
+async def save_initial_refresh_token(refresh_token: str, db: AsyncSession) -> dict:
+    logger.info("%s", "=" * 60)
+    logger.info("SAVE INITIAL REFRESH TOKEN STARTED")
+    logger.info("%s", "=" * 60)
+    
+    try:
+        from .fyers_service import FyersService
+        fyers_service = FyersService()
+        encrypted_refresh_token = fyers_service.encrypt_token(refresh_token)
+        
+        now = datetime.utcnow()
+        
+        # Step 1: Deactivate existing tokens
+        await db.execute(update(FyersToken).where(FyersToken.is_active == True).values(is_active=False, status="inactive"))
+
+        # Step 2: Ensure ID=1 row exists
+        row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one_or_none()
+        
+        if row:
+            row.access_token = ""
+            row.refresh_token = encrypted_refresh_token
+            row.refresh_token_expires_at = now + timedelta(days=15)
+            row.is_active = True
+            row.status = "active"
+            row.access_token_saved_at = None
+            row.validated_at = None
+            db.add(row)
+        else:
+            row = FyersToken(
+                id=1,
+                access_token="",
+                refresh_token=encrypted_refresh_token,
+                refresh_token_expires_at=now + timedelta(days=15),
+                created_at=now,
+                is_active=True,
+                status="active",
+            )
+            db.add(row)
+
+        # Step 3: Add history (use only fields that exist in FyersTokenHistory model)
+        history = FyersTokenHistory(
+            access_token_masked="refresh-initiated",
+            status="active",
+            note="Saved initial refresh token via UI (access token auto-generated)",
+        )
+        db.add(history)
+
+        await db.commit()
+        _clear_token_cache()
+        logger.info("SAVE INITIAL REFRESH TOKEN COMPLETED. Generating access token now...")
+
+        refresh_res = await fyers_service.auto_refresh_access_token(db)
+        if refresh_res.get("status") == "error":
+            error_detail = refresh_res.get("message", "Unknown error")
+            logger.error("ACCESS TOKEN GENERATION FAILED after refresh token save: %s", error_detail)
+            return {
+                "status": "partial",
+                "refresh_token_saved": True,
+                "access_token_generated": False,
+                "message": "Refresh Token saved, but Access Token generation failed.",
+                "error": error_detail,
+            }
+
+        return {
+            "status": "ok",
+            "refresh_token_saved": True,
+            "access_token_generated": True,
+            "message": "Refresh Token saved and Access Token generated successfully.",
+        }
+
+    except Exception as e:
+        logger.error("SAVE INITIAL REFRESH TOKEN FAILED: %s", str(e), exc_info=True)
+        await db.rollback()
+        return {
+            "status": "error",
+            "refresh_token_saved": False,
+            "access_token_generated": False,
+            "message": "Failed to save Refresh Token.",
+            "error": str(e),
+        }
+
+
 async def get_token_status(db: AsyncSession) -> dict[str, Any]:
     row = await get_fyers_token_row(db)
     return {
@@ -205,9 +296,15 @@ async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str,
 
 
 async def get_current_access_token(db: AsyncSession) -> str | None:
-    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+    global _FORCE_REFRESH_NEXT_GET
+
+    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY and not _FORCE_REFRESH_NEXT_GET:
         logger.info("TOKEN_CACHE_HIT | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
         return _CACHED_TOKEN
+
+    if _FORCE_REFRESH_NEXT_GET:
+        logger.info("TOKEN_FORCE_REFRESH | auth failure detected earlier - will attempt refresh via stored refresh token")
+        _FORCE_REFRESH_NEXT_GET = False
 
     logger.info("TOKEN_CACHE_MISS | source=database | reason=cache_miss_or_expired")
     row = await get_fyers_token_row(db)
@@ -215,10 +312,30 @@ async def get_current_access_token(db: AsyncSession) -> str | None:
         logger.warning("TOKEN_NOT_FOUND | No FyersToken row found in database")
         _clear_token_cache()
         return None
-    if not row.access_token:
-        logger.warning("TOKEN_NOT_FOUND | FyersToken row exists but access_token is empty")
-        _clear_token_cache()
-        return None
+
+    # Proactive refresh: if no/inactive access OR we have a refresh token and the access is stale (>6h), attempt auto renew
+    is_stale = False
+    if row.access_token_saved_at:
+        saved = row.access_token_saved_at
+        if saved.tzinfo is not None:
+            saved = saved.replace(tzinfo=None)
+        age = (datetime.utcnow() - saved).total_seconds()
+        is_stale = age > (6 * 3600)
+    if (not row.access_token or row.status != "active" or (row.refresh_token and is_stale)):
+        if row.refresh_token:
+            logger.info("TOKEN_EXPIRED_OR_STALE | Access token missing/inactive/stale, auto-refreshing via refresh token...")
+            from .fyers_service import FyersService
+            res = await FyersService().auto_refresh_access_token(db)
+            if res.get("status") == "ok":
+                row = await get_fyers_token_row(db)
+                if row and row.access_token:
+                    _set_token_cache(row.access_token, row.access_token_saved_at)
+                    return row.access_token
+        
+        if not row.access_token or row.status != "active":
+            logger.warning("TOKEN_NOT_FOUND | FyersToken row exists but access_token is empty and refresh failed")
+            _clear_token_cache()
+            return None
         
     if _TOKEN_SAVED_AT and row.access_token_saved_at and row.access_token_saved_at < _TOKEN_SAVED_AT:
         logger.warning("TOKEN_GENERATION_MISMATCH | DB token is older than our last known token")
@@ -229,15 +346,21 @@ async def get_current_access_token(db: AsyncSession) -> str | None:
 
 
 def get_current_access_token_sync() -> tuple[str | None, str]:
-    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+    global _FORCE_REFRESH_NEXT_GET
+
+    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY and not _FORCE_REFRESH_NEXT_GET:
         logger.info("TOKEN_CACHE_HIT | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
         return _CACHED_TOKEN, "cache"
 
     with _TOKEN_LOCK:
         # Double checked locking
-        if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+        if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY and not _FORCE_REFRESH_NEXT_GET:
             logger.info("TOKEN_CACHE_HIT | source=memory_cache | reason=double_check")
             return _CACHED_TOKEN, "cache"
+
+        if _FORCE_REFRESH_NEXT_GET:
+            logger.info("TOKEN_FORCE_REFRESH | sync path - auth failure detected, will refresh using refresh token if present")
+            _FORCE_REFRESH_NEXT_GET = False
 
         logger.info("TOKEN_CACHE_MISS | source=database | reason=cache_miss_or_expired")
         from ..db.session import SessionLocal
@@ -248,10 +371,45 @@ def get_current_access_token_sync() -> tuple[str | None, str]:
                     logger.warning("TOKEN_NOT_FOUND | No FyersToken row found in database")
                     _clear_token_cache()
                     return None, "database"
-                if not row.access_token:
-                    logger.warning("TOKEN_NOT_FOUND | FyersToken row exists but access_token is empty")
-                    _clear_token_cache()
-                    return None, "database"
+                
+                # Proactive refresh in sync path too (for _client, ltp, candles, etc.)
+                is_stale = False
+                if row.access_token_saved_at:
+                    saved = row.access_token_saved_at
+                    if saved.tzinfo is not None:
+                        saved = saved.replace(tzinfo=None)
+                    age = (datetime.utcnow() - saved).total_seconds()
+                    is_stale = age > (6 * 3600)
+                if not row.access_token or row.status != "active" or (row.refresh_token and is_stale):
+                    if row.refresh_token:
+                        logger.info("TOKEN_EXPIRED_OR_STALE | Sync context, auto-refreshing via refresh token...")
+                        from .fyers_service import FyersService
+                        from ..db.session import AsyncSessionLocal
+                        import asyncio
+                        
+                        async def _do_refresh():
+                            async with AsyncSessionLocal() as async_db:
+                                return await FyersService().auto_refresh_access_token(async_db)
+
+                        try:
+                            # Safely run the async refresh function
+                            loop = asyncio.get_running_loop()
+                            future = asyncio.run_coroutine_threadsafe(_do_refresh(), loop)
+                            res = future.result(timeout=15.0)
+                        except RuntimeError:
+                            res = asyncio.run(_do_refresh())
+                        
+                        if res.get("status") == "ok":
+                            db.expire_all() # Ensure fresh data
+                            row = db.query(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()).first()
+                            if row and row.access_token:
+                                _set_token_cache(row.access_token, getattr(row, 'access_token_saved_at', None))
+                                return row.access_token, "database"
+                                
+                    if not row.access_token or row.status != "active":
+                        logger.warning("TOKEN_NOT_FOUND | FyersToken row exists but access_token is empty and refresh failed")
+                        _clear_token_cache()
+                        return None, "database"
                 
                 if _TOKEN_SAVED_AT and row.access_token_saved_at and row.access_token_saved_at < _TOKEN_SAVED_AT:
                     logger.warning("TOKEN_GENERATION_MISMATCH | DB token is older than our last known token")

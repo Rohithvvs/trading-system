@@ -574,13 +574,13 @@ export async function deleteAlert(alertId: number) {
   return response.json();
 }
 
-export async function saveAccessToken(access_token: string, refresh_token: string | null = null) {
-  const body = { access_token, refresh_token };
-  const response = await fetchWithDiagnostics('/fyers/token', {
+export async function saveAccessToken(refresh_token: string) {
+  const body = { refresh_token };
+  const response = await fetchWithDiagnostics('/api/token/save-access-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }, 'Validate and save access token');
+  }, 'Validate and save refresh token');
   
   if (!response.ok) {
     let errorMessage = 'Failed to validate access token';

@@ -19,18 +19,25 @@ async def save_access_token_route(payload: FyersTokenCreate, background_tasks: B
     logger.info("POST /api/token HIT")
     logger.info("=" * 50)
 
-    token = payload.access_token
+    token = payload.refresh_token
     if not token or not token.strip():
-        logger.error("Rejecting token payload: empty access_token field")
-        raise HTTPException(status_code=400, detail="access_token cannot be empty")
+        logger.error("Rejecting token payload: empty refresh_token field")
+        raise HTTPException(status_code=400, detail="refresh_token cannot be empty")
 
-    logger.info("Token accepted. Calling token_service.save_access_token...")
-    result = await token_service.save_access_token(token, db)
+    logger.info("Token accepted. Calling token_service.save_initial_refresh_token...")
+    result = await token_service.save_initial_refresh_token(token, db)
     logger.info("Service result   : %s", result.get("status"))
 
     if result.get("status") == "error":
         logger.error("Save failed: %s", result.get("message"))
-        raise HTTPException(status_code=500, detail=result.get("message"))
+        # Expose the real inner error to the UI for easier debugging
+        detail = result.get("error") or result.get("message")
+        raise HTTPException(status_code=500, detail=detail)
+
+    if result.get("status") == "partial" or not result.get("access_token_generated", False):
+        # Refresh saved but access generation failed — surface to UI so user knows
+        logger.error("Refresh token saved but access generation failed: %s", result.get("error") or result.get("message"))
+        raise HTTPException(status_code=400, detail=result.get("message") or result.get("error") or "Refresh token saved but failed to generate access token from it.")
 
     logger.info("HTTP 200 OK returning success")
     

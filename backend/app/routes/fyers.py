@@ -20,13 +20,36 @@ logger = logging.getLogger("app.fyers")
 async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends(get_db)):
     """Save a new FYERS token. Deactivate any existing tokens first."""
     from ..services.fyers_service import FyersService
+    from ..services.token_service import save_initial_refresh_token
     
     try:
         fyers_service = FyersService()
-        result = await fyers_service.save_tokens(payload.access_token, payload.refresh_token, db)
-        if result.get("status") != "ok":
-            raise HTTPException(status_code=400, detail=result.get("message", "Failed to save token"))
-        return {"status": "success", "message": "Token saved successfully", "token_id": result.get("token_id")}
+        
+        # New Flow: Only Refresh Token provided
+        if not payload.access_token and payload.refresh_token:
+            # 1. Save Refresh Token securely
+            init_result = await save_initial_refresh_token(payload.refresh_token, db)
+            if init_result.get("status") != "ok":
+                raise HTTPException(status_code=400, detail=init_result.get("message", "Failed to save initial refresh token"))
+                
+            # 2. Immediately generate Access Token
+            refresh_result = await fyers_service.auto_refresh_access_token(db)
+            if refresh_result.get("status") != "ok":
+                raise HTTPException(status_code=400, detail=refresh_result.get("message", "Failed to generate access token from refresh token"))
+                
+            return {"status": "success", "message": "Refresh Token saved and Access Token automatically generated"}
+
+        # Old Flow (Backward compatibility): Access Token provided
+        if payload.access_token:
+            result = await fyers_service.save_tokens(payload.access_token, payload.refresh_token, db)
+            if result.get("status") != "ok":
+                raise HTTPException(status_code=400, detail=result.get("message", "Failed to save token"))
+            return {"status": "success", "message": "Token saved successfully", "token_id": result.get("token_id")}
+            
+        raise HTTPException(status_code=400, detail="Must provide either access_token or refresh_token")
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to save fyers token: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
