@@ -17,12 +17,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-import os
-import sys
-
-# Add the backend directory to sys.path so 'app' can be imported
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from backend.app.db.base import Base
 from backend.app.config import settings
 

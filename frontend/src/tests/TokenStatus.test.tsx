@@ -31,7 +31,7 @@ describe('TokenStatus Component', () => {
     expect(screen.getByText('FYERS Access Token')).toBeDefined();
     
     await waitFor(() => {
-      expect(screen.getByTestId('token-status-badge').textContent).toBe('No token');
+      expect(screen.getByTestId('token-status-badge').textContent).toBe('No access token');
     });
 
     const input = screen.getByTestId('access-token-input') as HTMLInputElement;

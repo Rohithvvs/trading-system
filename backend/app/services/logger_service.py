@@ -19,7 +19,6 @@ from ..observability.metrics import LOGGER_QUEUE_DEPTH, WS_CLIENTS
 
 SENSITIVE_FIELDS = {
     "access_token",
-    "refresh_token",
     "client_id",
     "client_secret",
     "password",
@@ -28,7 +27,7 @@ SENSITIVE_FIELDS = {
 }
 
 SENSITIVE_PATTERN = re.compile(
-    r'(?i)(access_token|refresh_token|client_id|client_secret|password|pin|auth_code)'
+    r'(?i)(access_token|client_id|client_secret|password|pin|auth_code)'
     r'(\s*[:=]\s*|"\s*:\s*")'
     r'([^,\s&"}]+)'
 )

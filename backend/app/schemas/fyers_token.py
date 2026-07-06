@@ -8,8 +8,11 @@ from pydantic import BaseModel
 
 class FyersTokenCreate(BaseModel):
     access_token: str
-    refresh_token: Optional[str] = None
+    # refresh_token removed - only access token supported. Extra fields (legacy) ignored.
     expires_at: Optional[datetime] = None
+
+    class Config:
+        extra = 'ignore'
 
 
 class FyersTokenResponse(BaseModel):
@@ -18,10 +21,7 @@ class FyersTokenResponse(BaseModel):
     created_at: datetime
     expires_at: Optional[datetime] = None
     is_active: bool
-    
-    refresh_token_present: bool = False
-    refresh_token_expires_at: Optional[datetime] = None
-    refresh_token_days_remaining: Optional[int] = None
-    refresh_token_status: str = "expired"
-    last_auto_renewal_at: Optional[datetime] = None
-    last_auto_renewal_status: Optional[str] = None
+    # No refresh token fields after removal of auto-renewal support
+    status: Optional[str] = None
+    access_token_saved_at: Optional[datetime] = None
+    last_error: Optional[str] = None

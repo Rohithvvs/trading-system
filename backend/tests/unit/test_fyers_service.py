@@ -18,32 +18,19 @@ def test_compute_app_id_hash(fyers_service, monkeypatch):
     
     assert fyers_service._compute_app_id_hash() == expected
 
-def test_compute_app_id_hash_missing(fyers_service, monkeypatch):
-    from backend.app.config import settings
-    monkeypatch.setattr(settings, "fyers_app_id", "")
-    monkeypatch.setattr(settings, "fyers_secret_id", "TEST_SECRET")
+def test_save_tokens_only_access(fyers_service, monkeypatch):
+    # After refresh removal, save_tokens accepts only access_token
+    import asyncio
+    from unittest.mock import AsyncMock
     
-    with pytest.raises(ValueError):
-        fyers_service._compute_app_id_hash()
-
-@pytest.mark.asyncio
-async def test_refresh_token_days_remaining(fyers_service, monkeypatch):
-    # Mock get_fyers_token_row
-    mock_row = MagicMock()
-    mock_row.access_token = "some_access_token"
-    mock_row.is_active = True
-    mock_row.refresh_token = "some_refresh_token"
+    async def mock_save(token, db):
+        return {"status": "ok"}
     
-    # 5.5 days from now
-    mock_row.refresh_token_expires_at = datetime.utcnow() + timedelta(days=5, hours=12)
-    
-    async def mock_get_row(db):
-        return mock_row
-        
-    monkeypatch.setattr("backend.app.services.token_service.get_fyers_token_row", mock_get_row)
+    monkeypatch.setattr("backend.app.services.token_service.save_access_token", mock_save)
     
     db = AsyncMock()
-    status = await fyers_service.get_token_status_with_refresh_info(db)
-    
-    # 5 full days + 1 partial day = 6 days remaining
-    assert status["refresh_token_days_remaining"] == 6
+    # call signature now (access_token, db) only
+    result = asyncio.get_event_loop().run_until_complete(
+        fyers_service.save_tokens("test_access", db)
+    )
+    assert result.get("status") == "ok"

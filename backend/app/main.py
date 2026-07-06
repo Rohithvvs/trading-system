@@ -39,7 +39,7 @@ from .services.fyers_service import FyersService
 from .services.market_engine_service import market_engine
 from .db.locks import acquire_singleton_lease
 from .core.task_supervisor import TaskSupervisor
-# token_service refresh automation removed — manual access-token workflow only
+# Refresh token / auto-renewal completely removed. Manual access token only.
 import asyncio
 from .schemas import AnalysisMode
 from .observability.scan_diagnostics import (
@@ -136,43 +136,8 @@ if not settings.nifty500_symbols:
         "Nifty 500 universe is empty | Check NIFTY500_CSV_PATH, ind_nifty500list.csv, or NIFTY500_SYMBOLS"
     )
 
-async def job_auto_token_refresh():
-    from .services.logger_service import logger_service
-    from .services.lock_service import DistributedLockService
-    from .db.session import AsyncSessionLocal
-    
-    logger_service.log_info(
-        message="Auto token refresh triggered.",
-        source="JOB",
-        module="Scheduler",
-        endpoint="job_auto_token_refresh"
-    )
-    lock_svc = DistributedLockService()
-    has_lock = await lock_svc.acquire_lock("job_auto_token_refresh", ttl_seconds=300)
-    if not has_lock:
-        logger.info("CRON_SKIPPED: job_auto_token_refresh (lock held by another worker)")
-        return
-        
-    try:
-        from .services.fyers_service import FyersService
-        async with AsyncSessionLocal() as db:
-            svc = FyersService()
-            await svc.auto_refresh_access_token(db)
-            
-        logger_service.log_info(
-            message="Auto token refresh completed.",
-            source="JOB",
-            module="Scheduler",
-            endpoint="job_auto_token_refresh"
-        )
-    except Exception as e:
-        logger_service.log_error(
-            message=f"Scheduled job failed: {str(e)}",
-            source="JOB",
-            module="Scheduler",
-            endpoint="job_auto_token_refresh",
-            error=e
-        )
+# Auto token refresh job removed - only manual access token workflow supported.
+# See token_service and fyers routes for access token handling.
 
 async def job_market_engine_spin_up():
     from .services.logger_service import logger_service
@@ -294,7 +259,7 @@ async def lifespan(app: FastAPI):
         logger.info("Test environment detected; setting up tables and skipping scheduler/monitors.")
         from .db.session import engine
         from .db.base import Base
-        import backend.app.models  # ensure all models are registered
+        from . import models  # ensure all models are registered
         
         # Patch SQLite JSONB support for testing
         from sqlalchemy.ext.compiler import compiles
@@ -383,13 +348,8 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
-    # JOB 1b: Auto Token Refresh
-    scheduler.add_job(
-        job_auto_token_refresh,
-        CronTrigger(day_of_week="mon-fri", hour=8, minute=30, timezone="Asia/Kolkata"),
-        id="job_auto_token_refresh",
-        replace_existing=True,
-    )
+    # JOB 1b: Auto Token Refresh - REMOVED (manual access token only)
+    # No auto-renewal scheduler remains.
 
     # JOB 2: Pre-Market Deep Scan
     scheduler.add_job(
@@ -446,7 +406,7 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
-    # FYERS refresh automation removed. Manual access-token workflow only.
+    # Scheduler started (refresh jobs removed).
     if not settings.quarantine_mode:
         scheduler.start()
         logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", str(scheduler.timezone), len(scheduler.get_jobs()))

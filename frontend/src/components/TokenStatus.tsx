@@ -9,7 +9,8 @@ export default function TokenStatus() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [accessInput, setAccessInput] = useState("");
-  const [refreshInput, setRefreshInput] = useState("");
+  // refreshInput removed - refresh tokens no longer supported
+
 
   async function load() {
     try {
@@ -58,34 +59,16 @@ export default function TokenStatus() {
     return <span data-testid="token-status-badge" className="badge neutral">{status.status}</span>;
   }
 
-  function renderRefreshBanner() {
-    if (!status || !status.has_refresh_token) {
-      return null;
-    }
-    
-    const days = status.refresh_token_days_remaining;
-    if (days === null || days === undefined) return null;
-    
-    if (days >= 4) {
-      return <div className="success-box" style={{ marginBottom: 12 }}>Refresh Token Valid: {days} days remaining</div>;
-    } else if (days > 0) {
-      return <div className="warning-box" style={{ marginBottom: 12, backgroundColor: '#fff3cd', color: '#856404', padding: '8px', borderRadius: '4px', border: '1px solid #ffeeba' }}>Refresh Token Expiring Soon: {days} days remaining</div>;
-    } else {
-      return <div className="error-box" style={{ marginBottom: 12 }}>Refresh Token Expired. Please provide a new token.</div>;
-    }
-  }
-
   async function handleSave() {
     setSaving(true);
     setError(null);
     setSuccessMessage(null);
     try {
-      await saveAccessToken(accessInput.trim(), refreshInput.trim() || null);
+      await saveAccessToken(accessInput.trim());
       await load();
       await loadHistory();
       setSuccessMessage("Token successfully verified and saved.");
       setAccessInput("");
-      setRefreshInput("");
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -97,7 +80,7 @@ export default function TokenStatus() {
     <section className="panel token-management" data-testid="token-management-panel">
       <h3>FYERS Access Token</h3>
       <div style={{ marginBottom: 8 }}>{badge()}</div>
-      {renderRefreshBanner()}
+      {/* Refresh token UI and banners removed - access token only */}
 
       <div style={{ marginBottom: 12 }}>
         <div style={{ marginBottom: 8 }}>
@@ -115,12 +98,7 @@ export default function TokenStatus() {
               <td>{status?.validated_at ? new Date(status.validated_at).toLocaleString() : "-"}</td>
             </tr>
             <tr>
-              <td>Auto Renewal Status</td>
-              <td>{status?.has_refresh_token ? (status.last_auto_renewal_status || "Pending") : "Not configured"}</td>
-            </tr>
-            <tr>
-              <td>Last Auto Renewal</td>
-              <td>{status?.last_auto_renewal_at ? new Date(status.last_auto_renewal_at).toLocaleString() : "-"}</td>
+              <td colspan="2" style={{ fontStyle: 'italic', color: '#666' }}>Auto-renewal removed. Use manual access token only.</td>
             </tr>
             <tr>
               <td>Last Successful Scan</td>
@@ -155,14 +133,6 @@ export default function TokenStatus() {
             type="password"
             value={accessInput}
             onChange={(e) => setAccessInput(e.target.value)}
-            disabled={saving}
-          />
-          <input
-            data-testid="refresh-token-input"
-            placeholder="Refresh token (Optional - for 15-day auto-renewal)"
-            type="password"
-            value={refreshInput}
-            onChange={(e) => setRefreshInput(e.target.value)}
             disabled={saving}
           />
           <button 

@@ -47,6 +47,7 @@ class ScanExecutionService:
                 payload.timeframe.swing,
                 len(payload.symbols),
             )
+            logger.info("SCANNER STARTED | background task | scan_id=%s", scan_id)
 
             import datetime
             from ..models.market_data import ScanSnapshot

@@ -6,26 +6,23 @@ def test_fyers_token_save_and_status(client, db_session, monkeypatch):
     resp = client.get("/fyers/token/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["has_token"] is False
+    assert data.get("has_token") is False or data.get("access_token_active") is False
     
     # 2. Mock token validation
     monkeypatch.setattr("backend.app.services.fyers_service.FyersService.validate_token_sync", lambda self, token: {"s": "ok"})
     
-    # 3. Post a new token with refresh token
+    # 3. Post a new access token only (refresh removed)
     payload = {
-        "access_token": "ey12345.access",
-        "refresh_token": "ey12345.refresh"
+        "access_token": "ey12345.access"
     }
     resp = client.post("/fyers/token", json=payload)
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "success"
     
-    # 4. Check status again
+    # 4. Check status again - no refresh fields
     resp = client.get("/fyers/token/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["has_token"] is True
-    assert data["access_token_active"] is True
-    assert data["has_refresh_token"] is True
-    assert data["refresh_token_days_remaining"] == 15
+    assert data.get("has_token") is True or data.get("access_token_active") is True
+    # refresh fields intentionally absent

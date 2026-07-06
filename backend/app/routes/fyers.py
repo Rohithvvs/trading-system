@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import FyersToken
-from ..schemas import FyersTokenCreate, FyersTokenResponse
+from ..schemas import FyersTokenCreate
+# FyersTokenResponse cleaned (no refresh fields)
 
 
 router = APIRouter(prefix="/fyers", tags=["fyers"])
@@ -23,7 +24,7 @@ async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends
     
     try:
         fyers_service = FyersService()
-        result = await fyers_service.save_tokens(payload.access_token, payload.refresh_token, db)
+        result = await fyers_service.save_tokens(payload.access_token, db)
         if result.get("status") != "ok":
             raise HTTPException(status_code=400, detail=result.get("message", "Failed to save token"))
         return {"status": "success", "message": "Token saved successfully", "token_id": result.get("token_id")}
@@ -34,10 +35,9 @@ async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends
 
 @router.get("/token/status")
 async def fyers_token_status(db: AsyncSession = Depends(get_db)):
-    from ..services.fyers_service import FyersService
+    from ..services.token_service import get_token_status
     try:
-        fyers_service = FyersService()
-        status = await fyers_service.get_token_status_with_refresh_info(db)
+        status = await get_token_status(db)
         return JSONResponse(content=status)
     except Exception as exc:
         logger.exception("Failed to read token status: %s", exc)

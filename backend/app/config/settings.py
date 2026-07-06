@@ -180,7 +180,7 @@ class Settings(BaseSettings):
         try:
             with csv_path.open(newline="", encoding="utf-8-sig") as handle:
                 reader = csv.DictReader(handle)
-                from backend.app.utils.symbol import canonical_symbol
+                from ..utils.symbol import canonical_symbol
                 for row in reader:
                     symbol = (row.get("Symbol") or "").strip().upper()
                     series = (row.get("Series") or "").strip().upper()

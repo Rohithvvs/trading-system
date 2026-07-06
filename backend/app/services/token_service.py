@@ -38,7 +38,13 @@ def _set_token_cache(access_token: str, saved_at: datetime | None = None) -> Non
         _TOKEN_SAVED_AT = saved_at
 
 async def get_fyers_token_row(db: AsyncSession) -> FyersToken | None:
-    return (await db.scalars(select(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()))).first()
+    logger.info("TOKEN_LOADED | querying active fyers token row from DB")
+    row = (await db.scalars(select(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()))).first()
+    if row:
+        logger.info("TOKEN_LOADED | active token found, saved_at=%s", getattr(row, 'access_token_saved_at', None))
+    else:
+        logger.warning("TOKEN_LOADED | no active token row found")
+    return row
 
 
 def _mask_token(token: str | None) -> str | None:

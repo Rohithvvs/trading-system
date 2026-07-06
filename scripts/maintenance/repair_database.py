@@ -264,13 +264,13 @@ def phase_2_token_seeding(conn: sqlite3.Connection, token: str) -> None:
             CREATE TABLE fyers_tokens (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 access_token    TEXT    NOT NULL,
-                refresh_token   TEXT,
                 created_at      TEXT,
                 expires_at      TEXT,
                 is_active       INTEGER DEFAULT 1,
                 status          VARCHAR(32) DEFAULT 'active',
                 access_token_saved_at TEXT,
                 last_error      TEXT
+                -- refresh_token* columns removed in cleanup
             )
         """)
         _ok("fyers_tokens table created")

@@ -574,9 +574,10 @@ export async function deleteAlert(alertId: number) {
   return response.json();
 }
 
-export async function saveAccessToken(access_token: string, refresh_token: string | null = null) {
-  const body = { access_token, refresh_token };
-  const response = await fetchWithDiagnostics('/fyers/token', {
+export async function saveAccessToken(access_token: string) {
+  // refresh_token parameter removed - only access token supported
+  const body = { access_token };
+  const response = await fetchWithDiagnostics('/api/token/save-access-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -604,11 +605,7 @@ export interface TokenStatusResponse {
   is_active: boolean;
   status: string | null;
   last_error: string | null;
-  has_refresh_token: boolean;
-  refresh_token_expires_at: string | null;
-  refresh_token_days_remaining: number | null;
-  last_auto_renewal_at: string | null;
-  last_auto_renewal_status: string | null;
+  // refresh_* fields removed after complete cleanup of auto-renewal
 }
 
 export async function getTokenStatus(): Promise<TokenStatusResponse> {

@@ -97,6 +97,7 @@ async def screener_full(payload: ScreenerRequest):
         payload.timeframe.swing,
         len(payload.symbols),
     )
+    logger.info("REQUEST RECEIVED | scanner POST | symbols=%s", len(payload.symbols) or "universe")
 
     q = asyncio.Queue()
 
@@ -109,10 +110,15 @@ async def screener_full(payload: ScreenerRequest):
         return JSONResponse(status_code=409, content={"status": "scan_in_progress"})
 
     async def event_stream():
+        first_event = True
         while True:
             msg = await q.get()
+            if first_event:
+                logger.info("FIRST SSE EVENT SENT | type=%s", msg.get("status") or "progress")
+                first_event = False
             if "status" in msg and msg["status"] in ("complete", "error"):
                 yield f"event: result\ndata: {json.dumps(msg)}\n\n"
+                logger.info("SCANNER FINISHED | final event sent | status=%s", msg.get("status"))
                 break
             else:
                 yield f"event: progress\ndata: {json.dumps(msg)}\n\n"
