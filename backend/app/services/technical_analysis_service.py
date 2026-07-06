@@ -10,9 +10,15 @@ from ta.volume import VolumeWeightedAveragePrice
 from ..schemas import AnalysisMode, OHLCVPoint, TechnicalAnalysisResult
 from ..utils import get_logger
 import os
-import psutil
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 def get_rss_mb():
+    if psutil is None:
+        return 0.0
     return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
 @dataclass(slots=True)

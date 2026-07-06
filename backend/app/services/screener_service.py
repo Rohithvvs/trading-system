@@ -10,9 +10,15 @@ import time
 import re
 import yfinance as yf
 import pandas as pd
-import psutil
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 def get_rss_mb():
+    if psutil is None:
+        return 0.0
     return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
 from ..schemas import AnalysisMode, OHLCVPoint, ScreenerConditionResult
