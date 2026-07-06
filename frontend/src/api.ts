@@ -18,6 +18,86 @@ import type {
 
 const BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 const API_BASE_URLS = [BASE_URL];
+
+export interface WakeupOptions {
+  maxWaitMs?: number; // default 60000
+  initialDelayMs?: number;
+  maxRetries?: number;
+  onProgress?: (attempt: number, elapsedMs: number, message: string) => void;
+}
+
+export async function pingBackend(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(`${BASE_URL}/health`, {
+      method: 'GET',
+      signal,
+      headers: { Accept: 'application/json' },
+    });
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Waits for backend to become responsive (handles Render sleep / cold start).
+ * Pings /health with exponential backoff.
+ * Returns when alive or throws on timeout.
+ */
+export async function waitForBackend(options: WakeupOptions = {}): Promise<void> {
+  const maxWaitMs = options.maxWaitMs ?? 60_000;
+  const maxRetries = options.maxRetries ?? 12;
+  let delay = options.initialDelayMs ?? 2000;
+  const start = Date.now();
+  let attempt = 0;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), maxWaitMs + 5000);
+
+  try {
+    while (Date.now() - start < maxWaitMs && attempt < maxRetries) {
+      attempt++;
+      const elapsed = Date.now() - start;
+      if (options.onProgress) {
+        options.onProgress(attempt, elapsed, `Waking backend... (attempt ${attempt})`);
+      }
+
+      const alive = await pingBackend(controller.signal);
+      if (alive) {
+        if (options.onProgress) options.onProgress(attempt, elapsed, 'Backend is ready');
+        return;
+      }
+
+      // exponential backoff with jitter
+      await new Promise(r => setTimeout(r, delay + Math.random() * 500));
+      delay = Math.min(delay * 1.7, 8000);
+    }
+    throw new Error(`Backend did not respond within ${Math.round(maxWaitMs / 1000)}s. It may still be waking up on Render.`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function runScannerAfterReady(
+  mode: AnalysisMode,
+  timeframe: TimeframeConfig,
+  symbols: string[],
+  topN: number,
+  onProgress?: (stage: string, progress: number) => void,
+  abortSignal?: AbortSignal
+): Promise<ScreenerResponse> {
+  // First ensure backend is awake
+  await waitForBackend({
+    maxWaitMs: 60000,
+    onProgress: (att, el, msg) => {
+      if (onProgress) onProgress(`Backend wake-up: ${msg}`, Math.min(5 + att, 25));
+    },
+  });
+
+  // Now run the actual scanner (the caller should have its own long timeout)
+  return runPresetScreener(mode, timeframe, symbols, topN, onProgress, abortSignal);
+}
+
 async function fetchWithDiagnostics(
   path: string,
   init: RequestInit | undefined,
@@ -68,14 +148,23 @@ export async function runPresetScreener(
     topN,
   });
   
-  const response = await fetchWithDiagnostics("/analysis/screener/full", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "text/event-stream",
-    },
-    body: JSON.stringify({ mode, timeframe, symbols, top_n: topN }),
-  }, "Scanner request");
+  // 90s timeout for scanner (long running + Render wake)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90_000);
+  const signal = (abortSignal as any) || controller.signal;
+
+  try {
+    const response = await fetchWithDiagnostics("/analysis/screener/full", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+      },
+      body: JSON.stringify({ mode, timeframe, symbols, top_n: topN }),
+      signal,
+    }, "Scanner request");
+
+    clearTimeout(timeout);
 
   if (!response.ok) {
     const message = await response.text();
@@ -574,8 +663,9 @@ export async function deleteAlert(alertId: number) {
   return response.json();
 }
 
-export async function saveAccessToken(access_token: string) {
-  const body = { access_token };
+export async function saveAccessToken(access_token: string, refresh_token?: string) {
+  const body: any = { access_token };
+  if (refresh_token && refresh_token.trim()) body.refresh_token = refresh_token.trim();
   const response = await fetchWithDiagnostics('/settings/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

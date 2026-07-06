@@ -22,7 +22,7 @@ async def save_fyers_token(payload: FyersTokenCreate, db: AsyncSession = Depends
     from ..services import token_service
     
     try:
-        result = await token_service.save_access_token(payload.access_token, db)
+        result = await token_service.save_access_token(payload.access_token, db, getattr(payload, 'refresh_token', None))
         return {"status": "success", "message": "Token saved successfully", "token_id": result.get("token_id")}
     except Exception as e:
         logger.error("Failed to save fyers token: %s", e)

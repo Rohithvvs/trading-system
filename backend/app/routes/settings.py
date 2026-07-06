@@ -156,11 +156,8 @@ async def validate_and_save_token(
     logger.info("FYERS token validated successfully (%s). Saving to DB…", masked)
 
     # Step 1: Deactivate all previous tokens
-    result = await db.execute(
-        update(FyersToken)
-        .where(FyersToken.is_active == True)
-        .values(is_active=False, status="inactive")
-    )
+    # also support refresh if provided in future payload
+    refresh_token = getattr(payload, 'refresh_token', None) if hasattr(payload, 'refresh_token') else None
     deactivated = result.rowcount
     logger.info("Deactivated %d previous token(s)", deactivated)
 
@@ -168,6 +165,7 @@ async def validate_and_save_token(
     now = datetime.now(timezone.utc)
     new_row = FyersToken(
         access_token=raw_token,
+        refresh_token=getattr(payload, 'refresh_token', None) if hasattr(payload, 'refresh_token') else None,
         is_active=True,
         status="active",
         created_at=now,

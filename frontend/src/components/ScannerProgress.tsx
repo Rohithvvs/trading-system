@@ -64,8 +64,13 @@ export function ScannerProgress({ stage, progress, error, onRetry, startTime }: 
         </div>
         
         <p className="agent-tracker-subtitle" style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px" }}>
-          {stage}
+          {stage.includes("Waking") || stage.includes("backend") ? "⏳ Starting backend on Render..." : stage}
         </p>
+        {(stage.includes("Waking") || stage.includes("backend")) && (
+          <p style={{ fontSize: "13px", color: "#666", marginBottom: "12px" }}>
+            This may take up to 60 seconds on free Render tier. Please wait...
+          </p>
+        )}
         
         <div style={{ width: "100%", height: "8px", background: "var(--color-border)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" }}>
           <div 

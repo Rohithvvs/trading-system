@@ -913,7 +913,28 @@ class FyersService:
                     if scan_ctx:
                         log_fyers_response(scan_ctx, symbol=symbol, candles_returned=candle_count, response_time_ms=response_ms)
                     return response if isinstance(response, dict) else {}
-                except (FyersInvalidSymbolError, FyersAuthExpiredError, FyersAuthInvalidError):
+                except (FyersInvalidSymbolError, FyersAuthExpiredError, FyersAuthInvalidError) as auth_exc:
+                    # Auto-refresh attempt on auth failure using stored refresh_token
+                    if isinstance(auth_exc, (FyersAuthExpiredError, FyersAuthInvalidError)):
+                        try:
+                            from ..db.session import AsyncSessionLocal
+                            from .token_service import refresh_access_token_using_refresh_token
+                            async def _try_refresh():
+                                async with AsyncSessionLocal() as rdb:
+                                    return await refresh_access_token_using_refresh_token(rdb)
+                            did_refresh = _run_sync(_try_refresh())
+                            if did_refresh:
+                                self.logger.info("AUTO_REFRESHED_TOKEN | retrying FYERS history for %s", symbol)
+                                # recreate fresh client
+                                fresh_client = self._client()
+                                with NetworkTimeoutContext(10.0):
+                                    response = fresh_client.history(data=payload)
+                                _check_fyers_response(response, symbol)
+                                response_ms = int((time.time() - request_start) * 1000)
+                                self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=history | duration_ms=%s | attempt=%s (after refresh)", symbol, response_ms, attempt)
+                                return response if isinstance(response, dict) else {}
+                        except Exception as ref_e:
+                            self.logger.warning("AUTO_REFRESH_ATTEMPT_FAILED | %s", ref_e)
                     raise
                 except Exception as exc:
                     last_error = exc

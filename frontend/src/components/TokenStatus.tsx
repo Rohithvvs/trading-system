@@ -17,6 +17,7 @@ export default function TokenStatus() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [accessInput, setAccessInput] = useState("");
+  const [refreshInput, setRefreshInput] = useState("");
 
   async function load() {
     try {
@@ -70,11 +71,12 @@ export default function TokenStatus() {
     setError(null);
     setSuccessMessage(null);
     try {
-      await saveAccessToken(accessInput.trim());
+      await saveAccessToken(accessInput.trim(), refreshInput.trim() || undefined);
       await load();
       await loadHistory();
-      setSuccessMessage("Token successfully verified and saved.");
+      setSuccessMessage("Token(s) successfully verified and saved. Auto-refresh enabled if refresh token provided.");
       setAccessInput("");
+      setRefreshInput("");
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -131,11 +133,20 @@ export default function TokenStatus() {
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <input
             data-testid="access-token-input"
-            placeholder="Access token"
+            placeholder="Access token (required)"
             type="password"
             value={accessInput}
             onChange={(e) => setAccessInput(e.target.value)}
             disabled={saving}
+          />
+          <input
+            data-testid="refresh-token-input"
+            placeholder="Refresh token (optional - enables auto renew)"
+            type="password"
+            value={refreshInput}
+            onChange={(e) => setRefreshInput(e.target.value)}
+            disabled={saving}
+            style={{ minWidth: 220 }}
           />
           <button 
             data-testid="save-access-token-button" 

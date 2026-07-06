@@ -3,11 +3,14 @@ from sqlalchemy import select, update
 
 from datetime import datetime, timedelta
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 import os
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import FyersToken, FyersTokenHistory
+import hashlib
+import httpx
+from ..config import settings
 
 logger = logging.getLogger("app.token")
 
@@ -50,7 +53,7 @@ def _mask_token(token: str | None) -> str | None:
     return f"{t[:4]}...{t[-4:]}"
 
 
-async def save_access_token(access_token: str, db: AsyncSession) -> dict:
+async def save_access_token(access_token: str, db: AsyncSession, refresh_token: Optional[str] = None) -> dict:
     logger.info("%s", "=" * 60)
     logger.info("SAVE ACCESS TOKEN STARTED")
     logger.info("%s", "=" * 60)
@@ -103,6 +106,8 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             if row:
                 logger.info("STEP 2 RESULT: Found existing row. Updating...")
                 row.access_token = access_token
+                if refresh_token:
+                    row.refresh_token = refresh_token
                 row.is_active = True
                 row.status = "active"
                 row.access_token_saved_at = now
@@ -113,6 +118,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
                 row = FyersToken(
                     id=1,
                     access_token=access_token,
+                    refresh_token=refresh_token,
                     created_at=now,
                     is_active=True,
                     status="active",
@@ -265,4 +271,60 @@ def get_current_access_token_sync() -> tuple[str | None, str]:
                 logger.warning("TOKEN_DB_UNAVAILABLE | Falling back to expired cached token due to DB outage")
                 return _CACHED_TOKEN, "cache_fallback"
             return None, "error"
+
+
+async def refresh_access_token_using_refresh_token(db: AsyncSession) -> bool:
+    """Attempt to exchange stored refresh_token for a new access_token.
+    Returns True on success (and clears cache so next get picks it up).
+    """
+    row = await get_fyers_token_row(db)
+    if not row or not getattr(row, 'refresh_token', None):
+        logger.info("REFRESH_TOKEN_MISSING | no refresh token stored, cannot auto renew access token")
+        return False
+
+    try:
+        app_id = (settings.fyers_app_id or "").strip()
+        secret = (settings.fyers_secret_id or "").strip()
+        if not app_id or not secret:
+            logger.error("REFRESH_MISSING_CREDENTIALS")
+            return False
+
+        app_id_hash = hashlib.sha256(f"{app_id}:{secret}".encode()).hexdigest()
+
+        url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
+        body = {
+            "grant_type": "refresh_token",
+            "appIdHash": app_id_hash,
+            "refresh_token": row.refresh_token,
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=body)
+            data = resp.json() if resp.content else {}
+
+        if data.get("s") == "ok":
+            access_data = data.get("data", {})
+            new_access = access_data.get("access_token")
+            new_refresh = access_data.get("refresh_token") or row.refresh_token
+
+            if new_access:
+                # Save new access (and possibly updated refresh)
+                await save_access_token(new_access, db, new_refresh)
+                _clear_token_cache()
+                logger.info("TOKEN_REFRESH_SUCCESS | access token auto-renewed via refresh_token")
+                # update row audit fields if present
+                if hasattr(row, 'last_auto_renewal_at'):
+                    row.last_auto_renewal_at = datetime.utcnow()
+                    row.last_auto_renewal_status = "success"
+                    await db.commit()
+                return True
+        else:
+            logger.error("TOKEN_REFRESH_FAILED | fyers response=%s", data)
+            if hasattr(row, 'last_auto_renewal_status'):
+                row.last_auto_renewal_status = "failed"
+                await db.commit()
+            return False
+    except Exception as e:
+        logger.exception("TOKEN_REFRESH_ERROR | %s", e)
+        return False
 
