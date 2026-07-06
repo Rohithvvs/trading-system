@@ -25,7 +25,7 @@ async def save_access_token_route(payload: FyersTokenCreate, background_tasks: B
         raise HTTPException(status_code=400, detail="access_token cannot be empty")
 
     logger.info("Token accepted. Calling token_service.save_access_token...")
-    result = await token_service.save_access_token(token, db, getattr(payload, 'refresh_token', None))
+    result = await token_service.save_access_token(token, db)
     logger.info("Service result   : %s", result.get("status"))
 
     if result.get("status") == "error":

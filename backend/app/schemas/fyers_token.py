@@ -8,17 +8,12 @@ from pydantic import BaseModel
 
 class FyersTokenCreate(BaseModel):
     access_token: str
-    refresh_token: Optional[str] = None
     expires_at: Optional[datetime] = None
 
 
 class FyersTokenResponse(BaseModel):
     id: int
     access_token: str
-    refresh_token_present: bool = False
     created_at: datetime
     expires_at: Optional[datetime] = None
     is_active: bool
-    refresh_token_expires_at: Optional[datetime] = None
-    last_auto_renewal_at: Optional[datetime] = None
-    last_auto_renewal_status: Optional[str] = None

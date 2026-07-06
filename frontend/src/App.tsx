@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { fetchSavedScans, fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset, waitForBackend, runScannerAfterReady } from "./api";
+import { fetchSavedScans, fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
@@ -54,8 +54,6 @@ export default function App() {
   const [paperTradingPrefill, setPaperTradingPrefill] = useState<RecommendationPrefillRequest | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [backendWaking, setBackendWaking] = useState(false);
-  const scannerAbortController = useRef<AbortController | null>(null);
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
 
 
@@ -153,24 +151,11 @@ export default function App() {
   }, [screenerResult]);
 
   async function handleRunScanner() {
-    // Abort any previous scanner request
-    if (scannerAbortController.current) {
-      scannerAbortController.current.abort();
-    }
-    scannerAbortController.current = new AbortController();
-
     setIsLoading(true);
     setError(null);
-    setProgressStage("Waking backend (Render cold start)...");
-    setProgressPercent(5);
+    setProgressStage("Authenticating & Waking Agents...");
+    setProgressPercent(0);
     setScanStartTime(Date.now());
-    setBackendWaking(true);
-
-    const onWakeProgress = (attempt: number, elapsed: number, msg: string) => {
-      const pct = Math.min(5 + Math.floor((elapsed / 60000) * 20), 25);
-      setProgressStage(msg);
-      setProgressPercent(pct);
-    };
 
     try {
       console.info("[scanner] handleRunScanner triggered", {
@@ -178,18 +163,7 @@ export default function App() {
         lookback,
         topN,
       });
-
-      // 1. Wait for backend to wake (handles sleep + network errors)
-      await waitForBackend({
-        maxWaitMs: 60000,
-        onProgress: onWakeProgress,
-      });
-
-      setProgressStage("Backend ready. Starting scanner...");
-      setProgressPercent(30);
-
-      // 2. Only now call the scanner (with abort support)
-      const response = await runScannerAfterReady(
+      const response = await runPresetScreener(
         "swing",
         {
           intraday: "5m",
@@ -200,9 +174,8 @@ export default function App() {
         topN,
         (stage, progress) => {
           setProgressStage(stage);
-          setProgressPercent(Math.max(30, progress));
-        },
-        scannerAbortController.current.signal
+          setProgressPercent(progress);
+        }
       );
 
       console.info("[scanner] storing scanner result", {
@@ -215,19 +188,12 @@ export default function App() {
 
       applyScanResult(response, "fresh");
     } catch (requestError: any) {
-      if (requestError.name === 'AbortError') {
-        console.info("[scanner] request aborted by user");
-        setError("Scanner request cancelled.");
-        return;
-      }
       console.error("[scanner] scanner request failed", requestError);
       const detail = requestError?.response?.data?.detail || requestError?.detail || null;
 
       let errorMessage = "Scanner failed. Please try again.";
 
-      if (requestError.message && requestError.message.includes('Backend did not respond')) {
-        errorMessage = "⏳ " + requestError.message + " — The backend on Render may still be starting. Try again in 30s.";
-      } else if (detail?.error_type === "FYERS_TOKEN_EXPIRED") {
+      if (detail?.error_type === "FYERS_TOKEN_EXPIRED") {
         errorMessage = "🔴 Fyers Access Token Expired — Please re-authenticate with Fyers and restart the backend.";
       } else if (detail?.error_type === "FYERS_TOKEN_INVALID") {
         errorMessage = "🔴 Fyers Token Invalid — Your Fyers API credentials are wrong. Check your config file.";
@@ -247,9 +213,6 @@ export default function App() {
       console.info("[scanner] handleRunScanner completed");
       setIsLoading(false);
       setScanStartTime(null);
-      setBackendWaking(false);
-      // clear abort
-      scannerAbortController.current = null;
     }
   }
 
