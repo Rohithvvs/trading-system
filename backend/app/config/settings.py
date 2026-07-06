@@ -87,6 +87,9 @@ class Settings(BaseSettings):
         ),
         alias="FYERS_SCREENER_SYMBOLS"
     )
+
+    # Allow the app to start with empty stocks_master (useful for initial deploys / data seeding)
+    require_universe_data: bool = Field(default=True, alias="REQUIRE_UNIVERSE_DATA")
     news_provider: str = "marketaux"
     news_api_key: str = ""
     news_base_url: str = "https://api.marketaux.com/v1/news/all"

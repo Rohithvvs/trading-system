@@ -3,9 +3,24 @@ import sys
 import asyncio
 from sqlalchemy.dialects.postgresql import insert
 import os
+from pathlib import Path
 
-# Add backend directory to sys.path if run directly
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Robust path setup so the script works whether run directly,
+# via python -m, or from repo root / Render environment.
+_here = Path(__file__).resolve()
+# Try common layouts: repo_root/backend/scripts/...
+candidates = [
+    _here.parents[1],   # backend/
+    _here.parents[2],   # repo root/
+    Path.cwd(),
+]
+for cand in candidates:
+    if (cand / "app" / "db" / "session.py").exists():
+        sys.path.insert(0, str(cand))
+        break
+else:
+    # Fallback
+    sys.path.append(str(_here.parents[1]))
 
 from app.db.session import AsyncSessionLocal
 from app.models.stock import StockMaster
@@ -70,7 +85,6 @@ async def import_csv(csv_path: str, universe: str):
     print(f"Successfully upserted {len(records)} records for universe {universe}.")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python import_stocks_master.py <path_to_csv> <universe>")
-        sys.exit(1)
-    asyncio.run(import_csv(sys.argv[1], sys.argv[2]))
+    csv_path = sys.argv[1] if len(sys.argv) > 1 else "ind_nifty500list.csv"
+    universe = sys.argv[2] if len(sys.argv) > 2 else "NIFTY500"
+    asyncio.run(import_csv(csv_path, universe))

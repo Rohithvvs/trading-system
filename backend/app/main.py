@@ -314,7 +314,10 @@ async def lifespan(app: FastAPI):
         count = len(active_symbols)
         logger.info(f"UNIVERSE_LOADED | count={count}")
         if count == 0:
-            raise RuntimeError("Startup failed: Universe count is 0. Please import stocks_master.")
+            if settings.require_universe_data:
+                raise RuntimeError("Startup failed: Universe count is 0. Please import stocks_master. (Run: python backend/scripts/import_stocks_master.py ind_nifty500list.csv NIFTY500)")
+            else:
+                logger.warning("UNIVERSE EMPTY but REQUIRE_UNIVERSE_DATA=false — continuing startup (data seeding recommended).")
 
         screener_svc = ScreenerService()
         await screener_svc.validate_startup_health(active_symbols)
