@@ -313,11 +313,57 @@ async def lifespan(app: FastAPI):
         active_symbols = await UniverseService.get_all_active_symbols()
         count = len(active_symbols)
         logger.info(f"UNIVERSE_LOADED | count={count}")
+
+        if count == 0:
+            logger.warning("Universe is empty. Attempting automatic seed from bundled ind_nifty500list.csv ...")
+            try:
+                import sys
+                import asyncio
+                from pathlib import Path
+
+                repo_root = Path(__file__).resolve().parents[2]
+                if str(repo_root) not in sys.path:
+                    sys.path.insert(0, str(repo_root))
+
+                # Try several import styles that work in different runtimes (Render, local, uvicorn -m, etc.)
+                import_csv = None
+                for mod_name in [
+                    "backend.scripts.import_stocks_master",
+                    "scripts.import_stocks_master",
+                    "import_stocks_master",
+                ]:
+                    try:
+                        mod = __import__(mod_name, fromlist=["import_csv"])
+                        import_csv = getattr(mod, "import_csv")
+                        break
+                    except Exception:
+                        pass
+
+                if import_csv is None:
+                    # Last resort: run the script via subprocess (synchronous but acceptable at startup)
+                    import subprocess
+                    csv_path = str(repo_root / "ind_nifty500list.csv")
+                    cmd = [sys.executable, str(repo_root / "backend" / "scripts" / "import_stocks_master.py"), csv_path, "NIFTY500"]
+                    subprocess.run(cmd, check=False, capture_output=True, text=True, cwd=str(repo_root))
+                else:
+                    csv_path = str(repo_root / "ind_nifty500list.csv")
+                    await import_csv(csv_path, "NIFTY500")
+
+                active_symbols = await UniverseService.get_all_active_symbols()
+                count = len(active_symbols)
+                logger.info(f"UNIVERSE_LOADED after auto-seed | count={count}")
+            except Exception as seed_err:
+                logger.exception("Auto-seed of stocks_master failed: %s", seed_err)
+
         if count == 0:
             if settings.require_universe_data:
-                raise RuntimeError("Startup failed: Universe count is 0. Please import stocks_master. (Run: python backend/scripts/import_stocks_master.py ind_nifty500list.csv NIFTY500)")
+                raise RuntimeError(
+                    "Startup failed: Universe count is 0 after auto-seed attempt. "
+                    "Please ensure ind_nifty500list.csv is present and DATABASE_URL is correct. "
+                    "(Manual: python backend/scripts/import_stocks_master.py ind_nifty500list.csv NIFTY500)"
+                )
             else:
-                logger.warning("UNIVERSE EMPTY but REQUIRE_UNIVERSE_DATA=false — continuing startup (data seeding recommended).")
+                logger.warning("UNIVERSE EMPTY but REQUIRE_UNIVERSE_DATA=false — continuing in degraded mode.")
 
         screener_svc = ScreenerService()
         await screener_svc.validate_startup_health(active_symbols)
