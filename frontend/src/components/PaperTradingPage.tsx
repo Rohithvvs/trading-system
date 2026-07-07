@@ -31,6 +31,7 @@ import {
   startMarketEngine,
   stopMarketEngine,
 } from "../api";
+import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
 import TokenStatus from "./TokenStatus";
 import type {
   CandidateRow,
@@ -631,6 +632,16 @@ export function PaperTradingPage({
   }
 
   async function handlePlaceOrder() {
+    // Centralized pre-check: prevent any API call for BUY when market closed
+    if (ticket.side === "BUY") {
+      const check = checkCanPlaceBuyOrder();
+      if (!check.allowed) {
+        showMarketClosedAlert(check);
+        setIsBusy(false);
+        return;
+      }
+    }
+
     setIsBusy(true);
     setError(null);
     try {
@@ -676,6 +687,13 @@ export function PaperTradingPage({
   }
 
   function handleQuickOrder(side: "BUY" | "SELL", symbol?: string) {
+    if (side === "BUY") {
+      const check = checkCanPlaceBuyOrder();
+      if (!check.allowed) {
+        showMarketClosedAlert(check);
+        return;
+      }
+    }
     const normalized = (symbol ?? selectedSymbol ?? ticket.symbol).trim().toUpperCase();
     if (!normalized) return;
     setTicket((current) => ({ ...current, symbol: normalized, side, type: "MARKET" }));
@@ -1472,7 +1490,7 @@ function OrderTicketCard({
         <span className="helper-chip">Risk {riskMetrics.riskPercent.toFixed(2)}% of account</span>
         <div>
           {qtyError ? <div className="error-state" style={{ display: 'inline-block', padding: 8, marginRight: 8 }}>{qtyError}</div> : null}
-          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError}>
+          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError || (ticket.side === "BUY" && !checkCanPlaceBuyOrder().allowed)}>
             {isBusy ? "Working..." : "Place paper order"}
           </button>
         </div>

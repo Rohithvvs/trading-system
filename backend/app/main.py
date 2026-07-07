@@ -317,8 +317,6 @@ async def lifespan(app: FastAPI):
         if count == 0:
             logger.warning("Universe is empty. Attempting automatic seed from bundled ind_nifty500list.csv ...")
             try:
-                import sys
-                import asyncio
                 from pathlib import Path
 
                 repo_root = Path(__file__).resolve().parents[2]
@@ -889,16 +887,23 @@ async def automated_screening_job():
                 startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
                 app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
                 
-                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
-                market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
-                if ist_now.weekday() >= 5:
-                    market_session = "closed"
-                elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
-                    market_session = "pre_open"
-                elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
-                    market_session = "post_close"
-                else:
-                    market_session = "open"
+                # Use centralized service for accurate market status (weekends + holidays)
+                try:
+                    from .services.trading_hours_service import trading_hours
+                    mkt = trading_hours.get_market_status()
+                    market_open = mkt["is_open"]
+                    market_session = mkt["status"].lower().replace("_", "-")
+                except Exception:
+                    ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                    market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
+                    if ist_now.weekday() >= 5:
+                        market_session = "closed"
+                    elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
+                        market_session = "pre_open"
+                    elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
+                        market_session = "post_close"
+                    else:
+                        market_session = "open"
                 
                 pool = engine.pool
                 

@@ -144,6 +144,18 @@ class PaperTradingService:
     def place_order(self, payload: PaperOrderCreateRequest) -> PaperOrderActionResponse:
         if not payload.idempotency_key:
             raise ValueError("Idempotency key is required.")
+
+        # === CENTRALIZED MARKET HOURS VALIDATION (applies to Paper + future Live) ===
+        # Only Buy orders are restricted. Sells/closes are allowed to manage risk.
+        if getattr(payload, "side", None) == "BUY":
+            from .trading_hours_service import trading_hours, MarketClosedError
+            try:
+                trading_hours.validate_can_place_buy_order()
+            except MarketClosedError as mce:
+                # Re-raise as ValueError so existing route error handling surfaces the friendly message.
+                # This ensures NO order is created, no fill attempted, and no backend side-effects.
+                raise ValueError(str(mce)) from mce
+
         account = self._get_or_create_account(for_update=True)
         self._validate_symbol(payload.symbol)
         existing = self.db.scalar(

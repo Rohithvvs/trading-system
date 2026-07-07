@@ -6,6 +6,7 @@ import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { FilterBar } from "./components/FilterBar";
 import { PaperTradingPage } from "./components/PaperTradingPage";
+import { isMarketOpenForDisplay, checkCanPlaceBuyOrder } from "./utils/tradingHours";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
@@ -266,6 +267,15 @@ export default function App() {
   }
 
   function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null) {
+    // Prevent initiating BUY flow from scanner when market closed (no request will be made later)
+    const sig = (row as any).signal || (row as any).recommendation;
+    if (sig === "BUY") {
+      const check = checkCanPlaceBuyOrder();
+      if (!check.allowed) {
+        import("./utils/tradingHours").then(({ showMarketClosedAlert }) => showMarketClosedAlert(check));
+        return;
+      }
+    }
     const prefill = buildPaperTradingPrefill(row);
     setPaperTradingPrefill({
       ...prefill,
@@ -668,17 +678,15 @@ function formatVolume(
 }
 
 function getMarketStatus() {
-  const now = new Date();
-  const day = now.getDay();
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const open = 9 * 60 + 15;
-  const close = 15 * 60 + 30;
-
-  if (day === 0 || day === 6) {
-    return "Closed";
+  try {
+    return isMarketOpenForDisplay();
+  } catch {
+    const now = new Date();
+    const day = now.getDay();
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const open = 9 * 60 + 15;
+    const close = 15 * 60 + 30;
+    if (day === 0 || day === 6) return "Closed";
+    return minutes >= open && minutes <= close ? "Open" : "Closed";
   }
-  if (minutes >= open && minutes <= close) {
-    return "Open";
-  }
-  return "Closed";
 }

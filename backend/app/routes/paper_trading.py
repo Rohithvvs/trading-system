@@ -109,19 +109,30 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
     daily_pnl = round(daily_pnl, 2)
     daily_pnl_pct = round((daily_pnl / total_capital) * 100, 2) if total_capital else 0.0
 
-    # Market status based on IST clock
-    now_time = now_ist.time()
-    pre_open_start = datetime(now_ist.year, now_ist.month, now_ist.day, 9, 0, tzinfo=ist).time()
-    pre_open_end = datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
-    open_start = datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
-    open_end = datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
+    # Use centralized TradingHoursService for consistent status (includes holidays)
+    try:
+        from ..services.trading_hours_service import trading_hours
+        status_info = trading_hours.get_market_status()
+        if status_info["status"] == "OPEN":
+            market_status = "OPEN 🟢"
+        elif status_info["status"] == "PRE_OPEN":
+            market_status = "PRE-OPEN 🟡"
+        else:
+            market_status = "CLOSED 🔴"
+    except Exception:
+        # Fallback to previous simple logic
+        now_time = now_ist.time()
+        pre_open_start = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 0, tzinfo=ist).time()
+        pre_open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
+        open_start = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
+        open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
 
-    if pre_open_start <= now_time < pre_open_end:
-        market_status = "PRE-OPEN 🟡"
-    elif open_start <= now_time < open_end:
-        market_status = "OPEN 🟢"
-    else:
-        market_status = "CLOSED 🔴"
+        if pre_open_start <= now_time < pre_open_end:
+            market_status = "PRE-OPEN 🟡"
+        elif open_start <= now_time < open_end:
+            market_status = "OPEN 🟢"
+        else:
+            market_status = "CLOSED 🔴"
 
     payload = {
         "total_capital": total_capital,

@@ -170,6 +170,15 @@ export async function fetchPaperAccountSummary(): Promise<any> {
   return response.json();
 }
 
+export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: string; reason: string; current_ist?: string; next_open_ist?: string | null }> {
+  const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
+  if (!response.ok) {
+    // Non-fatal, client will fall back to local time checks
+    throw new Error("Market status unavailable");
+  }
+  return response.json();
+}
+
 export async function fetchPaperQuote(symbol: string): Promise<PaperQuoteResponse> {
   const response = await fetchWithDiagnostics(`/paper-trading/symbols/${encodeURIComponent(symbol)}/quote`, undefined, "Paper quote");
   if (!response.ok) {
