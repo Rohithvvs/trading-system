@@ -10,8 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError
 
-from backend.app.models.market_data import HistoricalCandle
-from backend.app.services.market_data_service import MarketDataService
+from app.models.market_data import HistoricalCandle
+from app.services.market_data_service import MarketDataService
 
 @pytest.fixture(scope="function")
 def isolated_db():
@@ -19,7 +19,7 @@ def isolated_db():
     os.close(db_fd)
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False, "timeout": 15})
     
-    from backend.app.db.session import init_db
+    from app.db.session import init_db
     with patch("app.db.session.engine", engine):
         with patch("app.db.session.settings.database_url", f"sqlite:///{db_path}"):
             init_db()

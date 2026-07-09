@@ -37,7 +37,11 @@ async function fetchWithDiagnostics(
     });
 
     try {
-      const response = await fetch(url, init);
+      const fetchInit = {
+        ...init,
+        credentials: "include" as RequestCredentials,
+      };
+      const response = await fetch(url, fetchInit);
       const elapsedMs = Math.round(performance.now() - startedAt);
       console.info(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
       return response;
@@ -710,3 +714,63 @@ export async function fetchApiHealth(): Promise<any> {
   if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
   return response.json();
 }
+export async function authSignup(payload: any): Promise<any> {
+  const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/signup`;
+  const response = await fetch(url, { credentials: 'include',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || 'Signup failed');
+  }
+  return response.json();
+}
+export async function authLogin(payload: any): Promise<any> {
+  const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/login`;
+  const response = await fetch(url, { credentials: 'include',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || 'Login failed');
+  }
+  return response.json();
+}
+export async function authGoogleLogin(idToken: string): Promise<any> {
+  const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/google`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url, {
+      credentials: 'include',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || 'Google login failed');
+    }
+    return response.json();
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. Backend may be unreachable.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function authMe(): Promise<any> {
+  const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/me`;
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) throw new Error('Not authenticated');
+  return response.json();
+}
+

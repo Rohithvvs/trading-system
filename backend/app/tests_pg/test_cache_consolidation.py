@@ -1,10 +1,10 @@
 import pytest
 from sqlalchemy import text
-from backend.app.db.session import AsyncSessionLocal
-from backend.app.services.candle_store import store_candles, load_candles, get_candle_count
+from app.db.session import AsyncSessionLocal
+from app.services.candle_store import store_candles, load_candles, get_candle_count
 import pandas as pd
 from datetime import datetime, timezone
-from backend.app.services.partition_manager import verify_and_create_partitions
+from app.services.partition_manager import verify_and_create_partitions
 
 @pytest.mark.asyncio
 async def test_candle_cache_consolidation():

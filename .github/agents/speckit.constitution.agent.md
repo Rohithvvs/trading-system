@@ -148,3 +148,21 @@ Check if `.specify/extensions.yml` exists in the project root.
     EXECUTE_COMMAND: {command}
     ```
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
+
+Project: Trading App Authentication System
+
+Principles:
+1. Security-First Auth: All auth endpoints (login, signup, refresh, PIN-verify) MUST 
+   enforce rate limiting and generic error messages that never reveal account existence.
+2. Zero-Trust Session Model: Every paper-trading API (holdings, balance, analytics) 
+   MUST validate a live session token; no endpoint is exempt.
+3. Layered Authentication: Full credential login MUST occur once; subsequent app 
+   entry MUST use biometric-first with 4-digit PIN as mandatory fallback.
+4. Token Hygiene: Refresh tokens MUST rotate on each use with reuse detection; 
+   compromised token families MUST be revoked entirely, not per-token.
+5. Device Transparency: Users MUST be able to view and revoke active sessions 
+   from a device management screen.
+6. Responsive UI: Auth screens MUST render correctly on both mobile and laptop 
+   viewports using a single shared component set.
+
+Testing: Explicit unit + integration tests required for all auth flows (not "no testing").

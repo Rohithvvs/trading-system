@@ -10,7 +10,7 @@ from ..schemas import ScreenerRequest
 from ..services.scan_execution_service import ScanExecutionService
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
-logger = logging.getLogger("backend.app.routes.scheduler")
+logger = logging.getLogger("app.routes.scheduler")
 
 @router.post("/daily-scan")
 async def daily_scan(

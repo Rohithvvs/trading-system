@@ -51,10 +51,11 @@ type DashboardHeaderProps = {
   onThemeToggle: () => void;
 };
 
+  import { useAuth } from '../hooks/useAuth';
+
 export function DashboardHeader({
   isLoading,
   lastScanAt,
-
   marketStatus,
   search,
   onSearchChange,
@@ -71,6 +72,8 @@ export function DashboardHeader({
   theme,
   onThemeToggle,
 }: DashboardHeaderProps) {
+  const { user, logout } = useAuth();
+  
   return (
     <header className="dashboard-header panel">
       <div className="header-brand">
@@ -131,6 +134,11 @@ export function DashboardHeader({
           <button type="button" className="button ghost-button" onClick={onThemeToggle}>
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
+          {user && (
+            <button type="button" className="button ghost-button text-red-500" onClick={logout}>
+              Sign Out
+            </button>
+          )}
           <button data-testid="run-scanner-button" type="button" className="button primary-button" onClick={onRunScanner} disabled={isLoading}>
             {isLoading ? "Scanning..." : "Run Nifty 500 Swing Scanner"}
           </button>

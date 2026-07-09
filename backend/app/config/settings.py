@@ -57,6 +57,7 @@ def normalize_database_url(raw_value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Trading System"
     app_env: str = "development"
+    google_client_id: str = ""
     quarantine_mode: bool = False
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -182,7 +183,7 @@ class Settings(BaseSettings):
         try:
             with csv_path.open(newline="", encoding="utf-8-sig") as handle:
                 reader = csv.DictReader(handle)
-                from backend.app.utils.symbol import canonical_symbol
+                from app.utils.symbol import canonical_symbol
                 for row in reader:
                     symbol = (row.get("Symbol") or "").strip().upper()
                     series = (row.get("Series") or "").strip().upper()

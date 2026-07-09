@@ -9,7 +9,7 @@ from ..schemas import ScreenerResponse
 from ..utils import get_logger
 from ..observability.scan_diagnostics import get_current_scan, log_scan_persist
 
-logger = get_logger("backend.app.services.latest_scan_service")
+logger = get_logger("app.services.latest_scan_service")
 
 class LatestScanService:
     def __init__(self, db: AsyncSession):

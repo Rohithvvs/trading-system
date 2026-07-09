@@ -35,7 +35,7 @@ from ..services.workstation_service import WorkstationService
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
-logger = get_logger("backend.app.routes.analysis")
+logger = get_logger("app.routes.analysis")
 
 
 @router.post("/technical", response_model=AnalysisResponse)

@@ -6,10 +6,10 @@ from sqlalchemy import select, text
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
 
-from backend.app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, ExecutionEvent
-from backend.app.services.market_engine_service import MarketEngineService
-from backend.app.services.paper_trading_service import PaperTradingService
-from backend.app.utils.symbol import canonical_symbol, fyers_symbol
+from app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, ExecutionEvent
+from app.services.market_engine_service import MarketEngineService
+from app.services.paper_trading_service import PaperTradingService
+from app.utils.symbol import canonical_symbol, fyers_symbol
 
 @pytest.fixture
 async def setup_account(db):
@@ -33,7 +33,7 @@ def mock_fyers_network():
             mock_ohlcv.return_value = []
             with patch("app.services.paper_trading_service.PaperTradingService._price_snapshot") as mock_ps:
                 # Provide a quick synchronous mock to skip asyncio/yfinance completely
-                from backend.app.services.paper_trading_service import PriceSnapshot
+                from app.services.paper_trading_service import PriceSnapshot
                 mock_ps.return_value = PriceSnapshot(
                     symbol="MOCK", current_price=100.0, candles=[], ema_20=None, supertrend=None, source="MOCK", fetched_at=datetime.utcnow()
                 )

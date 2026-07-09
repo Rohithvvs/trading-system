@@ -224,7 +224,7 @@ class MarketEngineService:
         self.logger.info("RECONCILIATION_COMPLETED | duration_ms=%s | positions_checked=%s", duration_ms, open_positions)
 
     async def _on_tick(self, symbol: str, price: float, is_reconciliation: bool = False) -> None:
-        from backend.app.utils.symbol import canonical_symbol
+        from app.utils.symbol import canonical_symbol
         normalized = canonical_symbol(symbol)
         
         self.logger.info("SYMBOL_NORMALIZED | raw_symbol=%s | canonical_symbol=%s", symbol, normalized)

@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 from unittest.mock import patch, MagicMock
-from backend.app.services.market_data_service import MarketDataService
-from backend.app.services.candle_reconciliation_service import CandleReconciliationService
-from backend.app.models.market_data import Base, HistoricalCandle
+from app.services.market_data_service import MarketDataService
+from app.services.candle_reconciliation_service import CandleReconciliationService
+from app.models.market_data import Base, HistoricalCandle
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import tempfile
@@ -22,8 +22,8 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 from alembic.config import Config
 from alembic import command
-from backend.app.config import settings
-from backend.app.config.settings import ROOT_DIR
+from app.config import settings
+from app.config.settings import ROOT_DIR
 alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))
 alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{test_db_path}")
 command.upgrade(alembic_cfg, "head")

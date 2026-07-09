@@ -256,7 +256,7 @@ async def lifespan(app: FastAPI):
         logger.info("Test environment detected; setting up tables and skipping scheduler/monitors.")
         from .db.session import engine
         from .db.base import Base
-        import backend.app.models  # ensure all models are registered
+        import app.models  # ensure all models are registered
         
         # Patch SQLite JSONB support for testing
         from sqlalchemy.ext.compiler import compiles

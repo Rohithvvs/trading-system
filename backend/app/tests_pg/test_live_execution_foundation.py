@@ -8,10 +8,10 @@ from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy import text
 
-from backend.app.models.live_trading import LiveAccount, LiveOrder, LivePosition, BrokerExecutionLog
-from backend.app.services.live_state_machine import LiveOrderStateMachine
-from backend.app.services.margin_engine import MarginEngine
-from backend.app.services.reconciliation_framework import ReconciliationFramework
+from app.models.live_trading import LiveAccount, LiveOrder, LivePosition, BrokerExecutionLog
+from app.services.live_state_machine import LiveOrderStateMachine
+from app.services.margin_engine import MarginEngine
+from app.services.reconciliation_framework import ReconciliationFramework
 
 @pytest.fixture
 async def live_account(db: AsyncSession):
@@ -221,7 +221,7 @@ async def test_release_safety(db: AsyncSession, live_account: LiveAccount):
     with pytest.raises(ValueError, match="Cannot release"):
         await MarginEngine.release_margin(db, live_account.id, Decimal("30000.00"))
         
-from backend.app.models.live_trading import OrderExecutionEvent
+from app.models.live_trading import OrderExecutionEvent
 
 @pytest.mark.asyncio
 async def test_execution_event_creation(db: AsyncSession, live_account: LiveAccount):

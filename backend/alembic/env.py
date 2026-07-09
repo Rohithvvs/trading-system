@@ -23,18 +23,18 @@ import sys
 # Add the backend directory to sys.path so 'app' can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.app.db.base import Base
-from backend.app.config import settings
+from app.db.base import Base
+from app.config import settings
 
 # Import models to ensure they are registered with Base.metadata
-from backend.app.models import analysis
-from backend.app.models import paper_trading
-from backend.app.models import stock
-from backend.app.models import fyers_token
-from backend.app.models import workstation
-from backend.app.models import market_data
-from backend.app.models import system_log
-from backend.app.models import infrastructure
+from app.models import analysis
+from app.models import paper_trading
+from app.models import stock
+from app.models import fyers_token
+from app.models import workstation
+from app.models import market_data
+from app.models import system_log
+from app.models import infrastructure
 
 def _prepare_asyncpg_url(raw_database_url: str) -> tuple[str, dict[str, object]]:
     parsed = urlsplit(raw_database_url)

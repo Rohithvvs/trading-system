@@ -7,8 +7,8 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from backend.app.models.live_trading import LiveAccount, LiveOrder, OrderExecutionEvent
-from backend.app.services.live_state_machine import LiveOrderStateMachine
+from app.models.live_trading import LiveAccount, LiveOrder, OrderExecutionEvent
+from app.services.live_state_machine import LiveOrderStateMachine
 
 @pytest.fixture
 async def live_account(db: AsyncSession):

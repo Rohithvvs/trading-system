@@ -19,7 +19,7 @@ from . import market_data
 from . import system_log
 from . import infrastructure
 from .live_trading import LiveAccount, LivePosition, LiveOrder, BrokerExecutionLog, OrderExecutionEvent
-
+from .auth import User, UserSession, Device, AuditLog, OTP
 __all__ = [
     "AnalysisHistory",
     "BacktestHistory",
@@ -44,4 +44,9 @@ __all__ = [
     "LiveOrder",
     "BrokerExecutionLog",
     "OrderExecutionEvent",
+    "User",
+    "UserSession",
+    "Device",
+    "AuditLog",
+    "OTP",
 ]

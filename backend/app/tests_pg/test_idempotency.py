@@ -6,11 +6,11 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from backend.app.db.session import engine, AsyncSessionLocal
-from backend.app.models.paper_trading import PaperOrder, PaperPosition, PaperTradingAccount, ExecutionEvent, PaperTransaction, PaperNotification
-from backend.app.models.idempotency import IdempotencyRecord
-from backend.app.schemas.paper_trading import PaperOrderCreateRequest
-from backend.app.services.paper_trading_service import PaperTradingService, PriceSnapshot
+from app.db.session import engine, AsyncSessionLocal
+from app.models.paper_trading import PaperOrder, PaperPosition, PaperTradingAccount, ExecutionEvent, PaperTransaction, PaperNotification
+from app.models.idempotency import IdempotencyRecord
+from app.schemas.paper_trading import PaperOrderCreateRequest
+from app.services.paper_trading_service import PaperTradingService, PriceSnapshot
 from unittest.mock import patch
 
 @pytest.fixture(autouse=True)

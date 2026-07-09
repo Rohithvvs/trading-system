@@ -1,5 +1,5 @@
 import pytest
-from backend.app.db.scan_store import save_latest_scan, load_latest_scan, get_last_scan_time
+from app.db.scan_store import save_latest_scan, load_latest_scan, get_last_scan_time
 
 @pytest.mark.asyncio
 async def test_scan_cache_atomic_upsert():

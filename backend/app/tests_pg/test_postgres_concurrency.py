@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from sqlalchemy import text
-from backend.app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal
 
 @pytest.fixture(autouse=True)
 async def setup_concurrency(db):
