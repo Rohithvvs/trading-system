@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.auth import UserCreate, UserResponse, GoogleLoginRequest
-from app.services.auth_service import create_user, authenticate_user, google_auth
-from app.db.session import get_db
+from ..schemas.auth import UserCreate, UserResponse, GoogleLoginRequest
+from ..services.auth_service import create_user, authenticate_user, google_auth
+from ..db.session import get_db
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ async def signup(user_in: UserCreate, request: Request, db: AsyncSession = Depen
     return user
 
 from fastapi.responses import JSONResponse
-from app.schemas.auth import LoginRequest
+from ..schemas.auth import LoginRequest
 
 @router.post("/login")
 async def login(request_data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
@@ -27,7 +27,7 @@ async def login(request_data: LoginRequest, request: Request, db: AsyncSession =
     user = await authenticate_user(db, request_data.email, request_data.password, ip_address, user_agent)
     
     # 2. Create Session
-    from app.services.auth_service import create_user_session
+    from ..services.auth_service import create_user_session
     access_token, refresh_token = await create_user_session(
         db, str(user.id), ip_address, user_agent, request_data.remember_me
     )
@@ -116,7 +116,7 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing")
         
     try:
-        from app.core.security import decode_refresh_token
+        from ..core.security import decode_refresh_token
         payload = decode_refresh_token(refresh_token)
         user_id = payload.get("sub")
         if not user_id:
@@ -124,7 +124,7 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
             
         # In a real app we'd verify the refresh token hasn't been revoked in DB
         
-        from app.services.auth_service import create_user_session
+        from ..services.auth_service import create_user_session
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
         
@@ -163,13 +163,13 @@ async def get_sessions(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
         
     try:
-        from app.core.security import decode_access_token
+        from ..core.security import decode_access_token
         payload = decode_access_token(access_token)
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
             
-        from app.services.auth_service import get_active_sessions
+        from ..services.auth_service import get_active_sessions
         sessions = await get_active_sessions(db, user_id)
         
         return {
@@ -194,13 +194,13 @@ async def revoke_user_session(session_id: str, request: Request, db: AsyncSessio
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
         
     try:
-        from app.core.security import decode_access_token
+        from ..core.security import decode_access_token
         payload = decode_access_token(access_token)
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
             
-        from app.services.auth_service import revoke_session
+        from ..services.auth_service import revoke_session
         await revoke_session(db, user_id, session_id)
         return {"message": "Session revoked"}
     except HTTPException:
@@ -208,7 +208,7 @@ async def revoke_user_session(session_id: str, request: Request, db: AsyncSessio
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-from app.core.deps import get_current_active_user
+from ..core.deps import get_current_active_user
 
 @router.get('/me', response_model=UserResponse)
 async def get_me(current_user = Depends(get_current_active_user)):

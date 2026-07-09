@@ -6,13 +6,13 @@ from typing import Tuple, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.auth import User
-from app.schemas.auth import UserCreate
-from app.core.security import get_password_hash, verify_password
-from app.services.audit_service import AuditService
+from ..models.auth import User
+from ..schemas.auth import UserCreate
+from ..core.security import get_password_hash, verify_password
+from ..services.audit_service import AuditService
 from sqlalchemy.exc import IntegrityError
 
-from app.config.settings import settings
+from ..config.settings import settings
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
@@ -79,9 +79,9 @@ async def create_user(db: AsyncSession, user_in: UserCreate, ip_address: str = N
     return db_user
 
 
-from app.schemas.auth import LoginRequest
-from app.models.auth import UserSession
-from app.core.security import create_access_token, create_refresh_token, get_password_hash
+from ..schemas.auth import LoginRequest
+from ..models.auth import UserSession
+from ..core.security import create_access_token, create_refresh_token, get_password_hash
 
 _DUMMY_HASH = get_password_hash("dummy_timing_attack_protection")
 

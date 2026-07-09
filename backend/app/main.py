@@ -1,3 +1,13 @@
+import sys
+from pathlib import Path
+
+# Ensure backend/ is on sys.path so 'app' is importable as a top-level package
+# (uvicorn imports backend.app.main which makes backend findable, but nested
+#  files using 'from app.xxx import yyy' need 'app' on sys.path)
+_backend_dir = str(Path(__file__).resolve().parent.parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from datetime import datetime
 from time import perf_counter
 from contextlib import asynccontextmanager
@@ -447,6 +457,11 @@ async def lifespan(app: FastAPI):
         id="retention_cleanup",
         replace_existing=True,
     )
+
+    # Clear in-memory FYERS quarantine on every app start
+    from .services.fyers_service import QUARANTINED_SYMBOLS
+    QUARANTINED_SYMBOLS.clear()
+    logger.info("FYERS in-memory symbol quarantine cleared on startup")
 
     # FYERS refresh automation removed. Manual access-token workflow only.
     if not settings.quarantine_mode:

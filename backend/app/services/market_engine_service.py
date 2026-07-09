@@ -178,7 +178,11 @@ class MarketEngineService:
             if desired:
                 token = await get_current_access_token(db)
                 if token:
-                    self._feed.start(str(token))
+                    if self._feed.connected:
+                        self._feed.start(str(token))
+                    else:
+                        self.logger.warning("Feed disconnected; force-restarting")
+                        self._feed.restart(str(token))
                 else:
                     self.logger.warning("No token available to start feed")
             session.status = "RUNNING"
@@ -224,7 +228,7 @@ class MarketEngineService:
         self.logger.info("RECONCILIATION_COMPLETED | duration_ms=%s | positions_checked=%s", duration_ms, open_positions)
 
     async def _on_tick(self, symbol: str, price: float, is_reconciliation: bool = False) -> None:
-        from app.utils.symbol import canonical_symbol
+        from ..utils.symbol import canonical_symbol
         normalized = canonical_symbol(symbol)
         
         self.logger.info("SYMBOL_NORMALIZED | raw_symbol=%s | canonical_symbol=%s", symbol, normalized)

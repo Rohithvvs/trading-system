@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Dict, Any
-from app.models.auth import AuditLog
+from ..models.auth import AuditLog
 import uuid
 
 class AuditService:
