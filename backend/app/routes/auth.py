@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas.auth import UserCreate, UserResponse, GoogleLoginRequest
-from ..services.auth_service import create_user, authenticate_user, google_auth
+from ..services.auth_service import create_user, authenticate_user, google_auth, request_password_reset, confirm_password_reset
 from ..db.session import get_db
 
 router = APIRouter()
@@ -207,6 +207,19 @@ async def revoke_user_session(session_id: str, request: Request, db: AsyncSessio
         raise
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+from ..schemas.auth import ForgotPasswordRequest, ResetPasswordRequest
+
+@router.post("/forgot-password")
+async def forgot_password(request_data: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    ip_address = request.client.host if request.client else None
+    return await request_password_reset(db, request_data.email, ip_address)
+
+@router.post("/reset-password")
+async def reset_password(request_data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    if request_data.password != request_data.confirm_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passwords do not match.")
+    return await confirm_password_reset(db, request_data.token, request_data.password)
 
 from ..core.deps import get_current_active_user
 

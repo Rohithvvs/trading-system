@@ -5,6 +5,8 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import App from "./App";
 import { Login } from "./pages/Login";
 import { Signup } from "./pages/Signup";
+import { ForgotPassword } from "./pages/ForgotPassword";
+import { ResetPassword } from "./pages/ResetPassword";
 import { AuthProvider } from "./hooks/useAuth";
 import { ThemeProvider } from "./hooks/useTheme";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -32,6 +34,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/auth/forgot-password" element={<ForgotPassword />} />
+              <Route path="/auth/reset-password" element={<ResetPassword />} />
               {/* Any other route falls into App, protected by ProtectedRoute */}
               <Route 
                 path="*" 

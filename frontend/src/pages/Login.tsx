@@ -85,6 +85,13 @@ export const Login: React.FC = () => {
               />
               <span>Remember for 30 days</span>
             </label>
+            <button
+              type="button"
+              onClick={() => navigate('/auth/forgot-password')}
+              className="text-sm text-blue-600 dark:text-green-500 hover:underline font-medium focus:outline-none"
+            >
+              Forgot Password?
+            </button>
           </div>
           <button
             type="submit"

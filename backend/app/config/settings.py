@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     quarantine_mode: bool = False
     app_host: str = "127.0.0.1"
     app_port: int = 8000
+    frontend_url: str = Field(default="http://localhost:5173", alias="FRONTEND_URL")
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
     redis_url: str = "redis://localhost:6379/0"
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
@@ -97,6 +98,12 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"
     llm_api_key: str = Field(default="", alias="GROQ_API_KEY")
     llm_model: str = "LLAMA_3_70B"
+    admin_email: str = Field(default="", alias="ADMIN_EMAIL")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from: str = Field(default="", alias="SMTP_FROM")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
     model_config = SettingsConfigDict(

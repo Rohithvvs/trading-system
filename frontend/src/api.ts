@@ -774,3 +774,31 @@ export async function authMe(): Promise<any> {
   return response.json();
 }
 
+export async function forgotPassword(email: string): Promise<any> {
+  const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/forgot-password`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || 'Request failed');
+  }
+  return response.json();
+}
+
+export async function resetPassword(token: string, password: string, confirmPassword: string): Promise<any> {
+  const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/reset-password`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password, confirm_password: confirmPassword }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || 'Password reset failed');
+  }
+  return response.json();
+}
+

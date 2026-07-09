@@ -40,4 +40,12 @@ class LoginRequest(BaseModel):
     device_info: Optional[DeviceInfo] = None
     remember_me: bool = False
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+
 

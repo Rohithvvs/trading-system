@@ -223,3 +223,98 @@ async def google_auth(db: AsyncSession, id_token_str: str, ip_address: str = Non
     await AuditService.log_event(db, str(user.id), "login_success", ip_address, user_agent, {"provider": "google"})
     return user
 
+
+import secrets
+import hashlib
+from ..services.email_service import send_password_reset_email
+
+RESET_TOKEN_EXPIRE_MINUTES = 15
+RESET_RATE_LIMIT_MINUTES = 60
+RESET_RATE_LIMIT_MAX = 5
+
+_forgot_rate_cache: dict[str, list[datetime]] = {}
+
+def _rate_limit_exceeded(key: str) -> bool:
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(minutes=RESET_RATE_LIMIT_MINUTES)
+    entries = _forgot_rate_cache.get(key, [])
+    entries = [t for t in entries if t > window_start]
+    _forgot_rate_cache[key] = entries
+    return len(entries) >= RESET_RATE_LIMIT_MAX
+
+def _record_rate_limit(key: str) -> None:
+    now = datetime.now(timezone.utc)
+    _forgot_rate_cache.setdefault(key, []).append(now)
+
+async def request_password_reset(db: AsyncSession, email: str, ip_address: str | None = None) -> dict:
+    ip_key = f"ip:{ip_address}" if ip_address else None
+    email_key = f"email:{email}"
+    if ip_key and _rate_limit_exceeded(ip_key):
+        return {"message": "If an account exists, a password reset link has been sent."}
+    if _rate_limit_exceeded(email_key):
+        return {"message": "If an account exists, a password reset link has been sent."}
+
+    stmt = select(User).where(User.email == email)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user:
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        user.reset_password_token = token_hash
+        user.reset_password_expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+        await db.commit()
+
+        frontend_url = (settings.frontend_url or "http://localhost:5173").rstrip("/")
+        reset_url = f"{frontend_url}/auth/reset-password?token={token}"
+        send_password_reset_email(email, reset_url)
+
+        await AuditService.log_event(
+            db, str(user.id), "password_reset_requested", ip_address,
+            metadata={"email": email}
+        )
+
+    if ip_key:
+        _record_rate_limit(ip_key)
+    _record_rate_limit(email_key)
+    return {"message": "If an account exists, a password reset link has been sent."}
+
+
+async def confirm_password_reset(db: AsyncSession, token: str, new_password: str) -> dict:
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+
+    stmt = select(User).where(
+        User.reset_password_token == token_hash,
+        User.reset_password_expires_at.isnot(None),
+        User.reset_password_expires_at > now,
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token.")
+
+    validate_password(new_password)
+    user.password_hash = get_password_hash(new_password)
+    user.reset_password_token = None
+    user.reset_password_expires_at = None
+
+    # Invalidate all active sessions for this user
+    session_stmt = select(UserSession).where(
+        UserSession.user_id == user.id,
+        UserSession.is_active == True,
+    )
+    sessions = (await db.execute(session_stmt)).scalars().all()
+    for s in sessions:
+        s.is_active = False
+
+    await db.commit()
+
+    await AuditService.log_event(
+        db, str(user.id), "password_reset_completed",
+        metadata={"email": user.email}
+    )
+
+    return {"message": "Password updated successfully."}
+
