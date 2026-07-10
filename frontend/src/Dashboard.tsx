@@ -134,7 +134,7 @@ export default function Dashboard() {
       const baseHttpUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
       // Convert http:// to ws:// and https:// to wss://
       const baseWsUrl = baseHttpUrl.replace(/^http/, "ws");
-      const wsUrl = process.env.NODE_ENV === "production" ? `wss://${window.location.host}/ws/ticks` : `${baseWsUrl}/ws/ticks`;
+      const wsUrl = import.meta.env.PROD ? `wss://${window.location.host}/ws/ticks` : `${baseWsUrl}/ws/ticks`;
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {

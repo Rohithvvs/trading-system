@@ -1048,7 +1048,7 @@ export function PaperTradingPage({
               ) : (dashboard.trades?.length ?? 0) === 0 ? (
                 <div className="empty-state">No trade history</div>
               ) : (
-                <HistoryTable trades={dashboard.trades} />
+                <HistoryTable trades={dashboard.trades} selectedTrade={selectedTrade} setSelectedTrade={setSelectedTrade} />
               )
             ) : null}
 
@@ -1652,7 +1652,7 @@ function formatLifecycle(state?: string | null, pausedReason?: string | null) {
   return state.replace(/_/g, " ");
 }
 
-function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
+function HistoryTable({ trades, selectedTrade, setSelectedTrade }: { trades: PaperTradeHistoryItem[]; selectedTrade: PaperTradeHistoryItem | null; setSelectedTrade: (t: PaperTradeHistoryItem | null) => void }) {
   if (!trades.length) {
     return <div className="empty-state"><h2>No trade history</h2><p>Closed paper trades will appear here with holding period and P&amp;L.</p></div>;
   }

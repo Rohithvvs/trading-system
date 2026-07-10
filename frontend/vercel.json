@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    { "source": "/auth/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/auth/:path*" },
+    { "source": "/health", "destination": "https://trading-system-2-rl0x.onrender.com/health" },
+    { "source": "/health/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/health/:path*" },
+    { "source": "/market-status", "destination": "https://trading-system-2-rl0x.onrender.com/market-status" },
+    { "source": "/scanner/health", "destination": "https://trading-system-2-rl0x.onrender.com/scanner/health" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

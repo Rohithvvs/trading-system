@@ -272,8 +272,10 @@ export type PaperAccountSummary = {
 export type PaperPosition = {
   id: number;
   symbol: string;
+  side: "LONG" | "SHORT";
   qty: number;
   avg_entry_price: number;
+  average_price: number;
   current_price: number;
   unrealized_pnl: number;
   unrealized_pnl_percent: number;

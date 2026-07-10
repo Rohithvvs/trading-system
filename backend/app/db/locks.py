@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator
@@ -24,8 +25,15 @@ class SingletonLease:
     async def release(self) -> None:
         if self._session is not None:
             if self.acquired:
-                await self._session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": advisory_lock_key(self.name)})
-            await self._session.close()
+                try:
+                    await self._session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": advisory_lock_key(self.name)})
+                except Exception:
+                    log = logging.getLogger(__name__)
+                    log.warning("Failed to release advisory lock '%s' — connection may already be closed", self.name)
+            try:
+                await self._session.close()
+            except Exception:
+                pass
             self._session = None
         self.acquired = False
 
