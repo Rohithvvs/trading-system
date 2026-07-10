@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { authGoogleLogin } from '../api';
+import { authGoogleLogin, checkBackendHealth, toUserFacingApiMessage } from '../api';
 
 const GOOGLE_LOGO = (
   <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
@@ -108,6 +108,13 @@ const GoogleSignInActive: React.FC = () => {
 
         console.info('[GoogleSignInButton] Sending token to backend...');
         try {
+          const health = await checkBackendHealth();
+          if (!health.ok) {
+            if (!mountedRef.current) return;
+            setError(health.message || 'Cannot connect to server.');
+            setIsAuthenticating(false);
+            return;
+          }
           const data = await authGoogleLogin(response.id_token);
           if (!mountedRef.current) return;
           console.info('[GoogleSignInButton] Backend login successful', { user: data.user });
@@ -115,10 +122,11 @@ const GoogleSignInActive: React.FC = () => {
           const from = location.state?.from?.pathname || '/';
           console.info('[GoogleSignInButton] Redirecting to:', from);
           navigate(from, { replace: true });
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (!mountedRef.current) return;
-          console.error('[GoogleSignInButton] Backend login failed:', err.message);
-          setError(err.message || 'Google sign-in failed. Please try again.');
+          const message = toUserFacingApiMessage(err, 'Google sign-in failed. Please try again.');
+          console.error('[GoogleSignInButton] Backend login failed:', message);
+          setError(message);
         } finally {
           if (mountedRef.current) {
             setIsAuthenticating(false);

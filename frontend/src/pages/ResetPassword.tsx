@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthLayout } from '../components/AuthLayout';
 import { PasswordInput } from '../components/PasswordInput';
 import { PasswordStrength } from '../components/PasswordStrength';
-import { resetPassword } from '../api';
+import { resetPassword, toUserFacingApiMessage } from '../api';
 
 export const ResetPassword: React.FC = () => {
   const navigate = useNavigate();
@@ -42,7 +42,7 @@ export const ResetPassword: React.FC = () => {
       setIsSuccess(true);
       setTimeout(() => navigate('/login'), 3000);
     } catch (err: any) {
-      setServerError(err.message || 'Password reset failed. The link may have expired.');
+      setServerError(toUserFacingApiMessage(err, 'Password reset failed. The link may have expired.'));
     } finally {
       setIsSubmitting(false);
     }

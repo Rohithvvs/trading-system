@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiUrl } from '../config';
 
 interface Session {
   id: string;
@@ -16,8 +17,7 @@ export const SettingsSessions: React.FC = () => {
 
   const fetchSessions = async () => {
     try {
-      const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/sessions`;
-      const response = await fetch(url);
+      const response = await fetch(apiUrl('/auth/sessions'), { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch sessions');
       const data = await response.json();
       setSessions(data.sessions || []);
@@ -34,8 +34,10 @@ export const SettingsSessions: React.FC = () => {
 
   const handleRevoke = async (sessionId: string) => {
     try {
-      const url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/sessions/${sessionId}/revoke`;
-      const response = await fetch(url, { method: 'POST' });
+      const response = await fetch(apiUrl(`/auth/sessions/${sessionId}/revoke`), {
+        method: 'POST',
+        credentials: 'include',
+      });
       if (!response.ok) throw new Error('Failed to revoke session');
       
       // Remove from list

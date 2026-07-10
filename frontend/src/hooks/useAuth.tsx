@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authMe } from '../api';
+import { authMe, authLogout } from '../api';
 
 interface AuthUser {
   id: string;
@@ -46,8 +46,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
-    // Make an API call to clear the HttpOnly cookies
-    fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/auth/logout`, { method: 'POST' }).catch(console.error);
+    // Clear HttpOnly session cookies via the shared API client
+    void authLogout();
   };
 
   return (

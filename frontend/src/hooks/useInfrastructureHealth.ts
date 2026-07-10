@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiUrl } from "../config";
 
 export type InfrastructureState = "Active" | "DB Waking" | "Server Waking" | "Asleep";
 export type ServiceBadgeState = "active" | "waking" | "asleep";
@@ -34,9 +35,8 @@ export function useInfrastructureHealth() {
     let isPolling = false;
     let activeController: AbortController | null = null;
 
-    const baseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
     const healthPath = import.meta.env.VITE_INFRA_HEALTH_PATH || "/paper-trading/engine/status";
-    const endpoint = `${baseUrl}${healthPath}`;
+    const endpoint = apiUrl(healthPath);
 
     async function pingHealth() {
       if (isPolling) return;
@@ -49,6 +49,7 @@ export function useInfrastructureHealth() {
       try {
         const response = await fetch(endpoint, {
           method: "GET",
+          credentials: "include",
           headers: { "Cache-Control": "no-cache" },
           signal: activeController.signal,
         });

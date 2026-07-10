@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../components/AuthLayout';
 import { AuthInput } from '../components/AuthInput';
-import { forgotPassword } from '../api';
+import { checkBackendHealth, forgotPassword, toUserFacingApiMessage } from '../api';
+import { useBackendHealth } from '../hooks/useBackendHealth';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const ForgotPassword: React.FC = () => {
   const navigate = useNavigate();
+  const backend = useBackendHealth();
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -23,10 +25,15 @@ export const ForgotPassword: React.FC = () => {
     setIsSubmitting(true);
     setServerError('');
     try {
+      const health = await checkBackendHealth();
+      if (!health.ok) {
+        setServerError(health.message || 'Cannot connect to server.');
+        return;
+      }
       await forgotPassword(email);
       setIsSuccess(true);
-    } catch (err: any) {
-      setServerError(err.message || 'Something went wrong. Please try again.');
+    } catch (err: unknown) {
+      setServerError(toUserFacingApiMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -43,8 +50,22 @@ export const ForgotPassword: React.FC = () => {
         </div>
 
         {serverError && (
-          <div className="mb-4 p-3 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-200 dark:border-red-800">
+          <div
+            role="alert"
+            data-testid="auth-error"
+            className="mb-4 p-3 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-200 dark:border-red-800"
+          >
             {serverError}
+          </div>
+        )}
+
+        {backend.isDown && !serverError && !isSuccess && (
+          <div
+            role="status"
+            data-testid="backend-unreachable"
+            className="mb-4 p-3 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm border border-amber-200 dark:border-amber-800"
+          >
+            {backend.message || 'Cannot connect to server.'}
           </div>
         )}
 
@@ -74,7 +95,7 @@ export const ForgotPassword: React.FC = () => {
             />
             <button
               type="submit"
-              disabled={isSubmitting || !isValid}
+              disabled={isSubmitting || !isValid || backend.isDown || backend.status === 'checking'}
               className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 dark:bg-green-600 dark:hover:bg-green-700 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none disabled:opacity-50 mt-2"
             >
               {isSubmitting ? 'Sending...' : 'Send Reset Link'}

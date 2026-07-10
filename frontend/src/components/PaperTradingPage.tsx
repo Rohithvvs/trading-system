@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { InfoTooltip } from './InfoTooltip';
 import { TOOLTIPS } from '../constants/tooltips';
+import { apiUrl } from '../config';
 
 import {
   cancelPaperOrder,
@@ -276,7 +277,7 @@ export function PaperTradingPage({
   // ECONNREFUSED logs when the backend is still starting.
   async function checkGapReplay() {
     try {
-      const resp = await fetch("/api/paper-trading/gap-replay-summary");
+      const resp = await fetch(apiUrl("/paper-trading/gap-replay-summary"), { credentials: "include" });
       if (!resp.ok) return;
       const data = await resp.json();
       if (data.orders_filled?.length > 0 || data.positions_exited?.length > 0) {

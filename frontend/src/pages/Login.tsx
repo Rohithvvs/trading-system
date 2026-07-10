@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useBackendHealth } from '../hooks/useBackendHealth';
 import { AuthLayout } from '../components/AuthLayout';
 import { AuthInput } from '../components/AuthInput';
 import { PasswordInput } from '../components/PasswordInput';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
-import { authLogin } from '../api';
+import { authLogin, checkBackendHealth, toUserFacingApiMessage } from '../api';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const backend = useBackendHealth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,12 +30,18 @@ export const Login: React.FC = () => {
     setIsSubmitting(true);
     setServerError('');
     try {
+      // Gate auth on live health so users never see raw "Failed to fetch".
+      const health = await checkBackendHealth();
+      if (!health.ok) {
+        setServerError(health.message || 'Cannot connect to server.');
+        return;
+      }
       const data = await authLogin({ email, password, remember_me: rememberMe });
       login(data.user);
       const from = location.state?.from?.pathname || "/";
       navigate(from, { replace: true });
-    } catch (err: any) {
-      setServerError(err.message || 'Login failed. Please check your credentials.');
+    } catch (err: unknown) {
+      setServerError(toUserFacingApiMessage(err, 'Login failed. Please check your credentials.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -54,9 +62,29 @@ export const Login: React.FC = () => {
         )}
 
         {serverError && (
-          <div className="mb-4 p-3 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-200 dark:border-red-800">
+          <div
+            role="alert"
+            data-testid="auth-error"
+            className="mb-4 p-3 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-200 dark:border-red-800"
+          >
             {serverError}
           </div>
+        )}
+
+        {backend.isDown && !serverError && (
+          <div
+            role="status"
+            data-testid="backend-unreachable"
+            className="mb-4 p-3 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm border border-amber-200 dark:border-amber-800"
+          >
+            {backend.message || 'Cannot connect to server.'}
+          </div>
+        )}
+
+        {backend.isReady && (
+          <p className="sr-only" data-testid="backend-ok">
+            {backend.message}
+          </p>
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -95,10 +123,10 @@ export const Login: React.FC = () => {
           </div>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || backend.status === 'checking' || backend.isDown}
             className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 dark:bg-green-600 dark:hover:bg-green-700 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none disabled:opacity-50 mt-6"
           >
-            {isSubmitting ? 'Signing in...' : 'Sign In'}
+            {isSubmitting ? 'Signing in...' : backend.isDown ? 'Server unavailable' : 'Sign In'}
           </button>
         </form>
 

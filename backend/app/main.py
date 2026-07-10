@@ -660,17 +660,25 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+# CORS for SPA on Vercel (incl. preview URLs) talking to Render API with credentials.
+# Do NOT use allow_origins=["*"] with allow_credentials=True — browsers reject it.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins + [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
     ],
-    allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app|https://.*\.onrender\.com)",
+    allow_origin_regex=(
+        r"https://.*\.vercel\.app"
+        r"|https://.*\.onrender\.com"
+        r"|http://(localhost|127\.0\.0\.1):\d+"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchSavedScans, fetchUniverses, loadLatestScan, loadTodayCandidates, runPresetScreener, saveScannerPreset } from "./api";
+import { getWsBaseUrl } from "./config";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
@@ -130,11 +131,8 @@ export default function Dashboard() {
 
     const connect = () => {
       setWsStatus("connecting");
-      // Determine base URL dynamically (using VITE env variable to avoid localhost hardcoding)
-      const baseHttpUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
-      // Convert http:// to ws:// and https:// to wss://
-      const baseWsUrl = baseHttpUrl.replace(/^http/, "ws");
-      const wsUrl = import.meta.env.PROD ? `wss://${window.location.host}/ws/ticks` : `${baseWsUrl}/ws/ticks`;
+      // Resolve WS URL from shared API config (never hardcode localhost in production builds)
+      const wsUrl = `${getWsBaseUrl()}/ws/ticks`;
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
