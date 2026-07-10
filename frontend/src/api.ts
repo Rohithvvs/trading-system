@@ -15,41 +15,103 @@ import type {
   SymbolDetail,
   MarketEngineStatus,
 } from "./types";
+import { apiUrl } from "./config";
+import {
+  ApiClientError,
+  mapHttpError,
+  mapNetworkError,
+  toUserFacingApiMessage,
+} from "./utils/apiErrors";
 
-const BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-const API_BASE_URLS = [BASE_URL];
+export { toUserFacingApiMessage, ApiClientError } from "./utils/apiErrors";
+
+const DEFAULT_JSON_HEADERS = {
+  "Content-Type": "application/json",
+  Accept: "application/json",
+} as const;
+
 async function fetchWithDiagnostics(
   path: string,
   init: RequestInit | undefined,
   label: string,
 ): Promise<Response> {
-  const attempts: string[] = [];
-  let lastError: unknown = null;
+  const url = apiUrl(path);
+  const startedAt = performance.now();
+  const payloadPreview = typeof init?.body === "string" ? init.body : init?.body ? "[non-string body]" : "[no body]";
+  console.info(`[api] ${label} -> ${url}`, {
+    method: init?.method ?? "GET",
+    payload: payloadPreview,
+  });
 
-  for (const baseUrl of API_BASE_URLS) {
-    const url = `${baseUrl}${path}`;
-    const startedAt = performance.now();
-    attempts.push(url);
-    const payloadPreview = typeof init?.body === "string" ? init.body : init?.body ? "[non-string body]" : "[no body]";
-    console.info(`[api] ${label} -> ${url}`, {
-      method: init?.method ?? "GET",
-      payload: payloadPreview,
-    });
+  try {
+    const fetchInit: RequestInit = {
+      ...init,
+      credentials: "include",
+      headers: {
+        ...DEFAULT_JSON_HEADERS,
+        ...(init?.headers ?? {}),
+      },
+    };
+    const response = await fetch(url, fetchInit);
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    console.info(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
 
-    try {
-      const response = await fetch(url, init);
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      console.info(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
-      return response;
-    } catch (error) {
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      lastError = error;
-      console.warn(`[api] ${label} network error at ${url} (${elapsedMs}ms)`, error);
+    // Global handling for gateway / cold-start style failures
+    if ([502, 503, 504, 521, 522, 523, 524].includes(response.status)) {
+      throw mapHttpError(response.status, url);
     }
+    return response;
+  } catch (error) {
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (error instanceof ApiClientError) {
+      console.warn(`[api] ${label} client error at ${url} (${elapsedMs}ms)`, error);
+      throw error;
+    }
+    console.warn(`[api] ${label} network error at ${url} (${elapsedMs}ms)`, error);
+    throw mapNetworkError(error, url, label);
   }
+}
 
-  const reason = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown network error");
-  throw new Error(`${label} failed before reaching backend. Tried: ${attempts.join(", ")}. Last error: ${reason}`);
+/** Lightweight reachability probe used by auth screens and ops badges. */
+export async function checkBackendHealth(): Promise<{
+  ok: boolean;
+  status: number | null;
+  url: string;
+  message: string;
+  latencyMs: number;
+}> {
+  const url = apiUrl("/health");
+  const startedAt = performance.now();
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const latencyMs = Math.round(performance.now() - startedAt);
+    if (!response.ok) {
+      const err = mapHttpError(response.status, url);
+      return { ok: false, status: response.status, url, message: err.message, latencyMs };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      url,
+      message: "Server is reachable.",
+      latencyMs,
+    };
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - startedAt);
+    const mapped = mapNetworkError(error, url);
+    return {
+      ok: false,
+      status: null,
+      url,
+      message: mapped.message,
+      latencyMs,
+    };
+  }
 }
 
 // `runFullAnalysis` removed — frontend uses `runPresetScreener` instead.
@@ -170,6 +232,15 @@ export async function fetchPaperAccountSummary(): Promise<any> {
   return response.json();
 }
 
+export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: string; reason: string; current_ist?: string; next_open_ist?: string | null }> {
+  const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
+  if (!response.ok) {
+    // Non-fatal, client will fall back to local time checks
+    throw new Error("Market status unavailable");
+  }
+  return response.json();
+}
+
 export async function fetchPaperQuote(symbol: string): Promise<PaperQuoteResponse> {
   const response = await fetchWithDiagnostics(`/paper-trading/symbols/${encodeURIComponent(symbol)}/quote`, undefined, "Paper quote");
   if (!response.ok) {
@@ -241,6 +312,12 @@ export async function fetchMarketEngineStatus(): Promise<MarketEngineStatus> {
   const response = await fetchWithDiagnostics("/paper-trading/engine/status", undefined, "Market engine status");
   if (!response.ok) throw new Error(await response.text() || "Failed to load market engine status");
   return response.json() as Promise<MarketEngineStatus>;
+}
+
+export async function fetchPaperTradingEngineStatus(): Promise<import('./types').MarketEngineHealth> {
+  const response = await fetchWithDiagnostics("/paper-trading/engine-status", undefined, "Paper engine status");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load paper engine status");
+  return response.json() as Promise<import('./types').MarketEngineHealth>;
 }
 
 export async function cancelPaperOrder(orderId: number): Promise<PaperOrderActionResponse> {
@@ -695,3 +772,130 @@ export async function fetchApiHealth(): Promise<any> {
   if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
   return response.json();
 }
+function formatAuthErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => (typeof item === "object" && item && "msg" in item ? String((item as { msg: unknown }).msg) : String(item)))
+      .join(", ");
+  }
+  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  return fallback;
+}
+
+async function throwIfAuthFailed(response: Response, fallback: string): Promise<void> {
+  if (response.ok) return;
+  if ([502, 503, 504, 521, 522, 523, 524].includes(response.status)) {
+    throw mapHttpError(response.status, response.url);
+  }
+  const errorData = await response.json().catch(() => null);
+  throw new Error(formatAuthErrorDetail(errorData?.detail, fallback));
+}
+
+export async function authSignup(payload: any): Promise<any> {
+  try {
+    const response = await fetchWithDiagnostics(
+      "/auth/signup",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      "Auth signup",
+    );
+    await throwIfAuthFailed(response, "Signup failed");
+    return response.json();
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Signup failed"));
+  }
+}
+
+export async function authLogin(payload: any): Promise<any> {
+  try {
+    const response = await fetchWithDiagnostics(
+      "/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      "Auth login",
+    );
+    await throwIfAuthFailed(response, "Login failed");
+    return response.json();
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Login failed"));
+  }
+}
+
+export async function authGoogleLogin(idToken: string): Promise<any> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetchWithDiagnostics(
+      "/auth/google",
+      {
+        method: "POST",
+        body: JSON.stringify({ id_token: idToken }),
+        signal: controller.signal,
+      },
+      "Auth google",
+    );
+    await throwIfAuthFailed(response, "Google login failed");
+    return response.json();
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw mapNetworkError(err, apiUrl("/auth/google"), "Auth google");
+    }
+    throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Google login failed"));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function authMe(): Promise<any> {
+  const response = await fetchWithDiagnostics("/auth/me", undefined, "Auth me");
+  if (!response.ok) throw new Error("Not authenticated");
+  return response.json();
+}
+
+export async function authLogout(): Promise<void> {
+  try {
+    await fetchWithDiagnostics("/auth/logout", { method: "POST" }, "Auth logout");
+  } catch (err) {
+    console.error(toUserFacingApiMessage(err));
+  }
+}
+
+export async function forgotPassword(email: string): Promise<any> {
+  try {
+    const response = await fetchWithDiagnostics(
+      "/auth/forgot-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
+      "Auth forgot password",
+    );
+    await throwIfAuthFailed(response, "Request failed");
+    return response.json();
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Request failed"));
+  }
+}
+
+export async function resetPassword(token: string, password: string, confirmPassword: string): Promise<any> {
+  try {
+    const response = await fetchWithDiagnostics(
+      "/auth/reset-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ token, password, confirm_password: confirmPassword }),
+      },
+      "Auth reset password",
+    );
+    await throwIfAuthFailed(response, "Password reset failed");
+    return response.json();
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Password reset failed"));
+  }
+}
+

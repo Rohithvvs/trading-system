@@ -3,8 +3,8 @@ import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.models import FyersToken, FyersTokenHistory
+from backend.app.main import app
+from backend.app.models import FyersToken, FyersTokenHistory
 
 
 @pytest.fixture

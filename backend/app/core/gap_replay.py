@@ -35,17 +35,24 @@ MARKET_CLOSE_MIN = 30
 
 
 def _is_market_hours(dt: datetime) -> bool:
-    """Return True if the datetime (aware) falls within NSE market hours in IST."""
+    """Return True if the datetime (aware) falls within NSE market hours in IST.
+    Delegates to centralized TradingHoursService when possible.
+    """
     try:
-        from zoneinfo import ZoneInfo
-        ist = ZoneInfo("Asia/Kolkata")
+        from ..services.trading_hours_service import trading_hours
+        return trading_hours.is_market_open(dt)
     except Exception:
-        from datetime import timezone, timedelta
-        ist = timezone(timedelta(hours=5, minutes=30))
-    local = dt.astimezone(ist)
-    t = local.time()
-    from datetime import time
-    return time(MARKET_OPEN_HOUR, MARKET_OPEN_MIN) <= t <= time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MIN)
+        # Fallback
+        try:
+            from zoneinfo import ZoneInfo
+            ist = ZoneInfo("Asia/Kolkata")
+        except Exception:
+            from datetime import timezone, timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))
+        local = dt.astimezone(ist)
+        t = local.time()
+        from datetime import time
+        return time(MARKET_OPEN_HOUR, MARKET_OPEN_MIN) <= t <= time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MIN)
 
 
 async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
@@ -116,7 +123,7 @@ async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
     pre_fetched_candles = {}
     for symbol in all_symbols:
         try:
-            pre_fetched_candles[symbol] = await asyncio.to_thread(fyers_service.fetch_ohlcv, symbol, AnalysisMode.intraday, "1m", lookback_days, allow_mock=False)
+            pre_fetched_candles[symbol] = await fyers_service.fetch_ohlcv(symbol, AnalysisMode.intraday, "1m", lookback_days, allow_mock=False)
         except Exception as e:
             logger.error("[GAP_REPLAY] Failed to fetch candles for %s: %s", symbol, e)
 

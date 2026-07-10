@@ -6,7 +6,7 @@ from ..utils import get_logger
 from ..observability.scan_diagnostics import log_dashboard_request
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
-logger = get_logger("backend.app.routes.scanner")
+logger = get_logger("app.routes.scanner")
 
 @router.get("/latest")
 async def get_latest_completed_scan(db: AsyncSession = Depends(get_db)):

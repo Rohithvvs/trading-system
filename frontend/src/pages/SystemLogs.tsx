@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { API_BASE_URL, apiUrl } from "../config";
 
 type SystemLog = {
   id?: number;
@@ -26,7 +27,6 @@ type Filters = {
   dateTo: string;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 const EMPTY_FILTERS: Filters = {
   level: "",
   symbol: "",
@@ -57,7 +57,7 @@ function buildQuery(filters: Filters) {
 }
 
 function websocketUrl() {
-  const base = new URL(API_BASE_URL, window.location.href);
+  const base = new URL(API_BASE_URL || window.location.origin, window.location.href);
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   base.pathname = "/api/logs/stream";
   base.search = "";
@@ -90,7 +90,7 @@ export function SystemLogs() {
   const query = useMemo(() => buildQuery(filters), [filters]);
 
   const loadLogs = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/api/logs?${query}`);
+    const response = await fetch(apiUrl(`/api/logs?${query}`), { credentials: "include" });
     if (!response.ok) throw new Error(await response.text());
     setLogs(await response.json());
   }, [query]);
@@ -166,7 +166,10 @@ export function SystemLogs() {
 
   async function clearLogs() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/logs/clear?confirm=WIPE_ALL&days_old=0`, { method: "DELETE" });
+      const response = await fetch(apiUrl("/api/logs/clear?confirm=WIPE_ALL&days_old=0"), {
+        method: "DELETE",
+        credentials: "include",
+      });
       if (!response.ok) {
         const errText = await response.text();
         alert(`Failed to clear logs: ${errText}`);
@@ -179,7 +182,7 @@ export function SystemLogs() {
     }
   }
 
-  const exportUrl = `${API_BASE_URL}/api/logs/export?${query}`;
+  const exportUrl = apiUrl(`/api/logs/export?${query}`);
 
   return (
     <main className="logs-page" data-testid="system-logs-page">

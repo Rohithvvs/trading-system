@@ -25,13 +25,33 @@ _BLACKLIST_LOCK = threading.Lock()
 _FYERS_HISTORY_SEMAPHORE = threading.BoundedSemaphore(3)
 _FYERS_MAX_RETRIES = 3
 
+import requests
+_local_timeout = threading.local()
+_original_session_request = requests.Session.request
+
+def _timeout_patched_request(self, method, url, **kwargs):
+    timeout = getattr(_local_timeout, "timeout", None)
+    if timeout is not None:
+        kwargs.setdefault("timeout", timeout)
+    return _original_session_request(self, method, url, **kwargs)
+
+requests.Session.request = _timeout_patched_request
+
+class NetworkTimeoutContext:
+    def __init__(self, timeout: float):
+        self.timeout = timeout
+    def __enter__(self):
+        _local_timeout.timeout = self.timeout
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        _local_timeout.timeout = None
+
 import asyncio
 import concurrent.futures
 
 _SYNC_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 def _run_sync(coro):
-    import app.db.session as session_module
+    from ..db import session as session_module
     import asyncio
     main_loop = getattr(session_module, "main_event_loop", None)
     
@@ -158,7 +178,19 @@ class FyersService:
             token=token.strip(),
             log_path="",
         )
-        response = client.get_profile()
+        self.logger.info("FYERS_REQUEST_STARTED | symbol=VALIDATE_TOKEN | endpoint=get_profile")
+        request_start = time.time()
+        try:
+            with NetworkTimeoutContext(5.0):
+                response = client.get_profile()
+            duration_ms = int((time.time() - request_start) * 1000)
+            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=VALIDATE_TOKEN | endpoint=get_profile | duration_ms=%s | attempt=1", duration_ms)
+        except Exception as exc:
+            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower():
+                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=VALIDATE_TOKEN | endpoint=get_profile | attempt=1 | timeout_sec=5.0")
+            self.logger.error("FYERS_REQUEST_FAILED | symbol=VALIDATE_TOKEN | endpoint=get_profile | error_type=%s", type(exc).__name__)
+            raise
+
         _check_fyers_response(response, "VALIDATE_TOKEN")
 
     async def fetch_ltp(self, symbol: str) -> float | None:
@@ -255,10 +287,17 @@ class FyersService:
             return {}
         try:
             client = self._client()
-            response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
+            request_start = time.time()
+            with NetworkTimeoutContext(3.0):
+                response = client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+            duration_ms = int((time.time() - request_start) * 1000)
+            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=1", symbol, duration_ms)
             _check_fyers_response(response, symbol)
         except Exception as exc:  # pragma: no cover - provider/network failure
-            self.logger.warning("FYERS quote profile request failed | symbol=%s | error=%s", symbol, exc)
+            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower():
+                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
+            self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
             return {}
 
         if not isinstance(response, dict):
@@ -286,7 +325,7 @@ class FyersService:
             "year52_low": self._to_float(pick("year52_low", "year52Low", "52_week_low", "fiftyTwoWeekLow")),
         }
 
-    def fetch_ohlcv(
+    async def fetch_ohlcv(
         self,
         symbol: str,
         mode: AnalysisMode,
@@ -297,11 +336,11 @@ class FyersService:
         points = 40 if mode == AnalysisMode.intraday else max(lookback_window, 260)
         cache_key = (self._cache_symbol(symbol), mode.value, resolution.lower())
         
-        with FyersService._ohlcv_thread_lock:
-            if cache_key not in FyersService._ohlcv_thread_locks:
-                FyersService._ohlcv_thread_locks[cache_key] = threading.Lock()
+        import asyncio
+        if cache_key not in FyersService._ohlcv_thread_locks:
+            FyersService._ohlcv_thread_locks[cache_key] = asyncio.Lock()
                 
-        with FyersService._ohlcv_thread_locks[cache_key]:
+        async with FyersService._ohlcv_thread_locks[cache_key]:
             cached = FyersService._ohlcv_cache.get(cache_key)
             now = time.time()
             # 300 second TTL for OHLCV memory cache
@@ -347,7 +386,7 @@ class FyersService:
             )
         
             if self._is_fyers_configured():
-                candles = self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
+                candles = await self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
                 if candles:
                     try:
                         fyers_logger.info(
@@ -435,21 +474,29 @@ class FyersService:
     async def _fetch_fyers_ltp(self, symbol: str) -> float | None:
         import asyncio
         try:
-            start = time.time()
             client = self._client()
-            # Task 3: Isolate Blocking I/O using asyncio.to_thread
+            
+            def fetch_quotes_with_timeout():
+                with NetworkTimeoutContext(3.0):
+                    return client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+                    
+            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=quotes", symbol)
+            request_start = time.time()
+            
             response = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
                     FyersService._network_pool,
-                    lambda: client.quotes(data={"symbols": self._normalize_symbol(symbol)})
+                    fetch_quotes_with_timeout
                 ),
                 timeout=5.0
             )
-            response_ms = int((time.time() - start) * 1000)
+            response_ms = int((time.time() - request_start) * 1000)
+            self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=quotes | duration_ms=%s | attempt=1", symbol, response_ms)
             _check_fyers_response(response, symbol)
         except Exception as exc:  # pragma: no cover - network/provider failure
-            # If we raised a Fyers*Error above it will be caught by callers
-            self.logger.warning("FYERS quotes request failed | symbol=%s | error=%s", symbol, exc)
+            if isinstance(exc, (requests.exceptions.Timeout, TimeoutError, asyncio.TimeoutError)) or "timeout" in str(exc).lower():
+                self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=quotes | attempt=1 | timeout_sec=3.0", symbol)
+            self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=quotes | error_type=%s", symbol, type(exc).__name__)
             try:
                 fyers_logger.warning("QUOTES_REQUEST_FAILED | symbol=%s | error=%s", symbol, exc)
             except Exception:
@@ -494,7 +541,7 @@ class FyersService:
                 pass
             return None
 
-    def _fetch_fyers_candles(
+    async def _fetch_fyers_candles(
         self,
         symbol: str,
         resolution: str,
@@ -517,7 +564,7 @@ class FyersService:
         )
         import asyncio
 
-        def request_history(range_from: str, range_to: str) -> list[list[object]]:
+        async def request_history(range_from: str, range_to: str) -> list[list[object]]:
             payload = {
                 "symbol": self._normalize_symbol(symbol),
                 "resolution": self._map_resolution(resolution),
@@ -541,7 +588,7 @@ class FyersService:
                 range_to,
                 payload["resolution"],
             )
-            response = self._request_history_with_retries(client, payload, symbol)
+            response = await asyncio.to_thread(self._request_history_with_retries, client, payload, symbol)
             candle_rows = response.get("candles", []) if isinstance(response, dict) else []
             if not candle_rows:
                 self.logger.warning(
@@ -560,7 +607,7 @@ class FyersService:
             if mapped_resolution != "1D":
                 # FYERS allows max 100 days for intraday. We cap at 90 to be safe.
                 start_date = today - timedelta(days=min(lookback_window, 90))
-                candle_rows = request_history(start_date.isoformat(), today.isoformat())
+                candle_rows = await request_history(start_date.isoformat(), today.isoformat())
                 parsed: list[OHLCVPoint] = []
                 for row in candle_rows:
                     if len(row) < 6:
@@ -577,11 +624,11 @@ class FyersService:
                     )
                 return parsed[-points:]
 
-            db_count = _run_sync(get_candle_count(clean_symbol))
-            last_date = _run_sync(get_last_stored_date(clean_symbol))
+            db_count = await get_candle_count(clean_symbol)
+            last_date = await get_last_stored_date(clean_symbol)
 
             if db_count >= points and last_date is not None:
-                candle_rows = request_history(last_date, today.isoformat())
+                candle_rows = await request_history(last_date, today.isoformat())
                 new_rows: list[dict[str, object]] = []
                 for row in candle_rows:
                     if len(row) < 6:
@@ -598,7 +645,7 @@ class FyersService:
                         }
                     )
                 if new_rows:
-                    _run_sync(save_candles(clean_symbol, new_rows))
+                    await save_candles(clean_symbol, new_rows)
                     self.logger.info(
                         "OHLCV DB SAVE | symbol=%s | saved=%s",
                         symbol,
@@ -609,7 +656,9 @@ class FyersService:
                 range_1_to = (today - timedelta(days=365)).isoformat()
                 range_2_from = (today - timedelta(days=365)).isoformat()
                 range_2_to = today.isoformat()
-                candle_rows = request_history(range_1_from, range_1_to) + request_history(range_2_from, range_2_to)
+                rows_1 = await request_history(range_1_from, range_1_to)
+                rows_2 = await request_history(range_2_from, range_2_to)
+                candle_rows = rows_1 + rows_2
 
                 deduped_rows: dict[str, dict[str, object]] = {}
                 for row in candle_rows:
@@ -626,7 +675,7 @@ class FyersService:
                     }
                 if deduped_rows:
                     all_rows = [deduped_rows[key] for key in sorted(deduped_rows)]
-                    _run_sync(save_candles(clean_symbol, all_rows))
+                    await save_candles(clean_symbol, all_rows)
                     self.logger.info(
                         "OHLCV DB SAVE | symbol=%s | saved=%s",
                         symbol,
@@ -646,7 +695,7 @@ class FyersService:
             return []
 
         two_years_ago = (today - timedelta(days=730)).isoformat()
-        db_rows = _run_sync(load_candles(clean_symbol, two_years_ago))
+        db_rows = await load_candles(clean_symbol, two_years_ago)
         if not db_rows or len(db_rows) < points:
             fallback = self._fetch_yfinance_candles(symbol, lookback_window, points)
             if fallback:
@@ -677,7 +726,7 @@ class FyersService:
             )
         return parsed[-points:]
 
-    def get_candles_cached(
+    async def get_candles_cached(
         self,
         symbol: str,
         mode: AnalysisMode,
@@ -700,25 +749,24 @@ class FyersService:
             except Exception:
                 # If the cache module is not available, fall back to live fetch
                 self.logger.warning("CANDLE STORE not available, falling back to live fetch | symbol=%s", symbol)
-                return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
+                return await self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
 
             clean_symbol = self._cache_symbol(symbol)
 
             cache_key = (clean_symbol, mode.value, resolution.lower())
-            cache_reusable = _run_sync(candle_store.is_cache_fresh(
-                clean_symbol,
-                max_age_minutes=30,
-            )) or _run_sync(candle_store.has_completed_daily_session(clean_symbol))
+            cache_reusable = await candle_store.is_cache_fresh(
+                clean_symbol, max_age_minutes=cache_ttl_minutes
+            ) or await candle_store.has_completed_daily_session(clean_symbol)
             if cache_reusable:
                 # Ensure cached DB has sufficient rows for the requested `points`.
                 try:
-                    cached_count = _run_sync(candle_store.get_candle_count(clean_symbol))
+                    cached_count = await candle_store.get_candle_count(clean_symbol)
                 except Exception:
                     cached_count = 0
 
                 if cached_count >= points:
-                    df = _run_sync(candle_store.load_candles(clean_symbol))
+                    df = await candle_store.load_candles(clean_symbol)
                     parsed: list[OHLCVPoint] = []
                     for _, row in df.iterrows():
                         parsed.append(
@@ -746,7 +794,7 @@ class FyersService:
                     points,
                 )
 
-            last_stored = _run_sync(candle_store.get_last_stored_date(clean_symbol))
+            last_stored = await candle_store.get_last_stored_date(clean_symbol)
             self.logger.info(
                 "CACHE MISS | symbol=%s | last_stored=%s | source=FYERS fetching now",
                 symbol,
@@ -776,7 +824,7 @@ class FyersService:
                         for p in fetched
                     ]
                     df = pd.DataFrame(rows)
-                    _run_sync(candle_store.store_candles(clean_symbol, df))
+                    await candle_store.store_candles(clean_symbol, df)
                     self.logger.info("CACHE STORED | symbol=%s | rows=%s", symbol, len(df))
                 except Exception as exc:  # pragma: no cover - best-effort cache write
                     self.logger.warning("Failed to persist candles to cache | symbol=%s | error=%s", symbol, exc)
@@ -784,19 +832,15 @@ class FyersService:
             return fetched
 
         # Non-daily resolutions: fall back to existing fetch behaviour
-        return self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
+        return await self.fetch_ohlcv(symbol, mode, resolution, lookback_window, allow_mock)
 
     def _normalize_symbol(self, symbol: str) -> str:
-        normalized = symbol.strip().upper()
-        if ":" in normalized:
-            return normalized
-        return f"NSE:{normalized}"
+        from ..utils.symbol import fyers_symbol, canonical_symbol
+        return fyers_symbol(canonical_symbol(symbol))
 
     def _cache_symbol(self, symbol: str) -> str:
-        normalized = symbol.strip().upper()
-        if ":" in normalized:
-            _, normalized = normalized.split(":", 1)
-        return normalized.replace("-EQ", "")
+        from ..utils.symbol import canonical_symbol
+        return canonical_symbol(symbol)
 
     def _store_ohlcv_cache(
         self,
@@ -847,6 +891,7 @@ class FyersService:
         last_error: Exception | None = None
         for attempt in range(1, _FYERS_MAX_RETRIES + 1):
             scan_ctx = get_current_scan()
+            self.logger.info("FYERS_REQUEST_STARTED | symbol=%s | endpoint=history | attempt=%s | timeout_sec=10.0", symbol, attempt)
             request_start = time.time()
             if scan_ctx:
                 log_fyers_request(
@@ -859,49 +904,42 @@ class FyersService:
                 )
             with _FYERS_HISTORY_SEMAPHORE:
                 try:
-                    response = client.history(data=payload)
+                    with NetworkTimeoutContext(10.0):
+                        response = client.history(data=payload)
                     _check_fyers_response(response, symbol)
                     response_ms = int((time.time() - request_start) * 1000)
+                    self.logger.info("FYERS_REQUEST_COMPLETED | symbol=%s | endpoint=history | duration_ms=%s | attempt=%s", symbol, response_ms, attempt)
                     candle_count = len(response.get("candles", [])) if isinstance(response, dict) else 0
                     if scan_ctx:
                         log_fyers_response(scan_ctx, symbol=symbol, candles_returned=candle_count, response_time_ms=response_ms)
                     return response if isinstance(response, dict) else {}
-                except FyersInvalidSymbolError:
+                except (FyersInvalidSymbolError, FyersAuthExpiredError, FyersAuthInvalidError):
                     raise
-                except FyersRateLimitError as exc:
-                    last_error = exc
-                    if scan_ctx:
-                        log_fyers_failure(scan_ctx, symbol=symbol, exception_type="FyersRateLimitError", exception_message=str(exc), retry_count=attempt)
                 except Exception as exc:
                     last_error = exc
-                    if isinstance(exc, (TimeoutError, ConnectionError)) or "timeout" in str(exc).lower():
+                    duration_ms = int((time.time() - request_start) * 1000)
+                    is_timeout = isinstance(exc, (requests.exceptions.Timeout, TimeoutError)) or "timeout" in str(exc).lower()
+                    if is_timeout:
+                        self.logger.warning("FYERS_REQUEST_TIMEOUT | symbol=%s | endpoint=history | attempt=%s | timeout_sec=10.0", symbol, attempt)
                         from .diagnostics_service import diagnostics
                         diagnostics.increment_fyers_metric("timeout_count")
-                    if not self._is_rate_limit_error(exc):
+                    
+                    self.logger.error("FYERS_REQUEST_FAILED | symbol=%s | endpoint=history | error_type=%s | attempt=%s", symbol, type(exc).__name__, attempt)
+                    
+                    # Retry logic: retry on rate limits, connection errors, and timeouts.
+                    if not (is_timeout or isinstance(exc, (ConnectionError, requests.exceptions.ConnectionError, requests.exceptions.RequestException, FyersRateLimitError))):
                         break
+                    
                     if scan_ctx:
                         log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=attempt)
 
             if attempt < _FYERS_MAX_RETRIES:
-                wait_seconds = 2 * attempt
+                wait_seconds = 2 ** attempt  # Exponential backoff (2, 4, 8)
                 from .diagnostics_service import diagnostics
                 diagnostics.increment_fyers_metric("retry_count")
-                self.logger.warning(
-                    "FYERS history retry | symbol=%s | attempt=%s/%s | backoff=%ss | error=%s",
-                    symbol,
-                    attempt,
-                    _FYERS_MAX_RETRIES,
-                    wait_seconds,
-                    last_error,
-                )
+                self.logger.warning("FYERS_REQUEST_RETRY | symbol=%s | endpoint=history | attempt=%s | backoff_sec=%s | error=%s", symbol, attempt, wait_seconds, type(last_error).__name__)
                 time.sleep(wait_seconds)
 
-        self.logger.error(
-            "FYERS history failed after %s attempts | symbol=%s | error=%s",
-            _FYERS_MAX_RETRIES,
-            symbol,
-            last_error,
-        )
         raise last_error or FyersNetworkException(f"FYERS history failed for {symbol}")
 
     def _fetch_yfinance_candles(self, symbol: str, lookback_window: int, points: int) -> list[OHLCVPoint]:
@@ -1024,8 +1062,12 @@ class FyersService:
                 client = self._client()
                 range_from_str = (last_cached_dt + timedelta(days=1)).isoformat()
                 today_str = today_dt.isoformat()
+                self.logger.debug("Normalizing symbol")
+                normalized_sym = self._normalize_symbol(symbol)
+                self.logger.debug("Symbol normalized")
+
                 payload = {
-                    "symbol": self._normalize_symbol(symbol),
+                    "symbol": normalized_sym,
                     "resolution": "1D",
                     "date_format": "1",
                     "range_from": range_from_str,
@@ -1061,11 +1103,12 @@ class FyersService:
             except FyersInvalidSymbolError:
                 self._blacklist_symbol(symbol)
                 return []
+            except (ModuleNotFoundError, ImportError):
+                self.logger.exception("Import failure during incremental fetch")
+                raise
             except Exception as exc:
                 wait_time = 2 ** retry_count
                 self.logger.warning("Network drop fetching incremental candle | symbol=%s | attempt=%s | wait=%ss | error=%s", symbol, retry_count + 1, wait_time, exc)
-                if scan_ctx:
-                    log_fyers_failure(scan_ctx, symbol=symbol, exception_type=type(exc).__name__, exception_message=str(exc), retry_count=retry_count + 1)
                 time.sleep(wait_time)
         
         self.logger.error("All 3 attempts failed for incremental candle | symbol=%s", symbol)

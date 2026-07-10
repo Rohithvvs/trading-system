@@ -22,3 +22,26 @@ def health_check() -> HealthResponse:
 async def heartbeat() -> dict[str, object]:
     await market_engine.heartbeat()
     return sanitize_for_json({"status": "ok", "engine": market_engine.status()})
+
+
+# Clean market status for clients (no auth needed for status)
+try:
+    from ..services.trading_hours_service import trading_hours as _ths
+    _THS_OK = True
+except Exception:
+    _THS_OK = False
+
+@router.get("/market-status")
+def market_status_public():
+    """Lightweight public market status. Use this from frontend before buy flows."""
+    if not _THS_OK:
+        return {"is_open": False, "status": "UNKNOWN", "reason": "unavailable"}
+    info = _ths.get_market_status()
+    return {
+        "is_open": bool(info.get("is_open")),
+        "status": info.get("status"),
+        "reason": info.get("reason"),
+        "current_ist": info.get("current_ist"),
+        "next_open_ist": info.get("next_open_ist"),
+        "market_hours_ist": "09:15 - 15:30",
+    }

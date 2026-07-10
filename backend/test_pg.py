@@ -1,5 +1,5 @@
 import sqlalchemy as sa
-from app.config import settings
+from backend.app.config import settings
 
 engine = sa.create_engine(settings.database_url.replace('+asyncpg', ''))
 with engine.connect() as c:

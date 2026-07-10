@@ -5,7 +5,7 @@ import os
 from unittest.mock import patch, MagicMock
 
 # Attempt to load from the actual file or mock the behavior
-from app.services.logger_service import LoggingService
+from backend.app.services.logger_service import LoggingService
 
 @pytest.fixture
 def temp_log_dir(tmp_path):

@@ -8,14 +8,14 @@ from alembic.migration import MigrationContext
 from alembic.autogenerate import compare_metadata
 from sqlalchemy.schema import CreateTable, CreateIndex
 
-from app.db.base import Base
-import app.models
-import app.models.paper_trading
-import app.models.analysis
-import app.models.stock
-import app.models.system_log
+from backend.app.db.base import Base
+import backend.app.models
+import backend.app.models.paper_trading
+import backend.app.models.analysis
+import backend.app.models.stock
+import backend.app.models.system_log
 
-from app.config import settings
+from backend.app.config import settings
 
 def main(out_f):
     sync_url = settings.database_url.replace("+asyncpg", "+psycopg2")

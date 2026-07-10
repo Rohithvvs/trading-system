@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
 import logging
+import time
 from zoneinfo import ZoneInfo
 
 from ..db import get_sync_db
@@ -108,19 +109,30 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
     daily_pnl = round(daily_pnl, 2)
     daily_pnl_pct = round((daily_pnl / total_capital) * 100, 2) if total_capital else 0.0
 
-    # Market status based on IST clock
-    now_time = now_ist.time()
-    pre_open_start = datetime(now_ist.year, now_ist.month, now_ist.day, 9, 0, tzinfo=ist).time()
-    pre_open_end = datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
-    open_start = datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
-    open_end = datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
+    # Use centralized TradingHoursService for consistent status (includes holidays)
+    try:
+        from ..services.trading_hours_service import trading_hours
+        status_info = trading_hours.get_market_status()
+        if status_info["status"] == "OPEN":
+            market_status = "OPEN 🟢"
+        elif status_info["status"] == "PRE_OPEN":
+            market_status = "PRE-OPEN 🟡"
+        else:
+            market_status = "CLOSED 🔴"
+    except Exception:
+        # Fallback to previous simple logic
+        now_time = now_ist.time()
+        pre_open_start = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 0, tzinfo=ist).time()
+        pre_open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
+        open_start = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
+        open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
 
-    if pre_open_start <= now_time < pre_open_end:
-        market_status = "PRE-OPEN 🟡"
-    elif open_start <= now_time < open_end:
-        market_status = "OPEN 🟢"
-    else:
-        market_status = "CLOSED 🔴"
+        if pre_open_start <= now_time < pre_open_end:
+            market_status = "PRE-OPEN 🟡"
+        elif open_start <= now_time < open_end:
+            market_status = "OPEN 🟢"
+        else:
+            market_status = "CLOSED 🔴"
 
     payload = {
         "total_capital": total_capital,
@@ -282,7 +294,8 @@ async def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEn
             should_run = True
 
     if should_run:
-        background_tasks.add_task(_run_automated_background_scan)
+        logger.info("Auto scan from heartbeat is disabled.")
+        # background_tasks.add_task(_run_automated_background_scan)
 
     return JSONResponse(content=sanitize_for_json(await market_engine.status()))
 
@@ -550,3 +563,23 @@ def get_analytics(service: PaperTradingService = Depends(get_service)):
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(data))
+
+@router.get("/engine-status")
+async def get_engine_status(service: PaperTradingService = Depends(get_service)):
+    logger = logging.getLogger("app.http")
+    logger.info("ENGINE_STATUS_REQUESTED | timestamp=%s", datetime.datetime.utcnow().isoformat())
+    start_time = time.time()
+    try:
+        status = await service.get_engine_status()
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(
+            "ENGINE_STATUS_RESPONSE | timestamp=%s | response_duration_ms=%s | open_positions=%s | tracked_symbols=%s",
+            datetime.datetime.utcnow().isoformat(),
+            duration_ms,
+            status.get("open_positions", 0),
+            status.get("tracked_symbols", 0)
+        )
+        return JSONResponse(content=sanitize_for_json(status))
+    except Exception as e:
+        logger.error("ENGINE_STATUS_FAILED | timestamp=%s | error=%s", datetime.datetime.utcnow().isoformat(), str(e))
+        raise HTTPException(status_code=500, detail="Internal Server Error") from e

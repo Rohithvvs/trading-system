@@ -3,7 +3,16 @@ services:
     name: trading-backend
     env: python
     buildCommand: pip install -r backend/requirements.txt
-    preDeployCommand: alembic -c backend/alembic.ini upgrade head
+    preDeployCommand: |
+      alembic -c backend/alembic.ini upgrade head &&
+      python -c "
+import sys, asyncio
+from pathlib import Path
+root = Path.cwd()
+sys.path.insert(0, str(root))
+from backend.scripts.import_stocks_master import import_csv
+asyncio.run(import_csv(str(root / 'ind_nifty500list.csv'), 'NIFTY500'))
+" || echo "Stocks master import step finished (data may already exist or will be seeded on app start)"
     startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION

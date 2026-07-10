@@ -51,7 +51,6 @@ protobuf==7.35.0
 pycparser==3.0
 pydantic==2.11.7
 pydantic-settings==2.14.1
-pydantic_core==2.33.2
 pyflakes==3.4.0
 Pygments==2.20.0
 pytest==8.3.5
@@ -72,7 +71,7 @@ starlette==0.47.3
 ta==0.11.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-tzdata==2024.1
+tzdata==2026.2
 tzlocal==5.3.1
 urllib3==2.6.3
 uvicorn==0.35.0
@@ -84,5 +83,14 @@ wrapt==2.1.2
 yarl==1.23.0
 yfinance==1.4.0
 psycopg2-binary==2.9.9
-psutil>=5.9
+psutil==6.0.0
+cryptography==42.0.8
+PyJWT==2.8.0
+passlib==1.7.4
+argon2-cffi==23.1.0
 
+pyjwt
+passlib
+argon2-cffi
+email-validator
+google-auth

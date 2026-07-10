@@ -144,6 +144,18 @@ class PaperTradingService:
     def place_order(self, payload: PaperOrderCreateRequest) -> PaperOrderActionResponse:
         if not payload.idempotency_key:
             raise ValueError("Idempotency key is required.")
+
+        # === CENTRALIZED MARKET HOURS VALIDATION (applies to Paper + future Live) ===
+        # Only Buy orders are restricted. Sells/closes are allowed to manage risk.
+        if getattr(payload, "side", None) == "BUY":
+            from .trading_hours_service import trading_hours, MarketClosedError
+            try:
+                trading_hours.validate_can_place_buy_order()
+            except MarketClosedError as mce:
+                # Re-raise as ValueError so existing route error handling surfaces the friendly message.
+                # This ensures NO order is created, no fill attempted, and no backend side-effects.
+                raise ValueError(str(mce)) from mce
+
         account = self._get_or_create_account(for_update=True)
         self._validate_symbol(payload.symbol)
         existing = self.db.scalar(
@@ -409,12 +421,13 @@ class PaperTradingService:
             future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(normalized_symbol), main_event_loop)
             ltp = future.result(timeout=5)
         except Exception as e:
-            self.logger.error("QUOTE_REQUEST_FAILURE | symbol=%s | error=%s", normalized_symbol, e)
+            self.logger.exception("QUOTE_REQUEST_FAILURE | symbol=%s | error=%s", normalized_symbol, e)
             ltp = None
             
         source = "FYERS_QUOTE"
         if ltp is None:
-            candles = self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2)
+            from .fyers_service import _run_sync
+            candles = _run_sync(self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2))
             if candles:
                 ltp = candles[-1].close
                 source = "CANDLE_FALLBACK"
@@ -688,10 +701,11 @@ class PaperTradingService:
             opened_at=position.created_at,
             closed_at=datetime.utcnow(),
             exit_reason="MANUAL",
+            exit_source="MANUAL",
         )
         self.db.add(trade)
         
-        self.logger.info("PAPER_POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=MANUAL", getattr(position, "id", None), position.symbol, fill_price, round(pnl, 2), round(pnl_percent, 2))
+        self.logger.info("POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=MANUAL", getattr(position, "id", None), position.symbol, fill_price, round(pnl, 2), round(pnl_percent, 2))
         # Log transaction for manual SELL to SQLite (if configured)
         try:
             tx = PaperTransaction(
@@ -893,7 +907,7 @@ class PaperTradingService:
             print(f"ERROR adding notification for triggered alert: {e}")
             self.logger.exception("Failed to add notification for triggered alert")
 
-    def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL") -> PaperOrderActionResponse:
+    def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL", source: str = "MANUAL") -> PaperOrderActionResponse:
         account = self._get_or_create_account(for_update=True)
         query = select(PaperPosition).where(
             PaperPosition.id == position_id,
@@ -924,7 +938,7 @@ class PaperTradingService:
             target=None,
             status="FILLED",
             lifecycle_state="EXIT_FILLED",
-            notes=f"Auto exit: {reason}",
+            notes=f"Auto exit: {reason} (Source: {source})",
             filled_price=fill_price_dec,
             filled_at=datetime.utcnow(),
         )
@@ -948,10 +962,11 @@ class PaperTradingService:
             opened_at=position.created_at,
             closed_at=datetime.utcnow(),
             exit_reason=reason,
+            exit_source=source,
         )
         self.db.add(trade)
         
-        self.logger.info("PAPER_POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason)
+        self.logger.info("POSITION_CLOSED | position_id=%s | symbol=%s | exit_price=%s | pnl=%s | pnl_percent=%.2f | reason=%s | source=%s", position.id, position.symbol, fill_price_dec, round(pnl, 2), round(pnl_percent, 2), reason, source)
 
         # Credit account and remove position
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))
@@ -1085,7 +1100,8 @@ class PaperTradingService:
         return cache
 
     def _price_snapshot(self, symbol: str) -> PriceSnapshot:
-        candles = self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90)
+        from .fyers_service import _run_sync
+        candles = _run_sync(self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90))
         if not candles:
             self.logger.warning("No OHLCV candles available for price snapshot | symbol=%s", symbol)
 
@@ -1098,7 +1114,7 @@ class PaperTradingService:
             future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(symbol), main_event_loop)
             ltp = future.result(timeout=2)
         except Exception as e:
-            self.logger.error(f'Error fetching ltp: {e}')
+            self.logger.exception(f'Error fetching ltp: {e}')
             ltp = None
 
         source = "FYERS_QUOTE"
@@ -1289,6 +1305,7 @@ class PaperTradingService:
             opened_at=trade.opened_at,
             closed_at=trade.closed_at,
             exit_reason=getattr(trade, "exit_reason", None),
+            exit_source=getattr(trade, "exit_source", None),
             holding_period_hours=round(holding_period, 2),
         )
 
@@ -1474,3 +1491,27 @@ class PaperTradingService:
             })
         total_pages = (total + per_page - 1) // per_page if total else 0
         return {"items": items, "page": page, "per_page": per_page, "total": total or 0, "total_pages": total_pages}
+
+    async def get_engine_status(self) -> dict:
+        from app.services.market_engine_service import market_engine
+        
+        # Count open positions
+        open_positions = self.db.scalar(
+            select(func.count(PaperPosition.id))
+            .where(PaperPosition.status == "OPEN")
+        ) or 0
+        
+        # Max last_reconciled_at
+        last_reconciliation_at = self.db.scalar(
+            select(func.max(PaperPosition.last_reconciled_at))
+        )
+        
+        engine_status = await market_engine.get_status()
+        
+        return {
+            "status": engine_status.get("status", "STOPPED"),
+            "last_tick_at": engine_status.get("last_tick_at"),
+            "last_reconciliation_at": last_reconciliation_at,
+            "open_positions": open_positions,
+            "tracked_symbols": engine_status.get("active_monitored_symbols_count", 0),
+        }

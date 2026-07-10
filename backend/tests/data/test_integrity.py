@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 import sqlite3
-from app.services.candle_store import (
+from backend.app.services.candle_store import (
     store_candles, 
     load_candles, 
     init_db,

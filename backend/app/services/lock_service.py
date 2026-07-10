@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..models.market_data import SystemLock
 from ..utils import get_logger
+from ..db import AsyncSessionLocal
 
 logger = get_logger("app.lock_service")
 
@@ -28,32 +29,37 @@ class DistributedLockService:
         Attempts to acquire the lock. Waits up to `timeout_seconds`.
         """
         start_time = time.monotonic()
-        while time.monotonic() - start_time < timeout_seconds:
+        while True:
             if await self._try_acquire():
                 self._is_locked = True
                 logger.info("lock_acquired", extra={"lock_name": self.lock_name, "worker_id": self.worker_id})
                 return True
+            
+            if time.monotonic() - start_time >= timeout_seconds:
+                break
+                
             await asyncio.sleep(retry_delay)
             
         logger.warning("lock_timeout", extra={"lock_name": self.lock_name, "timeout_seconds": timeout_seconds})
         return False
 
     async def _try_acquire(self) -> bool:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=self.ttl_seconds)
 
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 # First, try to insert if not exists
                 try:
-                    stmt = insert(SystemLock).values(
-                        lock_name=self.lock_name,
-                        locked_by=self.worker_id,
-                        locked_at=now,
-                        expires_at=expires_at,
-                        heartbeat_at=now
-                    )
-                    db.execute(stmt)
+                    async with db.begin_nested():
+                        stmt = insert(SystemLock).values(
+                            lock_name=self.lock_name,
+                            locked_by=self.worker_id,
+                            locked_at=now,
+                            expires_at=expires_at,
+                            heartbeat_at=now
+                        )
+                        await db.execute(stmt)
                     return True
                 except IntegrityError:
                     pass  # Lock row exists
@@ -62,12 +68,13 @@ class DistributedLockService:
                 # A lock is considered stale if BOTH expires_at AND heartbeat_at have lapsed
                 # Heartbeat is expected every ttl/2. If no heartbeat in ttl, it's dead.
                 stmt = select(SystemLock).where(SystemLock.lock_name == self.lock_name)
-                existing = db.execute(stmt).scalar_one_or_none()
+                result = await db.execute(stmt)
+                existing = result.scalar_one_or_none()
             
                 if existing:
                     if existing.locked_by == self.worker_id:
                         # We already own it, just extend
-                        self.heartbeat()
+                        await self.heartbeat()
                         return True
                     
                     # Check for stale lock
@@ -89,7 +96,7 @@ class DistributedLockService:
                             expires_at=expires_at,
                             heartbeat_at=now
                         )
-                        res = db.execute(update_stmt)
+                        res = await db.execute(update_stmt)
                         if res.rowcount > 0:
                             logger.info("stale_lock_recovered", extra={"lock_name": self.lock_name, "new_owner": self.worker_id})
                             return True
@@ -98,14 +105,14 @@ class DistributedLockService:
     async def release(self):
         if not self._is_locked:
             return
-        self.stop_heartbeat()
+        await self.stop_heartbeat()
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 stmt = delete(SystemLock).where(
                     SystemLock.lock_name == self.lock_name,
                     SystemLock.locked_by == self.worker_id
                 )
-                db.execute(stmt)
+                await db.execute(stmt)
         self._is_locked = False
         logger.info("lock_released", extra={"lock_name": self.lock_name, "worker_id": self.worker_id})
 
@@ -113,7 +120,7 @@ class DistributedLockService:
         """Refresh the lock expiration and heartbeat timestamp."""
         if not self._is_locked:
             return
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=self.ttl_seconds)
         async with AsyncSessionLocal() as db:
             async with db.begin():
@@ -124,7 +131,7 @@ class DistributedLockService:
                     expires_at=expires_at,
                     heartbeat_at=now
                 )
-                db.execute(stmt)
+                await db.execute(stmt)
             
     async def _heartbeat_loop(self):
         sleep_interval = self.ttl_seconds / 3.0

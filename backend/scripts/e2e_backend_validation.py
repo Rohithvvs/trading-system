@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.screener_service import ScreenerService, scanner_metrics
-from app.services.market_data_service import MarketDataService
-from app.services.fyers_service import FyersService
-from app.schemas import AnalysisMode
+from backend.app.services.screener_service import ScreenerService, scanner_metrics
+from backend.app.services.market_data_service import MarketDataService
+from backend.app.services.fyers_service import FyersService
+from backend.app.schemas import AnalysisMode
 
 def main():
     print("="*60)
@@ -69,9 +69,9 @@ def main():
     print("\n--- Phase 9: Corrupted Cache Recovery Simulation ---")
     print("Simulating DB corruption for INFY-EQ...")
     # Delete some rows to trigger CORRUPTED/STALE_INCOMPLETE
-    from app.db.session import SessionLocal
+    from backend.app.db.session import SessionLocal
     with SessionLocal() as db:
-        from app.models.market_data import HistoricalCandle
+        from backend.app.models.market_data import HistoricalCandle
         from sqlalchemy import delete
         stmt = delete(HistoricalCandle).where(HistoricalCandle.symbol == "INFY-EQ")
         db.execute(stmt)

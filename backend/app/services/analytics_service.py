@@ -58,7 +58,7 @@ class AnalyticsService:
                             return None
                             
                         # 2. Extract Entry Price
-                        candles = await asyncio.to_thread(self.fyers.fetch_ohlcv, symbol, "swing", "1d", lookback_days + 5)
+                        candles = await self.fyers.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", lookback_days + 5)
                         if not candles:
                             return None
                         

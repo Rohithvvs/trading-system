@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError, IntegrityError, InvalidRequestError
 from time import sleep
 
-from app.models import FyersToken, FyersTokenHistory
-from app.db.session import SessionLocal
+from backend.app.models import FyersToken, FyersTokenHistory
+from backend.app.db.session import SessionLocal
 
 def test_transaction_rollback_on_failure(db_session: Session):
     """

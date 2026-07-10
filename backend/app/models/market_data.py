@@ -59,6 +59,8 @@ class ScanSnapshot(Base):
     buy_count: Mapped[int] = mapped_column(Integer, nullable=False)
     watch_count: Mapped[int] = mapped_column(Integer, nullable=False)
     rejected_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="completed")
+    error_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 class ScanSnapshotRecord(Base):

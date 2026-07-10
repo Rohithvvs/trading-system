@@ -1,0 +1,30 @@
+{
+  "rewrites": [
+    { "source": "/auth/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/auth/:path*" },
+    { "source": "/analysis/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/analysis/:path*" },
+    { "source": "/paper-trading/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/paper-trading/:path*" },
+    { "source": "/workstation/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/workstation/:path*" },
+    { "source": "/scanner/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/scanner/:path*" },
+    { "source": "/fyers/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/fyers/:path*" },
+    { "source": "/settings/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/settings/:path*" },
+    { "source": "/stocks/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/stocks/:path*" },
+    { "source": "/scheduler/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/scheduler/:path*" },
+    { "source": "/system/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/system/:path*" },
+    { "source": "/api/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/api/:path*" },
+    { "source": "/health", "destination": "https://trading-system-2-rl0x.onrender.com/health" },
+    { "source": "/health/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/health/:path*" },
+    { "source": "/market-status", "destination": "https://trading-system-2-rl0x.onrender.com/market-status" },
+    { "source": "/metrics", "destination": "https://trading-system-2-rl0x.onrender.com/metrics" },
+    { "source": "/ws/:path*", "destination": "https://trading-system-2-rl0x.onrender.com/ws/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

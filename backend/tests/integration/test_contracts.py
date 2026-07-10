@@ -1,5 +1,5 @@
 import pytest
-from app.services.fyers_service import (
+from backend.app.services.fyers_service import (
     _check_fyers_response,
     FyersAuthExpiredError,
     FyersAuthInvalidError,

@@ -340,18 +340,67 @@ def check_alembic_head() -> None:
             logger.info("STARTUP STEP: CURRENT REVISION (Heads: %s)", list(current_heads))
             logger.info("STARTUP STEP: MIGRATION STATUS (Expected: %s, Current: %s)", expected_heads, current_heads)
             
+            ready = True
             if expected_heads != current_heads:
-                error_msg = (
-                    f"\nSCHEMA VALIDATION FAILED\n"
-                    f"Database Revision: {list(current_heads)}\n"
-                    f"Expected Revision: {list(expected_heads)}\n\n"
-                    f"Refusing startup.\n"
-                    f"Application must terminate.\n"
-                )
-                logger.critical(error_msg)
-                raise RuntimeError(error_msg)
+                # Detect "ghost" revisions: current stamp points to a revision ID that no longer
+                # exists in the migration scripts on disk (common after local migration file
+                # renames, deletes, or branch experiments). These are safe to auto-stamp in dev.
+                all_known = {r.revision for r in script.walk_revisions()}
+                unknown_current = current_heads - all_known
                 
-            logger.info("STARTUP STEP: APPLICATION READY")
+                if unknown_current and settings.app_env == "development":
+                    target = next(iter(expected_heads))
+                    logger.warning("=" * 70)
+                    logger.warning("GHOST REVISION DETECTED IN ALEMBIC_VERSION")
+                    logger.warning("Current DB stamp %s is unknown to current migration files.", list(unknown_current))
+                    logger.warning("This commonly happens during active development when migration files")
+                    logger.warning("are deleted or history is rewritten locally.")
+                    logger.warning("AUTO-STAMPING to head '%s' because app_env=development", target)
+                    logger.warning("=" * 70)
+                    try:
+                        # Use a fresh short-lived connection for the stamp to avoid any
+                        # interaction with the outer 'with connection:' context.
+                        with sync_engine.connect() as stamp_conn:
+                            stamp_conn.execute(
+                                text("UPDATE alembic_version SET version_num = :rev"),
+                                {"rev": target}
+                            )
+                            stamp_conn.commit()
+                        # Re-query using a fresh connection to be sure we see the committed stamp
+                        try:
+                            with sync_engine.connect() as verify_conn:
+                                direct = verify_conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+                            current_heads = {direct} if direct else set()
+                        except Exception:
+                            context = MigrationContext.configure(connection)
+                            current_heads = set(context.get_current_heads())
+                        logger.warning("Auto-stamp complete. New current heads: %s", list(current_heads))
+                    except Exception as stamp_err:
+                        logger.error("Auto-stamp attempt failed: %s", stamp_err)
+                        # fall through to hard failure
+                
+                # Re-check after possible auto-stamp
+                if expected_heads != current_heads:
+                    ready = False
+                    error_msg = (
+                        f"\nSCHEMA VALIDATION FAILED\n"
+                        f"Database Revision: {list(current_heads)}\n"
+                        f"Expected Revision: {list(expected_heads)}\n\n"
+                        f"Refusing startup.\n"
+                        f"Application must terminate.\n\n"
+                        f"RECOVERY:\n"
+                        f"  - If this is a real pending migration: alembic upgrade head\n"
+                        f"  - Ghost/unknown revision (dev): python fix_remote_db.py  OR  alembic stamp head\n"
+                        f"  - Only stamp when you are sure the physical schema matches the models.\n"
+                    )
+                    logger.critical(error_msg)
+                    raise RuntimeError(error_msg)
+                else:
+                    logger.info("STARTUP STEP: APPLICATION READY (recovered via auto-stamp)")
+                    ready = False  # we already logged a more specific message
+                    
+            if ready:
+                logger.info("STARTUP STEP: APPLICATION READY")
     except Exception as e:
         if not isinstance(e, RuntimeError):
             logger.critical("STARTUP STEP FAILED: Could not validate schema: %s", e)

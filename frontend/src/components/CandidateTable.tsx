@@ -3,6 +3,7 @@ import type { CandidateRow, BacktestEquityPoint } from "../types";
 import { InfoTooltip } from "./InfoTooltip";
 import { TOOLTIPS } from "../constants/tooltips";
 import { memo, useMemo, useState } from "react";
+import { checkCanPlaceBuyOrder } from "../utils/tradingHours";
 
 type CandidateTableProps = {
   rows: CandidateRow[];
@@ -261,7 +262,8 @@ const CandidateTableRow = memo(({
               event.stopPropagation();
               onBuy?.(row);
             }}
-            disabled={!onBuy || row.signal === "REJECT"}
+            disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
+            title={!checkCanPlaceBuyOrder().allowed ? "Market closed - Buy orders disabled" : undefined}
           >
             Buy
           </button>

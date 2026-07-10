@@ -1,5 +1,5 @@
 import pytest
-from app.services.token_service import _mask_token
+from backend.app.services.token_service import _mask_token
 
 def test_mask_token_empty():
     assert _mask_token(None) is None

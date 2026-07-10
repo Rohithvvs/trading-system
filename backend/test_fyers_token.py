@@ -2,7 +2,7 @@ import sys
 import os
 
 sys.path.append(r"F:\trading system01\trading system\backend")
-from app.config import settings
+from backend.app.config import settings
 from fyers_apiv3 import fyersModel
 import json
 

@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import Mock, patch
-from app.services.market_data_feed import FyersMarketDataFeed
+from backend.app.services.market_data_feed import FyersMarketDataFeed
 
 @patch("app.services.market_data_feed.data_ws")
 @patch("app.services.market_data_feed.get_current_access_token")

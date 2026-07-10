@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { InfoTooltip } from './InfoTooltip';
 import { TOOLTIPS } from '../constants/tooltips';
+import { apiUrl } from '../config';
 
 import {
   cancelPaperOrder,
@@ -31,6 +32,7 @@ import {
   startMarketEngine,
   stopMarketEngine,
 } from "../api";
+import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
 import TokenStatus from "./TokenStatus";
 import type {
   CandidateRow,
@@ -41,7 +43,95 @@ import type {
   PaperTradingDashboardResponse,
   RecommendationPrefillRequest,
   MarketEngineStatus,
+  MarketEngineHealth,
 } from "../types";
+import { fetchPaperTradingEngineStatus } from "../api";
+
+function TradeDetailsModal({ trade, onClose }: { trade: PaperTradeHistoryItem | null; onClose: () => void }) {
+  if (!trade) return null;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose} style={{ zIndex: 9999 }}>
+      <div className="confirm-modal" onClick={e => e.stopPropagation()} style={{ minWidth: 400, maxWidth: 500 }}>
+        <h2>Trade Exit Details</h2>
+        <div style={{ marginTop: 16, marginBottom: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <div className="muted-copy">Reason:</div>
+            <div style={{ fontWeight: 600 }}>{trade.exit_reason ?? "MANUAL_EXIT"}</div>
+          </div>
+          <div>
+            <div className="muted-copy">Source:</div>
+            <div style={{ fontWeight: 600 }}>{trade.exit_source ?? "MANUAL"}</div>
+          </div>
+          <div>
+            <div className="muted-copy">Exit Price:</div>
+            <div style={{ fontWeight: 600 }}>₹{trade.exit_price.toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="muted-copy">Exit Time:</div>
+            <div style={{ fontWeight: 600 }}>{new Date(trade.closed_at).toLocaleTimeString()}</div>
+          </div>
+        </div>
+        
+        {trade.exit_source === "RECONCILIATION" && (
+          <div style={{ background: '#083544', padding: 12, borderRadius: 6, marginBottom: 24, fontSize: '0.9rem' }}>
+            <strong>Recovered During Historical Reconciliation</strong>
+          </div>
+        )}
+
+        <div className="modal-actions" style={{ marginTop: 0 }}>
+          <button type="button" className="button ghost-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function MarketEngineHealthWidget({ health, lastSuccessfulPoll, errorCount }: { health: MarketEngineHealth | null; lastSuccessfulPoll: number | null; errorCount: number }) {
+  if (!health && errorCount === 0) return null;
+
+  const isStale = errorCount * 10000 > 30000;
+  const displayStatus = errorCount > 0 ? 'DEGRADED' : health?.status ?? 'UNKNOWN';
+  const statusColor = displayStatus === 'RUNNING' ? '🟢' : displayStatus === 'DEGRADED' ? '🟡' : '🔴';
+  
+  return (
+    <section className="panel" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <p className="section-label" style={{ marginBottom: 0 }}>Market Engine Status</p>
+          {isStale && <span style={{ color: '#ffcc00', fontSize: '0.8rem', fontWeight: 600 }}>⚠ Data may be stale</span>}
+        </div>
+        <h2 style={{ fontSize: '1.2rem', marginTop: 4 }}>
+          {statusColor} {displayStatus}
+        </h2>
+        {lastSuccessfulPoll && (
+          <div style={{ fontSize: '0.8rem', color: '#8b949e', marginTop: 4 }}>
+            Last Updated: {new Date(lastSuccessfulPoll).toLocaleTimeString()}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 24, textAlign: 'right' }}>
+        <div>
+          <div className="muted-copy">Last Tick</div>
+          <div style={{ fontWeight: 600 }}>{health?.last_tick_at ? new Date(health.last_tick_at).toLocaleTimeString() : '--'}</div>
+        </div>
+        <div>
+          <div className="muted-copy">Last Reconciliation</div>
+          <div style={{ fontWeight: 600 }}>{health?.last_reconciliation_at ? new Date(health.last_reconciliation_at).toLocaleTimeString() : '--'}</div>
+        </div>
+        <div>
+          <div className="muted-copy">Open Positions</div>
+          <div style={{ fontWeight: 600 }}>{health?.open_positions ?? '--'}</div>
+        </div>
+        <div>
+          <div className="muted-copy">Tracked Symbols</div>
+          <div style={{ fontWeight: 600 }}>{health?.tracked_symbols ?? '--'}</div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 type PaperTradingPageProps = {
   recommendationPrefill?: RecommendationPrefillRequest | null;
@@ -106,6 +196,10 @@ export function PaperTradingPage({
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; level: string }>>([]);
   const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(null);
+  const [engineHealth, setEngineHealth] = useState<MarketEngineHealth | null>(null);
+  const [lastSuccessfulHealthPoll, setLastSuccessfulHealthPoll] = useState<number | null>(null);
+  const [healthPollErrorCount, setHealthPollErrorCount] = useState<number>(0);
+  const [selectedTrade, setSelectedTrade] = useState<PaperTradeHistoryItem | null>(null);
   const seenNotifications = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -144,12 +238,46 @@ export function PaperTradingPage({
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    async function loadEngineHealth() {
+      try {
+        const health = await fetchPaperTradingEngineStatus();
+        if (mounted) {
+          setEngineHealth(health);
+          setLastSuccessfulHealthPoll(Date.now());
+          setHealthPollErrorCount(c => {
+            if (c > 0) console.info("ENGINE_STATUS_RECOVERED");
+            return 0;
+          });
+        }
+      } catch (err) {
+        if (mounted) {
+          console.warn("ENGINE_STATUS_POLL_FAILED", err);
+          setHealthPollErrorCount(c => {
+             const next = c + 1;
+             if (next * 10000 > 30000 && c * 10000 <= 30000) {
+                 console.warn("ENGINE_STATUS_STALE");
+             }
+             return next;
+          });
+        }
+      }
+    }
+    void loadEngineHealth();
+    const id = window.setInterval(() => void loadEngineHealth(), 10000);
+    return () => {
+      mounted = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
   // Check for offline gap replay after initial dashboard load. Running this
   // only once after the dashboard succeeds avoids noisy dev-server proxy
   // ECONNREFUSED logs when the backend is still starting.
   async function checkGapReplay() {
     try {
-      const resp = await fetch("/api/paper-trading/gap-replay-summary");
+      const resp = await fetch(apiUrl("/paper-trading/gap-replay-summary"), { credentials: "include" });
       if (!resp.ok) return;
       const data = await resp.json();
       if (data.orders_filled?.length > 0 || data.positions_exited?.length > 0) {
@@ -505,6 +633,16 @@ export function PaperTradingPage({
   }
 
   async function handlePlaceOrder() {
+    // Centralized pre-check: prevent any API call for BUY when market closed
+    if (ticket.side === "BUY") {
+      const check = checkCanPlaceBuyOrder();
+      if (!check.allowed) {
+        showMarketClosedAlert(check);
+        setIsBusy(false);
+        return;
+      }
+    }
+
     setIsBusy(true);
     setError(null);
     try {
@@ -550,6 +688,13 @@ export function PaperTradingPage({
   }
 
   function handleQuickOrder(side: "BUY" | "SELL", symbol?: string) {
+    if (side === "BUY") {
+      const check = checkCanPlaceBuyOrder();
+      if (!check.allowed) {
+        showMarketClosedAlert(check);
+        return;
+      }
+    }
     const normalized = (symbol ?? selectedSymbol ?? ticket.symbol).trim().toUpperCase();
     if (!normalized) return;
     setTicket((current) => ({ ...current, symbol: normalized, side, type: "MARKET" }));
@@ -807,6 +952,8 @@ export function PaperTradingPage({
       </section>
 
       <AccountSummaryStrip dashboard={dashboard} />
+      
+      <MarketEngineHealthWidget health={engineHealth} lastSuccessfulPoll={lastSuccessfulHealthPoll} errorCount={healthPollErrorCount} />
 
       <PaperAccountWidgets
         summary={accountSummary}
@@ -902,7 +1049,7 @@ export function PaperTradingPage({
               ) : (dashboard.trades?.length ?? 0) === 0 ? (
                 <div className="empty-state">No trade history</div>
               ) : (
-                <HistoryTable trades={dashboard.trades} />
+                <HistoryTable trades={dashboard.trades} selectedTrade={selectedTrade} setSelectedTrade={setSelectedTrade} />
               )
             ) : null}
 
@@ -1344,7 +1491,7 @@ function OrderTicketCard({
         <span className="helper-chip">Risk {riskMetrics.riskPercent.toFixed(2)}% of account</span>
         <div>
           {qtyError ? <div className="error-state" style={{ display: 'inline-block', padding: 8, marginRight: 8 }}>{qtyError}</div> : null}
-          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError}>
+          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError || (ticket.side === "BUY" && !checkCanPlaceBuyOrder().allowed)}>
             {isBusy ? "Working..." : "Place paper order"}
           </button>
         </div>
@@ -1506,7 +1653,7 @@ function formatLifecycle(state?: string | null, pausedReason?: string | null) {
   return state.replace(/_/g, " ");
 }
 
-function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
+function HistoryTable({ trades, selectedTrade, setSelectedTrade }: { trades: PaperTradeHistoryItem[]; selectedTrade: PaperTradeHistoryItem | null; setSelectedTrade: (t: PaperTradeHistoryItem | null) => void }) {
   if (!trades.length) {
     return <div className="empty-state"><h2>No trade history</h2><p>Closed paper trades will appear here with holding period and P&amp;L.</p></div>;
   }
@@ -1532,7 +1679,7 @@ function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
         </thead>
         <tbody>
           {trades.map((trade) => (
-            <tr key={trade.id} data-testid="history-row">
+            <tr key={trade.id} data-testid="history-row" onClick={() => setSelectedTrade(trade)} style={{ cursor: 'pointer' }}>
               <td>{trade.symbol}</td>
               <td>{trade.qty}</td>
               <td className="number-cell">{trade.entry_price.toFixed(2)}</td>
@@ -1549,6 +1696,7 @@ function HistoryTable({ trades }: { trades: PaperTradeHistoryItem[] }) {
           ))}
         </tbody>
       </table>
+      <TradeDetailsModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
     </div>
   );
 }

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchSavedScans, fetchUniverses, loadLatestScan, loadTodayCandidates, runPresetScreener, saveScannerPreset } from "./api";
+import { getWsBaseUrl } from "./config";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { FilterBar } from "./components/FilterBar";
 import { PaperTradingPage } from "./components/PaperTradingPage";
+import { isMarketOpenForDisplay, checkCanPlaceBuyOrder } from "./utils/tradingHours";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
@@ -129,11 +131,8 @@ export default function Dashboard() {
 
     const connect = () => {
       setWsStatus("connecting");
-      // Determine base URL dynamically (using VITE env variable to avoid localhost hardcoding)
-      const baseHttpUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
-      // Convert http:// to ws:// and https:// to wss://
-      const baseWsUrl = baseHttpUrl.replace(/^http/, "ws");
-      const wsUrl = process.env.NODE_ENV === "production" ? `wss://${window.location.host}/ws/ticks` : `${baseWsUrl}/ws/ticks`;
+      // Resolve WS URL from shared API config (never hardcode localhost in production builds)
+      const wsUrl = `${getWsBaseUrl()}/ws/ticks`;
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
@@ -339,6 +338,14 @@ export default function Dashboard() {
   }
 
   function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null) {
+    const sig = (row as any).signal || (row as any).recommendation;
+    if (sig === "BUY") {
+      const check = checkCanPlaceBuyOrder();
+      if (!check.allowed) {
+        import("./utils/tradingHours").then(({ showMarketClosedAlert }) => showMarketClosedAlert(check));
+        return;
+      }
+    }
     const prefill = buildPaperTradingPrefill(row);
     setPaperTradingPrefill({
       ...prefill,
@@ -731,17 +738,15 @@ function formatVolume(
 }
 
 function getMarketStatus() {
-  const now = new Date();
-  const day = now.getDay();
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const open = 9 * 60 + 15;
-  const close = 15 * 60 + 30;
-
-  if (day === 0 || day === 6) {
-    return "Closed";
+  try {
+    return isMarketOpenForDisplay();
+  } catch {
+    const now = new Date();
+    const day = now.getDay();
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const open = 9 * 60 + 15;
+    const close = 15 * 60 + 30;
+    if (day === 0 || day === 6) return "Closed";
+    return minutes >= open && minutes <= close ? "Open" : "Closed";
   }
-  if (minutes >= open && minutes <= close) {
-    return "Open";
-  }
-  return "Closed";
 }

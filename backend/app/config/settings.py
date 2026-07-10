@@ -57,9 +57,11 @@ def normalize_database_url(raw_value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Trading System"
     app_env: str = "development"
+    google_client_id: str = ""
     quarantine_mode: bool = False
     app_host: str = "127.0.0.1"
     app_port: int = 8000
+    frontend_url: str = Field(default="http://localhost:5173", alias="FRONTEND_URL")
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
     redis_url: str = "redis://localhost:6379/0"
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
@@ -87,12 +89,21 @@ class Settings(BaseSettings):
         ),
         alias="FYERS_SCREENER_SYMBOLS"
     )
+
+    # Allow the app to start with empty stocks_master (useful for initial deploys / data seeding)
+    require_universe_data: bool = Field(default=True, alias="REQUIRE_UNIVERSE_DATA")
     news_provider: str = "marketaux"
     news_api_key: str = ""
     news_base_url: str = "https://api.marketaux.com/v1/news/all"
     llm_provider: str = "groq"
     llm_api_key: str = Field(default="", alias="GROQ_API_KEY")
     llm_model: str = "LLAMA_3_70B"
+    admin_email: str = Field(default="", alias="ADMIN_EMAIL")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from: str = Field(default="", alias="SMTP_FROM")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
     model_config = SettingsConfigDict(
@@ -176,15 +187,20 @@ class Settings(BaseSettings):
             return []
 
         symbols: list[str] = []
-        with csv_path.open(newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                symbol = (row.get("Symbol") or "").strip().upper()
-                series = (row.get("Series") or "").strip().upper()
-                if not symbol:
-                    continue
-                combined = f"{symbol}-{series}" if series else symbol
-                symbols.append(combined)
+        try:
+            with csv_path.open(newline="", encoding="utf-8-sig") as handle:
+                reader = csv.DictReader(handle)
+                from app.utils.symbol import canonical_symbol
+                for row in reader:
+                    symbol = (row.get("Symbol") or "").strip().upper()
+                    series = (row.get("Series") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    combined = f"{symbol}-{series}" if series else symbol
+                    symbols.append(canonical_symbol(combined))
+        except Exception:
+            # Degrade gracefully if file is malformed, empty, or unreadable
+            return []
         return list(dict.fromkeys(symbols))
 
 settings = Settings()

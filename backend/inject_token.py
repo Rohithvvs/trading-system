@@ -4,9 +4,9 @@ import asyncio
 from datetime import datetime, timezone
 
 sys.path.append(r"F:\trading system01\trading system\backend")
-from app.config import settings
-from app.db.session import AsyncSessionLocal
-from app.models.fyers_token import FyersToken
+from backend.app.config import settings
+from backend.app.db.session import AsyncSessionLocal
+from backend.app.models.fyers_token import FyersToken
 from sqlalchemy import select, update
 
 async def inject_token():

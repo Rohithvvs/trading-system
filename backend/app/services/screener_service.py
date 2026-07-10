@@ -10,9 +10,15 @@ import time
 import re
 import yfinance as yf
 import pandas as pd
-import psutil
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 def get_rss_mb():
+    if psutil is None:
+        return 0.0
     return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
 from ..schemas import AnalysisMode, OHLCVPoint, ScreenerConditionResult
@@ -105,16 +111,13 @@ class ScreenerService:
         # Begin symbol scanning
         self.logger.info("STEP 1/8 | Begin symbol screening | stage=%s | symbol=%s", stage_name, symbol)
         if candles is None:
-            import asyncio
-            def _fetch():
-                return self.fyers_service.get_candles_cached(
-                    symbol=symbol,
-                    mode=AnalysisMode.swing,
-                    resolution="1d",
-                    lookback_window=max(lookback_window, 240),
-                    allow_mock=False,
-                )
-            candles = await asyncio.to_thread(_fetch)
+            candles = await self.fyers_service.get_candles_cached(
+                symbol=symbol,
+                mode=AnalysisMode.swing,
+                resolution="1d",
+                lookback_window=max(lookback_window, 240),
+                allow_mock=False,
+            )
         candle_source = self.fyers_service.get_ohlcv_source(symbol, AnalysisMode.swing, "1d")
         if not candle_source or candle_source == "unknown":
             candle_source = "CANDLE_CACHE_DB"

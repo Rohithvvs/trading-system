@@ -1,3 +1,13 @@
+import sys
+from pathlib import Path
+
+# Ensure backend/ is on sys.path so 'app' is importable as a top-level package
+# (uvicorn imports backend.app.main which makes backend findable, but nested
+#  files using 'from app.xxx import yyy' need 'app' on sys.path)
+_backend_dir = str(Path(__file__).resolve().parent.parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 from datetime import datetime
 from time import perf_counter
 from contextlib import asynccontextmanager
@@ -256,7 +266,7 @@ async def lifespan(app: FastAPI):
         logger.info("Test environment detected; setting up tables and skipping scheduler/monitors.")
         from .db.session import engine
         from .db.base import Base
-        import backend.app.models  # ensure all models are registered
+        import app.models  # ensure all models are registered
         
         # Patch SQLite JSONB support for testing
         from sqlalchemy.ext.compiler import compiles
@@ -309,8 +319,62 @@ async def lifespan(app: FastAPI):
         logger.info("STARTUP PROGRESS: settings module loaded successfully.")
         
         # Run startup validation for screener health
+        from .services.universe_service import UniverseService
+        active_symbols = await UniverseService.get_all_active_symbols()
+        count = len(active_symbols)
+        logger.info(f"UNIVERSE_LOADED | count={count}")
+
+        if count == 0:
+            logger.warning("Universe is empty. Attempting automatic seed from bundled ind_nifty500list.csv ...")
+            try:
+                from pathlib import Path
+
+                repo_root = Path(__file__).resolve().parents[2]
+                if str(repo_root) not in sys.path:
+                    sys.path.insert(0, str(repo_root))
+
+                # Try several import styles that work in different runtimes (Render, local, uvicorn -m, etc.)
+                import_csv = None
+                for mod_name in [
+                    "backend.scripts.import_stocks_master",
+                    "scripts.import_stocks_master",
+                    "import_stocks_master",
+                ]:
+                    try:
+                        mod = __import__(mod_name, fromlist=["import_csv"])
+                        import_csv = getattr(mod, "import_csv")
+                        break
+                    except Exception:
+                        pass
+
+                if import_csv is None:
+                    # Last resort: run the script via subprocess (synchronous but acceptable at startup)
+                    import subprocess
+                    csv_path = str(repo_root / "ind_nifty500list.csv")
+                    cmd = [sys.executable, str(repo_root / "backend" / "scripts" / "import_stocks_master.py"), csv_path, "NIFTY500"]
+                    subprocess.run(cmd, check=False, capture_output=True, text=True, cwd=str(repo_root))
+                else:
+                    csv_path = str(repo_root / "ind_nifty500list.csv")
+                    await import_csv(csv_path, "NIFTY500")
+
+                active_symbols = await UniverseService.get_all_active_symbols()
+                count = len(active_symbols)
+                logger.info(f"UNIVERSE_LOADED after auto-seed | count={count}")
+            except Exception as seed_err:
+                logger.exception("Auto-seed of stocks_master failed: %s", seed_err)
+
+        if count == 0:
+            if settings.require_universe_data:
+                raise RuntimeError(
+                    "Startup failed: Universe count is 0 after auto-seed attempt. "
+                    "Please ensure ind_nifty500list.csv is present and DATABASE_URL is correct. "
+                    "(Manual: python backend/scripts/import_stocks_master.py ind_nifty500list.csv NIFTY500)"
+                )
+            else:
+                logger.warning("UNIVERSE EMPTY but REQUIRE_UNIVERSE_DATA=false — continuing in degraded mode.")
+
         screener_svc = ScreenerService()
-        await screener_svc.validate_startup_health(list(settings.nifty500_symbols))
+        await screener_svc.validate_startup_health(active_symbols)
         logger.info("STARTUP SUCCESS: Scanner health bootstrap completed successfully.")
     except Exception as e:
         logger.critical("STARTUP FATAL: Failed to run startup initialization. Crashing lifespan: %s", repr(e))
@@ -338,13 +402,14 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
-    # JOB 2: Pre-Market Deep Scan
-    scheduler.add_job(
-        automated_screening_job,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="Asia/Kolkata"),
-        id="pre_market_deep_scan",
-        replace_existing=True,
-    )
+    # JOB 2: Pre-Market Deep Scan (Disabled)
+    logger.info("Automatic scheduled scanner execution is disabled.")
+    # scheduler.add_job(
+    #     automated_screening_job,
+    #     CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="Asia/Kolkata"),
+    #     id="pre_market_deep_scan",
+    #     replace_existing=True,
+    # )
 
     # JOB 3a: Intraday Engine Heartbeat Loop (09:15 AM to 09:45 AM)
     scheduler.add_job(
@@ -393,10 +458,15 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
+    # Clear in-memory FYERS quarantine on every app start
+    from .services.fyers_service import QUARANTINED_SYMBOLS
+    QUARANTINED_SYMBOLS.clear()
+    logger.info("FYERS in-memory symbol quarantine cleared on startup")
+
     # FYERS refresh automation removed. Manual access-token workflow only.
     if not settings.quarantine_mode:
         scheduler.start()
-        logger.info("Scheduler started — nightly sync at 18:30 IST")
+        logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", str(scheduler.timezone), len(scheduler.get_jobs()))
     else:
         logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 
@@ -416,7 +486,7 @@ async def lifespan(app: FastAPI):
                 token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
                 token_age_min = 0.0
                 if token_row and token_row.access_token_saved_at:
-                    token_age_min = (datetime.utcnow() - token_row.access_token_saved_at).total_seconds() / 60.0
+                    token_age_min = (datetime.now(token_row.access_token_saved_at.tzinfo) - token_row.access_token_saved_at).total_seconds() / 60.0
                 logger.info(
                     "STARTUP_TOKEN_VERIFICATION | token_found=%s | saved_at=%s | age_minutes=%.1f",
                     bool(token), token_saved_at, token_age_min,
@@ -474,8 +544,8 @@ async def lifespan(app: FastAPI):
                                 else: ltp = ltp_coro
 
                                 if ltp is None:
-                                    candles = await asyncio.to_thread(
-                                        fyers.fetch_ohlcv, a["symbol"], AnalysisMode.swing, "1d", 2
+                                    candles = await fyers.fetch_ohlcv(
+                                        a["symbol"], AnalysisMode.swing, "1d", 2
                                     )
                                     if candles and len(candles) > 0:
                                         ltp = candles[-1].close
@@ -590,17 +660,25 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+# CORS for SPA on Vercel (incl. preview URLs) talking to Render API with credentials.
+# Do NOT use allow_origins=["*"] with allow_credentials=True — browsers reject it.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins + [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
     ],
-    allow_origin_regex=r"(http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app|https://.*\.onrender\.com)",
+    allow_origin_regex=(
+        r"https://.*\.vercel\.app"
+        r"|https://.*\.onrender\.com"
+        r"|http://(localhost|127\.0\.0\.1):\d+"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -640,6 +718,7 @@ async def log_http_requests(request: Request, call_next):
         
         # Log to DB and return 500 gracefully
         tb = traceback.format_exc()
+        print(f"EXCEPTION CAUGHT IN MIDDLEWARE:\n{tb}")
         await log_to_db(
             level="ERROR",
             module="http_middleware_exception",
@@ -674,8 +753,11 @@ async def log_http_requests(request: Request, call_next):
 
 
 
+from .routes import scheduler as scheduler_router
+
 app.include_router(api_router)
 app.include_router(fyers_router)
+app.include_router(scheduler_router.router)
 
 
 async def nightly_candle_sync():
@@ -692,7 +774,7 @@ async def nightly_candle_sync():
     async def _sync_symbol(symbol: str):
         async with sem:
             try:
-                await asyncio.to_thread(fyers.get_candles_cached, symbol, AnalysisMode.swing, "1d", 260, False)
+                await fyers.get_candles_cached(symbol, AnalysisMode.swing, "1d", 260, False)
                 logger.info("NIGHTLY SYNC refreshed symbol=%s", symbol)
             except Exception as e:
                 logger.error("NIGHTLY SYNC failed symbol=%s error=%s", symbol, e)
@@ -828,16 +910,23 @@ async def automated_screening_job():
                 startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
                 app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
                 
-                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
-                market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
-                if ist_now.weekday() >= 5:
-                    market_session = "closed"
-                elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
-                    market_session = "pre_open"
-                elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
-                    market_session = "post_close"
-                else:
-                    market_session = "open"
+                # Use centralized service for accurate market status (weekends + holidays)
+                try:
+                    from .services.trading_hours_service import trading_hours
+                    mkt = trading_hours.get_market_status()
+                    market_open = mkt["is_open"]
+                    market_session = mkt["status"].lower().replace("_", "-")
+                except Exception:
+                    ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                    market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
+                    if ist_now.weekday() >= 5:
+                        market_session = "closed"
+                    elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
+                        market_session = "pre_open"
+                    elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
+                        market_session = "post_close"
+                    else:
+                        market_session = "open"
                 
                 pool = engine.pool
                 

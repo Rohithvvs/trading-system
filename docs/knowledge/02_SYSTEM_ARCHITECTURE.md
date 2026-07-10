@@ -236,7 +236,9 @@ sequenceDiagram
 - *Solution:* Open the dashboard, navigate to the settings or login panel, and complete the FYERS manual authentication flow to generate a new token.
 
 **2. Database Migration Error on Startup (`check_alembic_head` failure):**
-- *Solution:* The database schema is out of sync with the code. Run `alembic upgrade head` in the backend directory.
+- *Solution:* The database schema is out of sync with the code.
+  - If expected vs current heads differ on a *known* revision: `alembic upgrade head`
+  - If current revision is an unknown ID (e.g. '20260706_001' that no longer exists on disk): run `python fix_remote_db.py` (or `alembic stamp 7b6abc0bf8bc`) from the `backend/` directory after activating the venv. Only do this when you know the actual schema already matches the head.
 
 **3. Singleton Worker Warning in Logs (`Another instance owns singleton workers`):**
 - *Solution:* This is normal if you have multiple backend containers running. If you only have one, clear the Redis lock key `trading-system:singleton-workers` manually.

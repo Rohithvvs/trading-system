@@ -39,8 +39,8 @@ if ($existingPids.Count -gt 0) {
 
 Write-Host "Starting backend on http://127.0.0.1:$port"
 Write-Host "Using Python interpreter: $pythonExe"
-Set-Location $repoRoot
-$uvicornArgs = @("-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", $port)
+Set-Location (Join-Path $repoRoot "backend")
+$uvicornArgs = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", $port)
 if ($enableReload) {
   Write-Host "APP_ENABLE_RELOAD=true detected; enabling uvicorn auto-reload"
   $uvicornArgs += "--reload"

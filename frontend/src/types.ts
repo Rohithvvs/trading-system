@@ -272,8 +272,10 @@ export type PaperAccountSummary = {
 export type PaperPosition = {
   id: number;
   symbol: string;
+  side: "LONG" | "SHORT";
   qty: number;
   avg_entry_price: number;
+  average_price: number;
   current_price: number;
   unrealized_pnl: number;
   unrealized_pnl_percent: number;
@@ -348,6 +350,15 @@ export type PaperTradeHistoryItem = {
   closed_at: string;
   holding_period_hours: number;
   exit_reason?: string | null;
+  exit_source?: string | null;
+};
+
+export type MarketEngineHealth = {
+  status: string;
+  last_tick_at?: string | null;
+  last_reconciliation_at?: string | null;
+  open_positions: number;
+  tracked_symbols: number;
 };
 
 export type TransactionItem = {

@@ -113,9 +113,15 @@ class FyersMarketDataFeed:
                 socket.close_connection()
             except Exception:
                 self.logger.exception("Failed to close FYERS websocket cleanly")
+        self._socket = None
+        self._thread = None
         self.connected = False
         if notify:
             self.on_connection_change(False)
+
+    def restart(self, token: str) -> None:
+        self.stop(notify=False)
+        self.start(token)
 
     def sync_symbols(self, symbols: set[str]) -> None:
         with self._lock:
@@ -131,5 +137,5 @@ class FyersMarketDataFeed:
             self._socket.unsubscribe(symbols=[self._normalize_symbol(s) for s in to_remove], data_type="SymbolUpdate")
 
     def _normalize_symbol(self, symbol: str) -> str:
-        normalized = symbol.strip().upper()
-        return normalized if ":" in normalized else f"NSE:{normalized}"
+        from ..utils.symbol import fyers_symbol, canonical_symbol
+        return fyers_symbol(canonical_symbol(symbol))

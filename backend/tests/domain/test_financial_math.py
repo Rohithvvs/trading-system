@@ -2,7 +2,7 @@ import pytest
 from hypothesis import given, strategies as st
 import math
 
-from app.utils.financial_math import (
+from backend.app.utils.financial_math import (
     calculate_position_size,
     calculate_max_drawdown,
     calculate_risk_reward_ratio,

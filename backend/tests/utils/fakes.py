@@ -32,7 +32,7 @@ class FakeFyersService:
         return 100.0
 
     def get_candles_cached(self, *args, **kwargs): return self.candles
-    def fetch_ohlcv(self, *args, **kwargs): return self.candles
+    async def fetch_ohlcv(self, *args, **kwargs): return self.candles
     def fetch_incremental_ohlcv(self, *args, **kwargs): return self.candles
     def combine_candles(self, *args, **kwargs): return self.candles
     def get_ohlcv_source(self, *args, **kwargs): return "MOCK"
