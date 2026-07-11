@@ -42822,3 +42822,6 @@
 {"level":"ERROR","location":"[get_call:183] fyersModel","message":{"API":"/quotes","error":"Expecting value: line 1 column 1 (char 0)"},"timestamp":"2026-07-11 10:34:15,718+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:183] fyersModel","message":{"API":"/quotes","error":"Expecting value: line 1 column 1 (char 0)"},"timestamp":"2026-07-11 10:34:17,057+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:183] fyersModel","message":{"API":"/quotes","error":"Expecting value: line 1 column 1 (char 0)"},"timestamp":"2026-07-11 10:34:18,398+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-07-11 11:38:29,412+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-07-11 11:38:31,904+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-07-11 11:38:34,281+0530","service":"FyersAPI"}

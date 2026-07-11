@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getTokenHistory, getTokenStatus, saveAccessToken, getLatestScan } from "../api";
+import { getCached, CACHE_KEYS } from "../utils/appCache";
+import { TableSkeleton } from "./Skeleton";
 
 type Status = {
   access_token_active: boolean;
@@ -10,40 +12,43 @@ type Status = {
 };
 
 export default function TokenStatus() {
-  const [status, setStatus] = useState<Status | null>(null);
+  // Instant paint from cache — token is NOT re-validated against FYERS on every visit
+  const [status, setStatus] = useState<Status | null>(() => getCached(CACHE_KEYS.fyersToken));
   const [lastScanAt, setLastScanAt] = useState<string | null>(null);
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>(() => {
+    const h = getCached<{ history?: any[] }>(CACHE_KEYS.fyersTokenHistory);
+    return h?.history || [];
+  });
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [accessInput, setAccessInput] = useState("");
+  const [listLoading, setListLoading] = useState(() => !getCached(CACHE_KEYS.fyersTokenHistory));
 
-  async function load() {
+  async function load(force = false) {
     try {
-      const res = await getTokenStatus();
+      // Parallel: status + scan + history (all cached / deduped)
+      const [res, scanRes, hist] = await Promise.all([
+        getTokenStatus({ force }),
+        getLatestScan().catch(() => null),
+        getTokenHistory().catch(() => ({ history: [] })),
+      ]);
       setStatus(res);
-      const scanRes = await getLatestScan();
       if (scanRes && scanRes.last_scan_completed_at) {
         setLastScanAt(scanRes.last_scan_completed_at);
       }
-    } catch (e: any) {
-      // Non-critical background load error
-    }
-  }
-
-  async function loadHistory() {
-    try {
-      const res = await getTokenHistory();
-      setHistory(res.history || []);
+      setHistory(hist?.history || []);
     } catch {
-      // History is useful diagnostics, but token status is the critical UI.
+      // Non-critical background load error
+    } finally {
+      setListLoading(false);
     }
   }
 
   useEffect(() => {
-    void load();
-    void loadHistory();
-    const id = setInterval(() => void load(), 60000);
+    void load(false);
+    // Poll status every 60s using cache (no FYERS round-trip; backend is DB-only)
+    const id = setInterval(() => void load(false), 60000);
     return () => clearInterval(id);
   }, []);
 
@@ -70,9 +75,9 @@ export default function TokenStatus() {
     setError(null);
     setSuccessMessage(null);
     try {
+      // Manual reconnect — only path that validates against FYERS
       await saveAccessToken(accessInput.trim());
-      await load();
-      await loadHistory();
+      await load(true);
       setSuccessMessage("Token successfully verified and saved.");
       setAccessInput("");
     } catch (e: any) {
@@ -155,21 +160,25 @@ export default function TokenStatus() {
 
       <div style={{ marginBottom: 12 }}>
         <strong>Token History</strong>
-        <table className="token-table">
-          <thead>
-            <tr><th>Saved At</th><th>Token (masked)</th><th>Status</th><th>Note</th></tr>
-          </thead>
-          <tbody>
-            {history.map((h) => (
-              <tr key={h.id}>
-                <td>{new Date(h.saved_at).toLocaleString()}</td>
-                <td>{h.access_token_masked ?? "-"}</td>
-                <td>{h.status ?? "-"}</td>
-                <td>{h.note ?? "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {listLoading && history.length === 0 ? (
+          <TableSkeleton rows={3} cols={4} />
+        ) : (
+          <table className="token-table">
+            <thead>
+              <tr><th>Saved At</th><th>Token (masked)</th><th>Status</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+              {history.map((h) => (
+                <tr key={h.id}>
+                  <td>{new Date(h.saved_at).toLocaleString()}</td>
+                  <td>{h.access_token_masked ?? "-"}</td>
+                  <td>{h.status ?? "-"}</td>
+                  <td>{h.note ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );

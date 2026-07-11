@@ -24,6 +24,11 @@ def _clear_token_cache() -> None:
     _CACHED_TOKEN = None
     _TOKEN_EXPIRY = None
     _TOKEN_SAVED_AT = None
+    try:
+        from ..core.response_cache import cache_invalidate
+        cache_invalidate("token_status")
+    except Exception:
+        pass
     logger.info("TOKEN_INVALIDATED | Local memory cache cleared")
 
 def has_cached_token() -> bool:
@@ -146,6 +151,11 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         # but since expire_on_commit=False, row retains state!
         # await db.refresh(row) is not strictly needed inside, but if needed, we can do it inside.
         _set_token_cache(access_token, row.access_token_saved_at)
+        try:
+            from ..core.response_cache import cache_invalidate
+            cache_invalidate("token_status")
+        except Exception:
+            pass
         logger.info("STEP 4 RESULT: Commit successful. Final status=%s saved_at=%s", row.status, getattr(row, 'access_token_saved_at', None))
 
         # POST-COMMIT diagnostics
@@ -180,14 +190,29 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
 
 
 async def get_token_status(db: AsyncSession) -> dict[str, Any]:
+    """
+    DB-only token status. Does NOT call FYERS.
+    Cached in-process for 5 minutes to avoid repeated DB hits on every page navigation.
+    """
+    from ..core.response_cache import cache_get, cache_set
+
+    cache_key = "token_status"
+    hit = cache_get(cache_key)
+    if hit is not None:
+        logger.info("TOKEN_STATUS_CACHE_HIT | source=memory")
+        return hit
+
     row = await get_fyers_token_row(db)
-    return {
+    status = {
         "access_token_active": bool(row and row.access_token),
         "access_token_saved_at": row.access_token_saved_at.isoformat() if row and row.access_token_saved_at else None,
         "validated_at": getattr(row, 'validated_at', None).isoformat() if row and getattr(row, 'validated_at', None) else None,
         "status": row.status if row else "no_token",
         "last_error": row.last_error if row else None,
     }
+    cache_set(cache_key, status, ttl_seconds=300.0)
+    logger.info("TOKEN_STATUS_CACHE_MISS | source=database | status=%s", status.get("status"))
+    return status
 
 
 async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str, Any]]:

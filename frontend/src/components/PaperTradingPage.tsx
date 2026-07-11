@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useRef } from "react";
 import { InfoTooltip } from './InfoTooltip';
 import { TOOLTIPS } from '../constants/tooltips';
 import { apiUrl } from '../config';
+
+const DailyAnalyticsPanel = lazy(() =>
+  import("./DailyAnalyticsPanel").then((m) => ({ default: m.DailyAnalyticsPanel })),
+);
 
 import {
   cancelPaperOrder,
@@ -31,9 +35,12 @@ import {
   fetchMarketEngineStatus,
   startMarketEngine,
   stopMarketEngine,
+  invalidatePaperCaches,
 } from "../api";
 import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
 import TokenStatus from "./TokenStatus";
+import { MetricCardSkeleton, TableSkeleton, ChartSkeleton } from "./Skeleton";
+import { getCached, CACHE_KEYS } from "../utils/appCache";
 import type {
   CandidateRow,
   PaperOrder,
@@ -140,7 +147,7 @@ type PaperTradingPageProps = {
   lastScanAt?: string | null;
 };
 
-type PaperPanelTab = "positions" | "orders" | "history" | "analytics" | "account";
+type PaperPanelTab = "positions" | "orders" | "history" | "analytics" | "daily-analytics" | "alerts" | "account";
 
 // Chart.js global loaded from CDN
 declare const Chart: any;
@@ -166,23 +173,12 @@ export function PaperTradingPage({
   scannerCandidates = [],
   lastScanAt = null,
 }: PaperTradingPageProps) {
-  // Token status is useful in Paper Trading page; not required but handy
-  useEffect(() => {
-    let mounted = true;
-    async function loadToken() {
-      try {
-        await getTokenStatus();
-      } catch {
-        // ignore
-      }
-    }
-    void loadToken();
-    return () => { mounted = false; };
-  }, []);
-
   // Insert TokenStatus panel in account tab when active
   const initialSymbol = recommendationPrefill?.symbol ?? scannerCandidates[0]?.symbol ?? DEFAULT_TICKET.symbol;
-  const [dashboard, setDashboard] = useState<PaperTradingDashboardResponse | null>(null);
+  // Instant shell: seed from cache so header/tabs/metrics paint immediately
+  const [dashboard, setDashboard] = useState<PaperTradingDashboardResponse | null>(
+    () => getCached<PaperTradingDashboardResponse>(CACHE_KEYS.paperDashboard) ?? getCached(CACHE_KEYS.paperDashboardSymbol(initialSymbol)),
+  );
   const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol);
   const [ticket, setTicket] = useState<PaperOrderTicketState>({ ...DEFAULT_TICKET, symbol: initialSymbol });
   const [listTab, setListTab] = useState<PaperPanelTab>("positions");
@@ -191,90 +187,24 @@ export function PaperTradingPage({
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isLivePricing, setIsLivePricing] = useState(true);
-  const [accountSummary, setAccountSummary] = useState<any | null>(null);
+  const [accountSummary, setAccountSummary] = useState<any | null>(
+    () => getCached(CACHE_KEYS.paperAccount),
+  );
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; level: string }>>([]);
-  const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(null);
-  const [engineHealth, setEngineHealth] = useState<MarketEngineHealth | null>(null);
+  const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(
+    () => getCached(CACHE_KEYS.marketEngineStatus),
+  );
+  const [engineHealth, setEngineHealth] = useState<MarketEngineHealth | null>(
+    () => getCached(CACHE_KEYS.marketEngineHealth),
+  );
   const [lastSuccessfulHealthPoll, setLastSuccessfulHealthPoll] = useState<number | null>(null);
   const [healthPollErrorCount, setHealthPollErrorCount] = useState<number>(0);
   const [selectedTrade, setSelectedTrade] = useState<PaperTradeHistoryItem | null>(null);
   const seenNotifications = useRef<Set<number>>(new Set());
 
-  useEffect(() => {
-    let mounted = true;
-    async function loadSummary() {
-      try {
-        const data = await fetchPaperAccountSummary();
-        if (mounted) setAccountSummary(data);
-      } catch (err) {
-        console.warn("Failed to load account summary", err);
-      }
-    }
-    void loadSummary();
-    const id = window.setInterval(() => void loadSummary(), 10000);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadEngineStatus() {
-      try {
-        const status = await fetchMarketEngineStatus();
-        if (mounted) setEngineStatus(status);
-      } catch (err) {
-        console.warn("Failed to load market engine status", err);
-      }
-    }
-    void loadEngineStatus();
-    const id = window.setInterval(() => void loadEngineStatus(), 10000);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadEngineHealth() {
-      try {
-        const health = await fetchPaperTradingEngineStatus();
-        if (mounted) {
-          setEngineHealth(health);
-          setLastSuccessfulHealthPoll(Date.now());
-          setHealthPollErrorCount(c => {
-            if (c > 0) console.info("ENGINE_STATUS_RECOVERED");
-            return 0;
-          });
-        }
-      } catch (err) {
-        if (mounted) {
-          console.warn("ENGINE_STATUS_POLL_FAILED", err);
-          setHealthPollErrorCount(c => {
-             const next = c + 1;
-             if (next * 10000 > 30000 && c * 10000 <= 30000) {
-                 console.warn("ENGINE_STATUS_STALE");
-             }
-             return next;
-          });
-        }
-      }
-    }
-    void loadEngineHealth();
-    const id = window.setInterval(() => void loadEngineHealth(), 10000);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  // Check for offline gap replay after initial dashboard load. Running this
-  // only once after the dashboard succeeds avoids noisy dev-server proxy
-  // ECONNREFUSED logs when the backend is still starting.
+  // Check for offline gap replay after initial dashboard load.
   async function checkGapReplay() {
     try {
       const resp = await fetch(apiUrl("/paper-trading/gap-replay-summary"), { credentials: "include" });
@@ -304,56 +234,88 @@ export function PaperTradingPage({
     }
   }
 
-  // Initial dashboard load with retry (handles backend startup/gap-replay)
+  // Parallel initial load + periodic refresh (single effect, no sequential waterfalls)
   useEffect(() => {
     let mounted = true;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    async function loadInitial(retryCount = 0) {
+    async function loadAll(retryCount = 0, force = false) {
       try {
         setError(null);
-        const data = await fetchPaperTradingDashboard(selectedSymbol);
-        if (mounted) setDashboard(data);
-        // After the dashboard is successfully loaded, check for gap-replay
-        // notifications. Doing this here reduces the chance of proxy errors
-        // if the backend was still coming up when the page first mounted.
-        void checkGapReplay();
+        const [dash, summary, engStatus, engHealth] = await Promise.all([
+          fetchPaperTradingDashboard(selectedSymbol, { force }).catch((e) => {
+            throw e;
+          }),
+          fetchPaperAccountSummary({ force }).catch(() => null),
+          fetchMarketEngineStatus().catch(() => null),
+          fetchPaperTradingEngineStatus().catch(() => null),
+        ]);
+        // Token warm in background (cached) — never blocks UI
+        void getTokenStatus().catch(() => null);
+
+        if (!mounted) return;
+        if (dash) setDashboard(dash);
+        if (summary) setAccountSummary(summary);
+        if (engStatus) setEngineStatus(engStatus);
+        if (engHealth) {
+          setEngineHealth(engHealth);
+          setLastSuccessfulHealthPoll(Date.now());
+          setHealthPollErrorCount(0);
+        }
+        if (retryCount === 0) void checkGapReplay();
       } catch (err) {
-        // Retry a few times in case backend is still starting
-        // eslint-disable-next-line no-console
         console.error("[PaperTrading] Load failed (attempt", retryCount + 1, "):", err);
-        if (mounted && retryCount < 3) {
-          retryTimeout = setTimeout(() => void loadInitial(retryCount + 1), 2000);
-        } else if (mounted) {
+        if (mounted && retryCount < 3 && !dashboard) {
+          retryTimeout = setTimeout(() => void loadAll(retryCount + 1, true), 2000);
+        } else if (mounted && !dashboard) {
           setError("Could not connect to server. Please refresh.");
         }
       }
     }
 
-    void loadInitial();
+    void loadAll(0, false);
+
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const [dash, summary, engStatus, engHealth] = await Promise.all([
+            fetchPaperTradingDashboard(selectedSymbol, { force: true }).catch(() => null),
+            fetchPaperAccountSummary({ force: true }).catch(() => null),
+            fetchMarketEngineStatus().catch(() => null),
+            fetchPaperTradingEngineStatus().catch(() => null),
+          ]);
+          if (!mounted) return;
+          if (dash) setDashboard(dash);
+          if (summary) setAccountSummary(summary);
+          if (engStatus) setEngineStatus(engStatus);
+          if (engHealth) {
+            setEngineHealth(engHealth);
+            setLastSuccessfulHealthPoll(Date.now());
+            setHealthPollErrorCount((c) => {
+              if (c > 0) console.info("ENGINE_STATUS_RECOVERED");
+              return 0;
+            });
+          }
+        } catch (err) {
+          if (!mounted) return;
+          console.warn("ENGINE_STATUS_POLL_FAILED", err);
+          setHealthPollErrorCount((c) => {
+            const next = c + 1;
+            if (next * 10000 > 30000 && c * 10000 <= 30000) {
+              console.warn("ENGINE_STATUS_STALE");
+            }
+            return next;
+          });
+        }
+      })();
+    }, 10000);
+
     return () => {
       mounted = false;
       if (retryTimeout) clearTimeout(retryTimeout);
-    };
-  }, []);
-
-  // Poll dashboard periodically so UI stays fresh
-  useEffect(() => {
-    let mounted = true;
-    async function refresh() {
-      try {
-        const data = await fetchPaperTradingDashboard(selectedSymbol);
-        if (mounted) setDashboard(data);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[PaperTrading] Auto-refresh failed:", err);
-      }
-    }
-    const id = window.setInterval(() => void refresh(), 10000);
-    return () => {
-      mounted = false;
       window.clearInterval(id);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial mount + selectedSymbol handled by poll
   }, [selectedSymbol]);
 
   useEffect(() => {
@@ -449,7 +411,8 @@ export function PaperTradingPage({
     }
     setError(null);
     try {
-      const response = await fetchPaperTradingDashboard(symbol ?? selectedSymbol);
+      invalidatePaperCaches();
+      const response = await fetchPaperTradingDashboard(symbol ?? selectedSymbol, { force: true });
       setDashboard(response);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to load paper trading workspace.");
@@ -982,6 +945,7 @@ export function PaperTradingPage({
                 ["orders", "Open Orders"],
                 ["history", "History"],
                 ["analytics", "Analytics"],
+                ["daily-analytics", "Daily Analytics"],
                 ["alerts", "Alerts"],
                 ["account", "Account"],
               ].map(([id, label]) => (
@@ -1006,7 +970,7 @@ export function PaperTradingPage({
                   <InfoTooltip content={TOOLTIPS.PAPER_TRADING.SQUARE_OFF_ALL} />
                 </div>
                 {dashboard === null ? (
-                  <div className="loading-spinner">Loading positions...</div>
+                  <TableSkeleton rows={5} cols={6} />
                 ) : (dashboard.positions?.length ?? 0) === 0 ? (
                   <div className="empty-state">No open positions</div>
                 ) : (
@@ -1026,7 +990,7 @@ export function PaperTradingPage({
 
             {listTab === "orders" ? (
               dashboard === null ? (
-                <div className="loading-spinner">Loading open orders...</div>
+                <TableSkeleton rows={5} cols={6} />
               ) : (dashboard.open_orders?.length ?? 0) === 0 ? (
                 <div className="empty-state">No open orders</div>
               ) : (
@@ -1045,7 +1009,7 @@ export function PaperTradingPage({
 
             {listTab === "history" ? (
               dashboard === null ? (
-                <div className="loading-spinner">Loading trade history...</div>
+                <TableSkeleton rows={5} cols={6} />
               ) : (dashboard.trades?.length ?? 0) === 0 ? (
                 <div className="empty-state">No trade history</div>
               ) : (
@@ -1054,13 +1018,23 @@ export function PaperTradingPage({
             ) : null}
 
             {listTab === "analytics" ? (
-              dashboard === null ? (
-                <div className="loading-spinner">Loading analytics...</div>
-              ) : (
-                <AnalyticsPanel />
-              )
+              <AnalyticsPanel />
             ) : null}
-            {((listTab as any) === "alerts") ? (
+            {listTab === "daily-analytics" ? (
+              <Suspense
+                fallback={
+                  <section className="panel" aria-busy="true">
+                    <MetricCardSkeleton count={6} />
+                    <div style={{ marginTop: 12 }}>
+                      <ChartSkeleton height={180} />
+                    </div>
+                  </section>
+                }
+              >
+                <DailyAnalyticsPanel />
+              </Suspense>
+            ) : null}
+            {listTab === "alerts" ? (
               <AlertsPanel onRefresh={() => void loadPositions(selectedSymbol)} />
             ) : null}
             {listTab === "account" ? (
@@ -1128,7 +1102,14 @@ function EngineStatusBadge({ status }: { status: MarketEngineStatus | null }) {
 }
 
 function AccountSummaryStrip({ dashboard }: { dashboard: PaperTradingDashboardResponse | null }) {
-  const account = dashboard?.account;
+  if (!dashboard) {
+    return (
+      <section className="summary-row" aria-busy="true">
+        <MetricCardSkeleton count={8} />
+      </section>
+    );
+  }
+  const account = dashboard.account;
   const metrics = [
     ["Balance", formatCurrency(account?.balance)],
     ["Equity", formatCurrency(account?.equity)],
@@ -1702,8 +1683,8 @@ function HistoryTable({ trades, selectedTrade, setSelectedTrade }: { trades: Pap
 }
 
 function AnalyticsPanel() {
-  const [data, setData] = useState<any | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<any | null>(() => getCached(CACHE_KEYS.paperAnalytics));
+  const [loading, setLoading] = useState(() => !getCached(CACHE_KEYS.paperAnalytics));
   const [err, setErr] = useState<string | null>(null);
   const dailyRef = useRef<HTMLCanvasElement | null>(null);
   const cumRef = useRef<HTMLCanvasElement | null>(null);
@@ -1712,16 +1693,18 @@ function AnalyticsPanel() {
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
+    // Only show loading skeleton if we have no cached data
+    if (!data) setLoading(true);
     void (async () => {
       try {
         const resp = await fetchAnalytics();
         if (!mounted) return;
         setData(resp);
       } catch (e: any) {
-        setErr(e?.message ?? String(e));
+        if (!mounted) return;
+        if (!data) setErr(e?.message ?? String(e));
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     })();
     return () => {
@@ -1785,10 +1768,21 @@ function AnalyticsPanel() {
     };
   }, [data]);
 
-  if (loading) {
-    return <div className="empty-state"><h2>Loading analytics...</h2></div>;
+  if (loading && !data) {
+    return (
+      <section aria-busy="true">
+        <MetricCardSkeleton count={6} />
+        <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+          <ChartSkeleton height={200} />
+          <ChartSkeleton height={200} />
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <TableSkeleton rows={4} cols={4} />
+        </div>
+      </section>
+    );
   }
-  if (err) {
+  if (err && !data) {
     return <div className="empty-state"><h2>Failed to load analytics</h2><p>{err}</p></div>;
   }
   if (!data) {
@@ -1835,20 +1829,20 @@ function AnalyticsPanel() {
 }
 
 function AlertsPanel({ onRefresh }: { onRefresh?: () => void }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => !getCached(CACHE_KEYS.paperAlerts));
   const [symbol, setSymbol] = useState("");
   const [condition, setCondition] = useState<"<=" | ">=">(">=");
   const [price, setPrice] = useState<number | "">("");
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>(() => getCached(CACHE_KEYS.paperAlerts) || []);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  async function load(force = false) {
+    if (!alerts.length) setLoading(true);
     try {
-      const data = await fetchAlerts();
+      const data = await fetchAlerts({ force });
       setAlerts(data || []);
     } catch (e: any) {
-      setError(String(e?.message ?? e));
+      if (!alerts.length) setError(String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
@@ -1886,8 +1880,7 @@ function AlertsPanel({ onRefresh }: { onRefresh?: () => void }) {
     }
   }
 
-  if (loading) return <div className="empty-state"><h2>Loading alerts...</h2></div>;
-
+  // Always render create form; skeleton only for list when empty+loading
   return (
     <section>
       <div className="panel">
@@ -1929,26 +1922,33 @@ function AlertsPanel({ onRefresh }: { onRefresh?: () => void }) {
 
       <section className="panel">
         <div className="panel-header"><div><p className="section-label">Active alerts</p><h2>Alerts</h2></div></div>
-        <div className="table-scroll">
-          <table className="candidate-table">
-            <thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Status</th><th>Created</th><th></th></tr></thead>
-            <tbody>
-              {alerts.map((a) => (
-                <tr key={a.id}><td>{a.symbol}</td><td>{a.condition}</td><td className="number-cell">₹{Number(a.target_price).toFixed(2)}</td><td>{a.status}</td><td>{new Date(a.created_at).toLocaleString()}</td><td><button className="button ghost-button" onClick={() => void handleDelete(a.id)}>Delete</button></td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {loading && alerts.length === 0 ? (
+          <TableSkeleton rows={3} cols={5} />
+        ) : (
+          <div className="table-scroll">
+            <table className="candidate-table">
+              <thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Status</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                {alerts.map((a) => (
+                  <tr key={a.id}><td>{a.symbol}</td><td>{a.condition}</td><td className="number-cell">₹{Number(a.target_price).toFixed(2)}</td><td>{a.status}</td><td>{new Date(a.created_at).toLocaleString()}</td><td><button className="button ghost-button" onClick={() => void handleDelete(a.id)}>Delete</button></td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </section>
   );
 }
 
 function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?: (d: any) => void; onDashboardUpdate?: (d: any) => void }) {
-  const [account, setAccount] = useState<any | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [account, setAccount] = useState<any | null>(() => getCached(CACHE_KEYS.paperAccount));
+  const [loading, setLoading] = useState(() => !getCached(CACHE_KEYS.paperAccount));
   const [saving, setSaving] = useState(false);
-  const [starting, setStarting] = useState<number>(1000000);
+  const [starting, setStarting] = useState<number>(() => {
+    const cached = getCached<any>(CACHE_KEYS.paperAccount);
+    return cached?.starting_balance ?? 1000000;
+  });
   const [page, setPage] = useState<number>(1);
   const [transactions, setTransactions] = useState<any | null>(null);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
@@ -1959,16 +1959,23 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
   useEffect(() => {
     let mounted = true;
     async function load() {
-      setLoading(true);
+      if (!account) setLoading(true);
       try {
-        const acct = await fetchPaperAccountSummary();
+        // Parallel: account + first page of transactions
+        const [acct, tx] = await Promise.all([
+          fetchPaperAccountSummary(),
+          fetchPaperAccountTransactions(1, perPage).catch(() => null),
+        ]);
         if (!mounted) return;
-        setAccount(acct);
-        setStarting(acct.starting_balance ?? 1000000);
+        if (acct) {
+          setAccount(acct);
+          setStarting(acct.starting_balance ?? 1000000);
+        }
+        if (tx) setTransactions(tx);
       } catch (e) {
         console.warn("Failed to load account summary", e);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     }
     void load();
@@ -1978,6 +1985,7 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
   }, []);
 
   useEffect(() => {
+    if (page === 1 && transactions) return; // already loaded in parallel mount
     void loadTransactions(page);
   }, [page]);
 
@@ -2026,22 +2034,22 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
     }
   }
 
-  if (loading) {
-    return <div className="empty-state"><h2>Loading account...</h2></div>;
-  }
-
   return (
     <section>
       <section className="panel">
         <div className="panel-header"><div><p className="section-label">Account Summary</p><h2>Summary</h2></div></div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <div className="metric-card"><span>Starting Capital</span><strong>₹{(account?.starting_balance ?? starting).toLocaleString()}</strong></div>
-          <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0)).toFixed(2)}</strong></div>
-          <div className="metric-card"><span>Available Funds</span><strong>₹{(account?.available_cash ?? 0).toFixed(2)}</strong></div>
-          <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? 0).toFixed(2)}</strong></div>
-          <div className="metric-card"><span>Total Realized P&L</span><strong>₹{(account?.realized_pnl ?? 0).toFixed(2)}</strong></div>
-          <div className="metric-card"><span>Total Unrealized P&L</span><strong>₹{(account?.unrealized_pnl ?? 0).toFixed(2)}</strong></div>
-        </div>
+        {loading && !account ? (
+          <MetricCardSkeleton count={6} />
+        ) : (
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div className="metric-card"><span>Starting Capital</span><strong>₹{(account?.starting_balance ?? starting).toLocaleString()}</strong></div>
+            <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0)).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Available Funds</span><strong>₹{(account?.available_cash ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Total Realized P&L</span><strong>₹{(account?.realized_pnl ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Total Unrealized P&L</span><strong>₹{(account?.unrealized_pnl ?? 0).toFixed(2)}</strong></div>
+          </div>
+        )}
       </section>
 
       <section className="panel">

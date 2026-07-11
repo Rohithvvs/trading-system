@@ -2,6 +2,7 @@ from .analysis import AnalysisHistory, BacktestHistory
 from .paper_trading import (
     ExecutionEvent,
     MarketEngineSession,
+    PaperDailyJournal,
     PaperNotification,
     PaperOrder,
     PaperPosition,
@@ -28,6 +29,7 @@ __all__ = [
     "PaperTradeHistory",
     "PaperTradingAccount",
     "PaperNotification",
+    "PaperDailyJournal",
     "MarketEngineSession",
     "ExecutionEvent",
     "WatchedStock",

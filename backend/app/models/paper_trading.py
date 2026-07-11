@@ -5,19 +5,31 @@ from datetime import datetime
 import uuid
 
 from sqlalchemy import text, DateTime, Float, ForeignKey, Integer, String, Text, Boolean, Numeric, Index, UniqueConstraint, event
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
+
+# Default virtual capital for every new paper account (₹10,00,000)
+DEFAULT_PAPER_STARTING_BALANCE = Decimal("1000000.00")
 
 
 class PaperTradingAccount(Base):
     __tablename__ = "paper_trading_accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Multi-tenant isolation: one paper account per authenticated user
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(80), default="Primary Paper Account")
     base_currency: Mapped[str] = mapped_column(String(8), default="INR")
-    starting_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=100000.0)
-    cash_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=100000.0)
+    starting_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=DEFAULT_PAPER_STARTING_BALANCE)
+    cash_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=DEFAULT_PAPER_STARTING_BALANCE)
     max_risk_per_trade: Mapped[Decimal] = mapped_column(Numeric(18, 8), default=0.02)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
@@ -168,6 +180,26 @@ class PaperAlert(Base):
     triggered_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+
+class PaperDailyJournal(Base):
+    """Per-user trading journal notes for a calendar day (IST date string YYYY-MM-DD)."""
+    __tablename__ = "paper_trading_daily_journals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_trading_accounts.id"), index=True, nullable=False)
+    journal_date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # YYYY-MM-DD IST
+    observations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mistakes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lessons: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tomorrow_plan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "journal_date", name="uq_paper_journal_account_date"),
+        Index("idx_paper_journal_account_date", "account_id", "journal_date"),
+    )
 
 
 class MarketEngineSession(Base):

@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 import traceback
@@ -660,6 +661,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+# Compress JSON responses > 500 bytes (reduces payload for dashboard/analytics)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 # CORS for SPA on Vercel (incl. preview URLs) talking to Render API with credentials.
 # Do NOT use allow_origins=["*"] with allow_credentials=True — browsers reject it.
 app.add_middleware(
@@ -732,13 +735,23 @@ async def log_http_requests(request: Request, call_next):
         )
 
     elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
-    request_logger.info(
-        "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s",
+    # Performance log: route execution time (surface slow endpoints)
+    slow = elapsed_ms >= 1000
+    log_fn = request_logger.warning if slow else request_logger.info
+    log_fn(
+        "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s | slow=%s",
         request.method,
         request.url.path,
         response.status_code,
         elapsed_ms,
+        slow,
     )
+    # Expose server timing for browser/devtools without changing response body
+    try:
+        response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
+        response.headers["Server-Timing"] = f"app;dur={elapsed_ms}"
+    except Exception:
+        pass
     
     # Log critical user actions to DB
     if request.method in ["POST", "PUT", "DELETE"]:

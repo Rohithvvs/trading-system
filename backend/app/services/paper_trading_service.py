@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -15,7 +16,17 @@ from ta.trend import EMAIndicator
 _account_creation_lock = threading.Lock()
 
 from ..config import settings
-from ..models.paper_trading import ExecutionEvent, PaperOrder, PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperNotification, PaperTransaction, PaperAlert
+from ..models.paper_trading import (
+    DEFAULT_PAPER_STARTING_BALANCE,
+    ExecutionEvent,
+    PaperOrder,
+    PaperPosition,
+    PaperTradeHistory,
+    PaperTradingAccount,
+    PaperNotification,
+    PaperTransaction,
+    PaperAlert,
+)
 from ..schemas import AnalysisMode, OHLCVPoint
 from ..schemas.paper_trading import (
     PaperAccountSummary,
@@ -52,10 +63,19 @@ class PriceSnapshot:
 
 
 class PaperTradingService:
-    def __init__(self, db: Session) -> None:
+    """
+    Paper trading operations are always scoped to a single authenticated user.
+
+    - Pass ``user_id`` for HTTP API paths (required for account get/create).
+    - Engine/background paths may omit ``user_id`` and must use account_id from
+      the order/position being processed (never a global shared account).
+    """
+
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self.db = db
         self.logger = get_logger("app.paper_trading")
         self.fyers_service = FyersService()
+        self.user_id: uuid.UUID | None = uuid.UUID(str(user_id)) if user_id else None
 
     def get_dashboard(self, selected_symbol: str | None = None) -> PaperTradingDashboardResponse:
         account = self._get_or_create_account()
@@ -448,27 +468,86 @@ class PaperTradingService:
             updated_at=datetime.now(timezone.utc),
         )
 
-    def _get_or_create_account(self, for_update: bool = False) -> PaperTradingAccount:
-        query = select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc())
-        if for_update:
+    def get_account_by_id(self, account_id: int, for_update: bool = False) -> PaperTradingAccount:
+        """Load a specific paper account (engine/system use). Does not create."""
+        query = select(PaperTradingAccount).where(PaperTradingAccount.id == account_id)
+        if for_update and self.db.bind and self.db.bind.dialect.name == "postgresql":
             query = query.with_for_update()
-            
+        account = self.db.scalar(query)
+        if not account:
+            raise ValueError(f"Paper account {account_id} not found.")
+        return account
+
+    def _get_or_create_account(self, for_update: bool = False) -> PaperTradingAccount:
+        """
+        Get or create the paper account for ``self.user_id`` only.
+        Never returns another user's account. Never creates a global shared account.
+
+        When ``user_id`` is omitted (legacy unit tests / engine helpers), load an
+        existing seeded account if exactly one is present — do NOT create a shared
+        multi-user account without ownership.
+        """
+        if self.user_id is None:
+            query = select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc())
+            if for_update and self.db.bind and self.db.bind.dialect.name == "postgresql":
+                query = query.with_for_update()
+            account = self.db.scalar(query)
+            if account:
+                # Legacy test path — log loudly so production miswiring is visible
+                self.logger.warning(
+                    "PAPER_ACCOUNT_LEGACY_UNSCOPED | account_id=%s | "
+                    "service constructed without user_id (test/engine only)",
+                    account.id,
+                )
+                return account
+            raise ValueError(
+                "PaperTradingService requires user_id for user-scoped account operations. "
+                "Background/engine paths must load accounts via get_account_by_id()."
+            )
+
+        user_id = self.user_id
+        query = select(PaperTradingAccount).where(PaperTradingAccount.user_id == user_id)
+        if for_update and self.db.bind and self.db.bind.dialect.name == "postgresql":
+            query = query.with_for_update()
+
         with _account_creation_lock:
-            # We must query ONLY inside the lock to prevent Python/SQLite deadlocks.
             account = self.db.scalar(query)
             if account:
                 return account
-                
+
             account = PaperTradingAccount(
+                user_id=user_id,
                 name="Primary Paper Account",
-                starting_balance=1000000.0,
-                cash_balance=1000000.0,
-                max_risk_per_trade=0.02,
+                starting_balance=DEFAULT_PAPER_STARTING_BALANCE,
+                cash_balance=DEFAULT_PAPER_STARTING_BALANCE,
+                max_risk_per_trade=Decimal("0.02"),
             )
             self.db.add(account)
-            self.db.commit()
+            try:
+                self.db.commit()
+            except IntegrityError:
+                # Concurrent first request — race on unique user_id
+                self.db.rollback()
+                account = self.db.scalar(
+                    select(PaperTradingAccount).where(PaperTradingAccount.user_id == user_id)
+                )
+                if account:
+                    return account
+                raise
             self.db.refresh(account)
+            self.logger.info(
+                "PAPER_ACCOUNT_CREATED | user_id=%s | account_id=%s | starting_balance=%s",
+                user_id,
+                account.id,
+                account.starting_balance,
+            )
             return account
+
+    @staticmethod
+    def ensure_paper_account_for_user(db: Session, user_id: uuid.UUID | str) -> PaperTradingAccount:
+        """Idempotent helper used at registration — creates ₹10L account if missing."""
+        svc = PaperTradingService(db, user_id=user_id)
+        return svc._get_or_create_account()
 
     def _validate_symbol(self, symbol: str) -> None:
         if symbol.strip().upper() not in settings.nifty500_symbols:
@@ -887,31 +966,48 @@ class PaperTradingService:
         self.db.commit()
 
     def get_active_alerts(self) -> list[PaperAlert]:
-        account = self._get_or_create_account()
-        items = list(self.db.scalars(select(PaperAlert).where(PaperAlert.account_id == account.id, PaperAlert.status == "ACTIVE")))
-        return items
+        """
+        User-scoped: only this user's alerts.
+        System-scoped (no user_id): all active alerts across accounts for the monitor loop.
+        """
+        if self.user_id is not None:
+            account = self._get_or_create_account()
+            return list(
+                self.db.scalars(
+                    select(PaperAlert).where(
+                        PaperAlert.account_id == account.id,
+                        PaperAlert.status == "ACTIVE",
+                    )
+                )
+            )
+        return list(
+            self.db.scalars(select(PaperAlert).where(PaperAlert.status == "ACTIVE"))
+        )
 
     def trigger_alert(self, alert_id: int, triggered_price: float) -> None:
-        account = self._get_or_create_account()
-        alert = self.db.scalar(select(PaperAlert).where(PaperAlert.id == alert_id, PaperAlert.account_id == account.id))
+        """Trigger by alert id. System path uses the alert's own account_id (multi-user safe)."""
+        alert = self.db.scalar(select(PaperAlert).where(PaperAlert.id == alert_id, PaperAlert.status == "ACTIVE"))
         if not alert:
             return
+        if self.user_id is not None:
+            account = self._get_or_create_account()
+            if alert.account_id != account.id:
+                return
         alert.status = "TRIGGERED"
         alert.triggered_at = datetime.utcnow()
         alert.triggered_price = float(triggered_price)
         self.db.commit()
         try:
             msg = f"Price alert: {alert.symbol} {alert.condition} ₹{round(triggered_price,2)}"
-            self.add_notification(account.id, msg, level="success")
+            self.add_notification(int(alert.account_id), msg, level="success")
         except Exception as e:
             print(f"ERROR adding notification for triggered alert: {e}")
             self.logger.exception("Failed to add notification for triggered alert")
 
     def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL", source: str = "MANUAL") -> PaperOrderActionResponse:
-        account = self._get_or_create_account(for_update=True)
+        # Load position first — never use a global/shared account for exits
         query = select(PaperPosition).where(
             PaperPosition.id == position_id,
-            PaperPosition.account_id == account.id,
             PaperPosition.status == "OPEN",
         )
         if self.db.bind and self.db.bind.dialect.name == "postgresql":
@@ -919,6 +1015,16 @@ class PaperTradingService:
         position = self.db.scalar(query)
         if not position:
             raise ValueError("Position not found.")
+
+        # User-scoped path: reject cross-user exits
+        if self.user_id is not None:
+            user_account = self._get_or_create_account(for_update=True)
+            if position.account_id != user_account.id:
+                raise ValueError("Position not found.")
+            account = user_account
+        else:
+            account = self.get_account_by_id(position.account_id, for_update=True)
+
         dedupe_key = f"exit-filled:{position.id}:{reason}"
         if self.db.scalar(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == dedupe_key)):
             raise ValueError("Position exit has already been processed.")

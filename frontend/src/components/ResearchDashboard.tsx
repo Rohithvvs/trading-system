@@ -172,9 +172,15 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
 
   if (loading) {
     return (
-      <section className="subpanel">
-        <h3>Loading AI Research…</h3>
-        <p className="muted-copy">Computing swing research from market data. Cached when data is unchanged.</p>
+      <section className="subpanel" aria-busy="true">
+        <h3>AI Research</h3>
+        <p className="muted-copy">Computing swing research from market data…</p>
+        <div className="app-skel" style={{ height: 180, width: "100%", borderRadius: 12, marginTop: 12 }} />
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <div className="app-skel" style={{ height: 64, flex: 1, borderRadius: 8 }} />
+          <div className="app-skel" style={{ height: 64, flex: 1, borderRadius: 8 }} />
+          <div className="app-skel" style={{ height: 64, flex: 1, borderRadius: 8 }} />
+        </div>
       </section>
     );
   }

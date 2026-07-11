@@ -260,19 +260,22 @@ class MarketEngineService:
             order.last_seen_ltp = price
             order.last_evaluated_at = datetime.utcnow()
             def _fill_order_sync(session, order_id, ltp):
-                svc = PaperTradingService(session)
-                acc = svc._get_or_create_account(for_update=True)
+                # Multi-user safe: fill against the order's own account_id only
+                svc = PaperTradingService(session)  # system path — no user_id
                 ord_obj = session.get(PaperOrder, order_id)
+                if not ord_obj:
+                    return "MISSING", None, None
+                acc = svc.get_account_by_id(int(ord_obj.account_id), for_update=True)
                 fo, pos, _, _ = svc._try_fill_order(acc, ord_obj, ltp)
                 if fo.status == "FILLED":
                     fo.lifecycle_state = "ENTRY_FILLED"
                     if pos:
                         pos.lifecycle_state = "OPEN_POSITION"
-                return fo.status, getattr(pos, "id", None)
+                return fo.status, getattr(pos, "id", None), int(ord_obj.account_id)
 
-            fo_status, pos_id = await db.run_sync(_fill_order_sync, order.id, price)
+            fo_status, pos_id, fill_account_id = await db.run_sync(_fill_order_sync, order.id, price)
             if fo_status == "FILLED":
-                self.logger.info("PAPER_POSITION_OPENED | order_id=%s symbol=%s price=%s position_id=%s", order.id, symbol, price, pos_id)
+                self.logger.info("PAPER_POSITION_OPENED | order_id=%s symbol=%s price=%s position_id=%s account_id=%s", order.id, symbol, price, pos_id, fill_account_id)
                 await self._record_event(
                     db,
                     "ENTRY_FILLED",
@@ -289,7 +292,9 @@ class MarketEngineService:
                         PaperTradingService(s).add_notification(
                             acc_id, f"{symbol} paper buy auto-filled at Rs {round(price, 2)}.",
                             "success", "ENTRY_FILLED", "order", oid, dedupe_key=f"entry-filled:{oid}", commit=True)
-                await asyncio.to_thread(_add_notif, account_id, order.id)
+                # Notify the owning account only (never a shared/default account)
+                notif_account_id = fill_account_id if fill_account_id is not None else int(order.account_id)
+                await asyncio.to_thread(_add_notif, notif_account_id, order.id)
 
         position_query = select(PaperPosition).where(
             PaperPosition.symbol.in_([symbol, f"{symbol}-EQ", f"NSE:{symbol}-EQ"]),
@@ -397,22 +402,33 @@ class MarketEngineService:
         session.token_status = "EXPIRED"
         session.paused_reason = "TOKEN_EXPIRED"
         session.websocket_connected = False
-        def _get_acc():
-            with SessionLocal() as s:
-                return PaperTradingService(s)._get_or_create_account().id
-        account_id = await asyncio.to_thread(_get_acc)
+        affected_account_ids: set[int] = set()
         for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
             order.lifecycle_state = "TOKEN_EXPIRED_PAUSED"
             order.paused_reason = "TOKEN_EXPIRED"
+            affected_account_ids.add(int(order.account_id))
         for position in (await db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN"))).all():
             position.lifecycle_state = "TOKEN_EXPIRED_PAUSED"
             position.paused_reason = "TOKEN_EXPIRED"
+            affected_account_ids.add(int(position.account_id))
         if not already_paused:
             self.logger.warning("Token expired; monitoring paused | session_id=%s", session.id)
-        def _add_notif(acc_id, sid):
+        def _add_notifs(acc_ids, sid):
             with SessionLocal() as s:
-                PaperTradingService(s).add_notification(acc_id, "FYERS token expired; monitoring paused.", "error", "TOKEN_EXPIRED", "engine", sid, dedupe_key=f"token-expired:{sid}", commit=True)
-        await asyncio.to_thread(_add_notif, account_id, session.id)
+                svc = PaperTradingService(s)
+                for acc_id in acc_ids:
+                    svc.add_notification(
+                        acc_id,
+                        "FYERS token expired; monitoring paused.",
+                        "error",
+                        "TOKEN_EXPIRED",
+                        "engine",
+                        sid,
+                        dedupe_key=f"token-expired:{sid}:acc:{acc_id}",
+                        commit=True,
+                    )
+        if affected_account_ids:
+            await asyncio.to_thread(_add_notifs, list(affected_account_ids), session.id)
         self._feed.stop(notify=False)
 
     async def _on_feed_error(self, message: str | Exception) -> None:
@@ -427,14 +443,30 @@ class MarketEngineService:
                 session = await self._get_or_create_session(db)
                 session.status = "ERROR_RETRYING"
                 session.websocket_connected = False
-                def _get_acc():
+                # Multi-user: notify every account with open activity (no shared account)
+                order_accs = set(
+                    (await db.scalars(select(PaperOrder.account_id).where(PaperOrder.status == "PENDING"))).all()
+                )
+                pos_accs = set(
+                    (await db.scalars(select(PaperPosition.account_id).where(PaperPosition.status == "OPEN"))).all()
+                )
+                affected = {int(a) for a in (order_accs | pos_accs) if a is not None}
+                def _add_err_notif(acc_ids, sid):
                     with SessionLocal() as s:
-                        return PaperTradingService(s)._get_or_create_account().id
-                account_id = await asyncio.to_thread(_get_acc)
-                def _add_err_notif(acc_id, sid):
-                    with SessionLocal() as s:
-                        PaperTradingService(s).add_notification(acc_id, "Live market feed disconnected; monitoring degraded while retrying.", "error", "WEBSOCKET_DISCONNECTED", "engine", sid, dedupe_key=f"feed-disconnected:{sid}", commit=True)
-                await asyncio.to_thread(_add_err_notif, account_id, session.id)
+                        svc = PaperTradingService(s)
+                        for acc_id in acc_ids:
+                            svc.add_notification(
+                                acc_id,
+                                "Live market feed disconnected; monitoring degraded while retrying.",
+                                "error",
+                                "WEBSOCKET_DISCONNECTED",
+                                "engine",
+                                sid,
+                                dedupe_key=f"feed-disconnected:{sid}:acc:{acc_id}",
+                                commit=True,
+                            )
+                if affected:
+                    await asyncio.to_thread(_add_err_notif, list(affected), session.id)
                 self.logger.error("FYERS_WS_ERROR | Websocket connection failed | disconnect_reason=%s | downtime_seconds=0", str(message))
                 self.logger.error("PRODUCTION_ALERT | category=WEBSOCKET_DOWN | reason=%s", str(message))
 

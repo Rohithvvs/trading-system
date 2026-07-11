@@ -75,6 +75,18 @@ async def create_user(db: AsyncSession, user_in: UserCreate, ip_address: str = N
         user_agent=user_agent,
         metadata={"email": db_user.email}
     )
+
+    # Auto-provision isolated paper trading account (₹10,00,000) — never recreate if exists
+    try:
+        from ..db.session import SessionLocal
+        from ..services.paper_trading_service import PaperTradingService
+        def _provision():
+            with SessionLocal() as sync_db:
+                PaperTradingService.ensure_paper_account_for_user(sync_db, db_user.id)
+        await asyncio.to_thread(_provision)
+    except Exception:
+        # Registration must not fail if paper provisioning hiccups; account is created on first paper API call
+        pass
     
     return db_user
 
@@ -221,6 +233,17 @@ async def google_auth(db: AsyncSession, id_token_str: str, ip_address: str = Non
 
     await AuditService.log_event(db, str(user.id), "user_registration", ip_address, user_agent, {"provider": "google", "email": email})
     await AuditService.log_event(db, str(user.id), "login_success", ip_address, user_agent, {"provider": "google"})
+
+    try:
+        from ..db.session import SessionLocal
+        from ..services.paper_trading_service import PaperTradingService
+        def _provision_google():
+            with SessionLocal() as sync_db:
+                PaperTradingService.ensure_paper_account_for_user(sync_db, user.id)
+        await asyncio.to_thread(_provision_google)
+    except Exception:
+        pass
+
     return user
 
 

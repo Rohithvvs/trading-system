@@ -1791,7 +1791,7 @@ abbr {
 
 
 /* ==========================================================================
-   User Profile — premium account center (reference-inspired)
+   User Profile ï¿½ premium account center (reference-inspired)
    ========================================================================== */
 
 .nav-profile-wrap {
@@ -2675,7 +2675,8 @@ abbr {
   min-height: 60vh;
 }
 
-.profile-skel {
+.profile-skel,
+.app-skel {
   border-radius: 16px;
   background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2));
   background-size: 200% 100%;
@@ -2684,6 +2685,40 @@ abbr {
 
 .profile-skel.sidebar { min-height: 70vh; }
 .profile-skel.main { min-height: 70vh; }
+
+.app-skel-metrics {
+  width: 100%;
+}
+
+/* Daily Analytics score badges */
+.score-excellent strong { color: var(--positive); }
+.score-good strong { color: #3b82f6; }
+.score-avg strong { color: var(--warning); }
+.score-poor strong { color: var(--negative); }
+
+.daily-analytics textarea {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  resize: vertical;
+}
+
+@media print {
+  .paper-header-actions,
+  .detail-tabs,
+  .paper-right {
+    display: none !important;
+  }
+  .daily-analytics {
+    break-inside: avoid;
+  }
+}
+
+.chart-skel {
+  min-height: 120px;
+}
 
 @keyframes shimmer {
   0% { background-position: 100% 0; }

@@ -165,19 +165,49 @@ class FyersService:
     _ltp_source_cache: dict[str, str] = {}
     _ltp_locks: dict[str, "asyncio.Lock"] = {}
     _network_pool = __import__("concurrent.futures").futures.ThreadPoolExecutor(max_workers=20, thread_name_prefix="fyers_net")
+    # Reuse FyersModel clients by access-token hash (avoid re-creating SDK client every call)
+    _client_cache: dict[str, object] = {}
+    _client_cache_lock = threading.Lock()
+    _CLIENT_CACHE_MAX = 4
+    _shared_instance: "FyersService | None" = None
+    _shared_lock = threading.Lock()
 
     def __init__(self) -> None:
         self.logger = get_logger("app.fyers")
 
+    @classmethod
+    def shared(cls) -> "FyersService":
+        """Process-wide singleton — prefer this over constructing FyersService() repeatedly."""
+        if cls._shared_instance is None:
+            with cls._shared_lock:
+                if cls._shared_instance is None:
+                    cls._shared_instance = cls()
+        return cls._shared_instance
+
+    def _get_or_create_client(self, token: str):
+        if fyersModel is None:
+            raise RuntimeError("fyers_apiv3 is not installed")
+        key = token.strip()[-24:] if len(token.strip()) > 24 else token.strip()
+        with FyersService._client_cache_lock:
+            client = FyersService._client_cache.get(key)
+            if client is not None:
+                return client
+            client_id = (settings.fyers_app_id or "").strip()
+            client = fyersModel.FyersModel(
+                is_async=False,
+                client_id=client_id,
+                token=token.strip(),
+                log_path="",
+            )
+            # Bound cache size
+            if len(FyersService._client_cache) >= FyersService._CLIENT_CACHE_MAX:
+                FyersService._client_cache.clear()
+            FyersService._client_cache[key] = client
+            return client
+
     def validate_token_sync(self, token: str) -> None:
-        """Validates a token synchronously against the FYERS API."""
-        client_id = (settings.fyers_app_id or "").strip()
-        client = fyersModel.FyersModel(
-            is_async=False,
-            client_id=client_id,
-            token=token.strip(),
-            log_path="",
-        )
+        """Validates a token synchronously against the FYERS API. Reuses SDK client when possible."""
+        client = self._get_or_create_client(token)
         self.logger.info("FYERS_REQUEST_STARTED | symbol=VALIDATE_TOKEN | endpoint=get_profile")
         request_start = time.time()
         try:

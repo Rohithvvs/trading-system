@@ -36,13 +36,22 @@ from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
 from ..utils import sanitize_for_json
 from ..config import settings
+from ..core.deps import get_current_user_id_sync
+import uuid
 
 
 router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
 
 
-def get_service(db: Session = Depends(get_sync_db)) -> PaperTradingService:
-    return PaperTradingService(db)
+def get_service(
+    user_id: uuid.UUID = Depends(get_current_user_id_sync),
+    db: Session = Depends(get_sync_db),
+) -> PaperTradingService:
+    """
+    Always scope paper trading to the authenticated user from the session cookie.
+    Never accept user_id from request body/query.
+    """
+    return PaperTradingService(db, user_id=user_id)
 
 
 @router.get("/dashboard", response_model=PaperTradingDashboardResponse)
@@ -593,6 +602,66 @@ def get_analytics(service: PaperTradingService = Depends(get_service)):
         ) from exc
 
     return JSONResponse(content=safe)
+
+
+@router.get("/daily-analytics")
+def get_daily_analytics(
+    period: str = Query(default="today"),
+    start_date: str | None = Query(default=None, description="YYYY-MM-DD for custom"),
+    end_date: str | None = Query(default=None, description="YYYY-MM-DD for custom"),
+    include_ai: bool = Query(default=True),
+    service: PaperTradingService = Depends(get_service),
+):
+    """
+    User-scoped Daily Analytics dashboard payload.
+    Always filtered by authenticated user's paper account.
+    """
+    from ..services.daily_analytics_service import DailyAnalyticsService
+    from ..utils import assert_json_serializable
+
+    das = DailyAnalyticsService(service.db, user_id=service.user_id)
+    try:
+        data = das.build(period=period, start_date=start_date, end_date=end_date, include_ai=include_ai)
+        safe = assert_json_serializable(sanitize_for_json(data), root_name="daily_analytics")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logging.getLogger("app.http.paper_trading").exception("Daily analytics failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build daily analytics") from exc
+    return JSONResponse(content=safe)
+
+
+@router.get("/daily-journal")
+def get_daily_journal(
+    journal_date: str | None = Query(default=None, description="YYYY-MM-DD IST"),
+    service: PaperTradingService = Depends(get_service),
+):
+    from ..services.daily_analytics_service import DailyAnalyticsService
+    das = DailyAnalyticsService(service.db, user_id=service.user_id)
+    account = service._get_or_create_account()
+    data = das._get_journal(account.id, journal_date or "")
+    return JSONResponse(content=sanitize_for_json(data))
+
+
+@router.put("/daily-journal")
+def put_daily_journal(
+    payload: dict,
+    service: PaperTradingService = Depends(get_service),
+):
+    """Auto-save journal fields for the authenticated user's paper account only."""
+    from ..services.daily_analytics_service import DailyAnalyticsService
+    das = DailyAnalyticsService(service.db, user_id=service.user_id)
+    try:
+        data = das.save_journal(
+            journal_date=payload.get("journal_date"),
+            observations=payload.get("observations"),
+            mistakes=payload.get("mistakes"),
+            lessons=payload.get("lessons"),
+            tomorrow_plan=payload.get("tomorrow_plan"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(content=sanitize_for_json(data))
 
 @router.get("/engine-status")
 async def get_engine_status(service: PaperTradingService = Depends(get_service)):

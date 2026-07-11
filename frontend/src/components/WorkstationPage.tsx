@@ -15,6 +15,8 @@ import {
   getLatestScan,
   getTokenStatus,
 } from "../api";
+import { getCached, CACHE_KEYS } from "../utils/appCache";
+import { MetricCardSkeleton } from "./Skeleton";
 
 type Props = {
   onLoadSavedScan?: (scan: any) => void;
@@ -22,37 +24,48 @@ type Props = {
 };
 
 export function WorkstationPage({ onLoadSavedScan, onNavigate }: Props) {
-  const [market, setMarket] = useState<any | null>(null);
-  const [savedScans, setSavedScans] = useState<any[]>([]);
-  const [alerts, setAlerts] = useState<any[]>([]);
-  const [risk, setRisk] = useState<any | null>(null);
-  const [health, setHealth] = useState<any | null>(null);
-  const [latestScan, setLatestScan] = useState<any | null>(null);
-  const [tokenStatus, setTokenStatus] = useState<any | null>(null);
+  // Instant shell from cache — never wait on APIs for first paint
+  const [market, setMarket] = useState<any | null>(() => getCached(CACHE_KEYS.marketOverview));
+  const [savedScans, setSavedScans] = useState<any[]>(() => getCached(CACHE_KEYS.savedScans) || []);
+  const [alerts, setAlerts] = useState<any[]>(() => getCached(CACHE_KEYS.workstationAlerts) || []);
+  const [risk, setRisk] = useState<any | null>(() => getCached(CACHE_KEYS.riskSettings));
+  const [health, setHealth] = useState<any | null>(() => getCached(CACHE_KEYS.apiHealth));
+  const [latestScan, setLatestScan] = useState<any | null>(() => getCached(`${CACHE_KEYS.latestScan}:scanner`));
+  const [tokenStatus, setTokenStatus] = useState<any | null>(() => getCached(CACHE_KEYS.fyersToken));
   const [error, setError] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(
+    () => !getCached(CACHE_KEYS.fyersToken) && !getCached(CACHE_KEYS.apiHealth),
+  );
   const [priceAlert, setPriceAlert] = useState({ name: "", symbol: "", condition: ">=", target_price: "" });
   const [scanAlertName, setScanAlertName] = useState("");
 
   async function load() {
     try {
-      const [marketData, savedData, alertsData, riskData, healthData, latestData, tokenData] = await Promise.all([
+      // Wave 1: critical status (fast, cached) — unblocks banner immediately
+      const [tokenData, healthData, latestData] = await Promise.all([
+        getTokenStatus().catch(() => null),
+        fetchApiHealth().catch(() => null),
+        getLatestScan().catch(() => null),
+      ]);
+      setTokenStatus(tokenData);
+      setHealth(healthData);
+      setLatestScan(latestData);
+      setBootstrapping(false);
+
+      // Wave 2: secondary widgets (parallel, independent)
+      const [marketData, savedData, alertsData, riskData] = await Promise.all([
         fetchMarketOverview().catch(() => null),
         fetchSavedScans().catch(() => []),
         fetchWorkstationAlerts().catch(() => []),
         fetchRiskSettings().catch(() => null),
-        fetchApiHealth().catch(() => null),
-        getLatestScan().catch(() => null),
-        getTokenStatus().catch(() => null),
       ]);
       setMarket(marketData);
       setSavedScans(savedData);
       setAlerts(alertsData);
       setRisk(riskData);
-      setHealth(healthData);
-      setLatestScan(latestData);
-      setTokenStatus(tokenData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load workstation.");
+      setBootstrapping(false);
     }
   }
 
@@ -137,6 +150,12 @@ export function WorkstationPage({ onLoadSavedScan, onNavigate }: Props) {
   return (
     <main className="dashboard-grid">
       {error && <section className="panel error-state"><h2>Workstation failed</h2><p>{error}</p></section>}
+
+      {bootstrapping && !tokenStatus && !health ? (
+        <section className="panel" aria-busy="true">
+          <MetricCardSkeleton count={4} />
+        </section>
+      ) : null}
 
       {/* SECTION 1 - SCANNER STATUS BANNER */}
       <section className="panel" style={{ background: scannerState === "READY" ? "rgba(16, 185, 129, 0.1)" : scannerState === "PAUSED" ? "rgba(245, 158, 11, 0.1)" : "rgba(239, 68, 68, 0.1)", borderLeft: `4px solid ${scannerState === "READY" ? "#10b981" : scannerState === "PAUSED" ? "#f59e0b" : "#ef4444"}` }}>
