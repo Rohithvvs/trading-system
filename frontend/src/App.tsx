@@ -27,6 +27,9 @@ import type {
 } from "./types";
 
 import { CentralCommand } from "./components/CentralCommand";
+import { UserProfilePage } from "./components/profile/UserProfilePage";
+import { useAuth } from "./hooks/useAuth";
+import { prefetchProfileData } from "./utils/prefetchProfile";
 
 const DEFAULT_FILTERS: DashboardFilters = {
   signal: "ALL",
@@ -39,8 +42,14 @@ const DEFAULT_FILTERS: DashboardFilters = {
 import { ScannerProgress } from "./components/ScannerProgress";
 
 export default function App() {
-  const [mainView, setMainView] = useState<MainAppView>(() => (window.location.pathname === "/logs" ? "logs" : "home"));
+  const [mainView, setMainView] = useState<MainAppView>(() => {
+    if (window.location.pathname === "/logs") return "logs";
+    if (window.location.pathname === "/profile") return "profile";
+    return "home";
+  });
   const [theme, setTheme] = useState<ThemeMode>("dark");
+  const { user, logout } = useAuth();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [timeframe, setTimeframe] = useState("1d");
   const [lookback, setLookback] = useState(180);
   const [topN, setTopN] = useState(20);
@@ -67,8 +76,13 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // Warm profile cache after login so Profile opens near-instantly
   useEffect(() => {
-    const nextPath = mainView === "logs" ? "/logs" : "/";
+    if (user?.id) prefetchProfileData();
+  }, [user?.id]);
+
+  useEffect(() => {
+    const nextPath = mainView === "logs" ? "/logs" : mainView === "profile" ? "/profile" : "/";
     if (window.location.pathname !== nextPath) {
       window.history.replaceState(null, "", nextPath);
     }
@@ -305,10 +319,67 @@ export default function App() {
             System Logs
           </button>
           <InfrastructureStatus />
+          <div className="nav-profile-wrap">
+            <button
+              type="button"
+              data-testid="nav-profile"
+              className={`main-nav-tab nav-profile-btn ${mainView === "profile" ? "is-active" : ""}`}
+              onClick={() => setProfileMenuOpen((o) => !o)}
+              aria-expanded={profileMenuOpen}
+            >
+              <span className="nav-avatar" aria-hidden>
+                {(user?.full_name || user?.email || "U").slice(0, 1).toUpperCase()}
+              </span>
+              <span className="nav-profile-label">{user?.full_name?.split(" ")[0] || "Profile"}</span>
+            </button>
+            {profileMenuOpen ? (
+              <div className="nav-profile-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMainView("profile");
+                    setProfileMenuOpen(false);
+                  }}
+                >
+                  User Profile
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMainView("paper-trading");
+                    setProfileMenuOpen(false);
+                  }}
+                >
+                  Paper Trading
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    logout();
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      {mainView === "central_command" ? (
+      {mainView === "profile" ? (
+        <UserProfilePage
+          onNavigate={(view) => {
+            if (view === "scanner") setMainView("scanner");
+            else if (view === "paper-trading") setMainView("paper-trading");
+            else setMainView("home");
+          }}
+        />
+      ) : mainView === "central_command" ? (
         <CentralCommand />
       ) : mainView === "scanner" ? (
         <DashboardHeader
@@ -333,6 +404,7 @@ export default function App() {
         />
       ) : null}
 
+      {mainView === "profile" ? null : (
       <div className="app-main-scroll">
         {mainView === "logs" ? (
           <SystemLogs />
@@ -480,6 +552,7 @@ export default function App() {
           </main>
         )}
       </div>
+      )}
     </div>
   );
 }

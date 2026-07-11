@@ -2,7 +2,7 @@ export type AnalysisMode = "intraday" | "swing" | "both";
 
 export type ThemeMode = "dark" | "light";
 
-export type DetailTab = "overview" | "technicals" | "trade-plan" | "news" | "backtest" | "chart";
+export type DetailTab = "research" | "overview" | "technicals" | "trade-plan" | "news" | "backtest" | "chart";
 
 export type SignalFilter = "ALL" | "BUY" | "WATCH" | "REJECT";
 
@@ -237,7 +237,7 @@ export type DashboardFilters = {
   onlyHighConfidence: boolean;
 };
 
-export type MainAppView = "home" | "scanner" | "paper-trading" | "logs" | "central_command";
+export type MainAppView = "home" | "scanner" | "paper-trading" | "logs" | "central_command" | "profile";
 
 export type ScanHistoryItem = {
   id: string;
@@ -478,6 +478,8 @@ export type SymbolDetail = {
   backtest_extras?: BacktestExtras | null;
   news_extras?: { corporate_events?: Record<string, unknown> | null; social_sentiment?: number | null } | null;
   ohlcv?: OHLCVPoint[] | null;
+  /** AI Swing Trading Research dashboard payload from /analysis/symbol/{symbol}/detail */
+  research?: Record<string, unknown> | null;
 };
 
 export type PaperQuoteResponse = {

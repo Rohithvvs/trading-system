@@ -422,6 +422,7 @@ function normalizeSymbolDetail(raw: any): any {
     backtest_extras,
     news_extras,
     ohlcv: pick("ohlcv", ["candles", "ohlc"]) ?? null,
+    research: pick("research", ["Research", "swing_research"]) ?? null,
   };
 }
 

@@ -558,11 +558,41 @@ def delete_alert(alert_id: int, service: PaperTradingService = Depends(get_servi
 
 @router.get("/analytics", response_model=AnalyticsResponse)
 def get_analytics(service: PaperTradingService = Depends(get_service)):
+    """Paper trading analytics. Calculations unchanged; serialization hardened at response layer."""
+    logger = logging.getLogger("app.http.paper_trading")
     try:
         data = service.get_analytics()
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return JSONResponse(content=sanitize_for_json(data))
+
+    # Pre-sanitize diagnostics: surface any Decimal still living in the raw payload
+    from ..utils import collect_decimal_paths, assert_json_serializable, find_non_jsonable
+
+    decimal_paths = collect_decimal_paths(data, "analytics")
+    if decimal_paths:
+        logger.info(
+            "ANALYTICS_DECIMAL_PATHS | count=%s | paths=%s",
+            len(decimal_paths),
+            decimal_paths[:50],
+        )
+
+    try:
+        safe = assert_json_serializable(data, root_name="analytics")
+    except TypeError as exc:
+        remaining = find_non_jsonable(sanitize_for_json(data), "analytics")
+        for path in remaining:
+            logger.error("ANALYTICS_JSON_UNSUPPORTED | path=%s", path)
+        logger.exception("ANALYTICS_JSON_SERIALIZE_FAILED | error=%s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_type": "JSON_SERIALIZE_ERROR",
+                "message": str(exc),
+                "paths": remaining,
+            },
+        ) from exc
+
+    return JSONResponse(content=safe)
 
 @router.get("/engine-status")
 async def get_engine_status(service: PaperTradingService = Depends(get_service)):

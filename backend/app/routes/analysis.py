@@ -169,6 +169,27 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
         # News fallback & social sentiment already roughly handled by NewsAgent; include corporate events
         news_extra = {"corporate_events": company_info.get("corporate_events") if isinstance(company_info, dict) else None, "social_sentiment": item.news_sentiment_score}
 
+        # Swing Trading AI Research dashboard payload (extends detail only; does not alter trading engines)
+        research_payload = {}
+        try:
+            from ..services.research_service import ResearchService
+
+            research_payload = ResearchService().build(
+                symbol=symbol,
+                item=item,
+                ohlcv=ohlcv,
+                company_info=company_info if isinstance(company_info, dict) else {},
+                tech_extra=tech_extra if isinstance(tech_extra, dict) else {},
+                backtest_extra=backtest_extra if isinstance(backtest_extra, dict) else {},
+            )
+        except Exception as research_err:
+            logger.exception("research payload failed for %s: %s", symbol, research_err)
+            research_payload = {
+                "error": "research_unavailable",
+                "message": str(research_err),
+                "disclaimer": "Research module failed; existing analysis fields remain available.",
+            }
+
         payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
         payload.update({
             "year52_high": year52_high,
@@ -183,6 +204,7 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
             "technical_extras": tech_extra,
             "backtest_extras": backtest_extra,
             "news_extras": news_extra,
+            "research": research_payload,
         })
 
         return JSONResponse(content=sanitize_for_json(payload))

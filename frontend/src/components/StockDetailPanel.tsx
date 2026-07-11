@@ -21,6 +21,7 @@ import type {
   SymbolDetail,
 } from "../types";
 import { fetchSymbolDetail } from "../api";
+import { ResearchDashboard } from "./ResearchDashboard";
 
 type StockDetailPanelProps = {
   row: CandidateRow | null;
@@ -29,6 +30,7 @@ type StockDetailPanelProps = {
 };
 
 const TABS: { id: DetailTab; label: string }[] = [
+  { id: "research", label: "Research" },
   { id: "overview", label: "Overview" },
   { id: "technicals", label: "Technicals" },
   { id: "trade-plan", label: "Trade plan" },
@@ -38,7 +40,7 @@ const TABS: { id: DetailTab; label: string }[] = [
 ];
 
 export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDetailPanelProps) {
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [tab, setTab] = useState<DetailTab>("research");
   const [riskAmount, setRiskAmount] = useState(5000);
   const [symbolDetail, setSymbolDetail] = useState<SymbolDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -149,6 +151,14 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
       </div>
 
       <div className="detail-content">
+        {tab === "research" ? (
+          <ResearchDashboard
+            research={symbolDetail?.research as Record<string, unknown> | null | undefined}
+            symbol={row.symbol}
+            loading={loadingDetail}
+            error={detailError}
+          />
+        ) : null}
         {tab === "overview" ? (
           <OverviewTab analysis={analysis} row={row} rankReason={rankReason} symbolDetail={symbolDetail} currentPrice={currentPrice} loadingDetail={loadingDetail} onSendToPaperTrading={onSendToPaperTrading} />
         ) : null}
