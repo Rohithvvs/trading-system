@@ -1,12 +1,16 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { fetchSavedScans, fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { FilterBar } from "./components/FilterBar";
+import { PaperTradingPage } from "./components/PaperTradingPage";
 import { isMarketOpenForDisplay, checkCanPlaceBuyOrder } from "./utils/tradingHours";
+import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
+import { WorkstationPage } from "./components/WorkstationPage";
+import { SystemLogs } from "./pages/SystemLogs";
 import { InfrastructureStatus } from "./components/InfrastructureStatus";
 import type {
   CandidateRow,
@@ -22,39 +26,10 @@ import type {
   ThemeMode,
 } from "./types";
 
+import { CentralCommand } from "./components/CentralCommand";
+import { UserProfilePage } from "./components/profile/UserProfilePage";
 import { useAuth } from "./hooks/useAuth";
-import { prefetchAppData } from "./utils/prefetchAppData";
-import { ChartSkeleton, PanelSkeleton } from "./components/Skeleton";
-
-/** Code-split heavy modules — shell/nav paint first */
-const PaperTradingPage = lazy(() =>
-  import("./components/PaperTradingPage").then((m) => ({ default: m.PaperTradingPage })),
-);
-const UserProfilePage = lazy(() =>
-  import("./components/profile/UserProfilePage").then((m) => ({ default: m.UserProfilePage })),
-);
-const WorkstationPage = lazy(() =>
-  import("./components/WorkstationPage").then((m) => ({ default: m.WorkstationPage })),
-);
-const SystemLogs = lazy(() =>
-  import("./pages/SystemLogs").then((m) => ({ default: m.SystemLogs })),
-);
-const CentralCommand = lazy(() =>
-  import("./components/CentralCommand").then((m) => ({ default: m.CentralCommand })),
-);
-const StockDetailPanel = lazy(() =>
-  import("./components/StockDetailPanel").then((m) => ({ default: m.StockDetailPanel })),
-);
-
-function ViewFallback() {
-  return (
-    <div className="dashboard-grid" style={{ padding: 16 }} aria-busy="true">
-      <PanelSkeleton title="Loading">
-        <ChartSkeleton height={120} />
-      </PanelSkeleton>
-    </div>
-  );
-}
+import { prefetchProfileData } from "./utils/prefetchProfile";
 
 const DEFAULT_FILTERS: DashboardFilters = {
   signal: "ALL",
@@ -66,18 +41,10 @@ const DEFAULT_FILTERS: DashboardFilters = {
 
 import { ScannerProgress } from "./components/ScannerProgress";
 
-type AppProps = {
-  /** When mounted under /scanner, force scanner view and hide outer chrome nav. */
-  forcedView?: MainAppView;
-  embedMode?: boolean;
-};
-
-export default function App({ forcedView, embedMode = false }: AppProps = {}) {
+export default function App() {
   const [mainView, setMainView] = useState<MainAppView>(() => {
-    if (forcedView) return forcedView;
     if (window.location.pathname === "/logs") return "logs";
     if (window.location.pathname === "/profile") return "profile";
-    if (window.location.pathname === "/scanner") return "scanner";
     return "home";
   });
   const [theme, setTheme] = useState<ThemeMode>("dark");
@@ -109,31 +76,17 @@ export default function App({ forcedView, embedMode = false }: AppProps = {}) {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  // Warm app cache after login so tabs open near-instantly
+  // Warm profile cache after login so Profile opens near-instantly
   useEffect(() => {
-    if (user?.id) prefetchAppData();
+    if (user?.id) prefetchProfileData();
   }, [user?.id]);
 
   useEffect(() => {
-    if (forcedView) {
-      setMainView(forcedView);
-      return;
-    }
-    if (embedMode) return;
-    const nextPath =
-      mainView === "logs"
-        ? "/logs"
-        : mainView === "profile"
-          ? "/profile"
-          : mainView === "scanner"
-            ? "/scanner"
-            : mainView === "paper-trading"
-              ? "/paper-trading"
-              : "/dashboard";
+    const nextPath = mainView === "logs" ? "/logs" : mainView === "profile" ? "/profile" : "/";
     if (window.location.pathname !== nextPath) {
       window.history.replaceState(null, "", nextPath);
     }
-  }, [mainView, forcedView, embedMode]);
+  }, [mainView]);
 
   useEffect(() => {
     function loadAndApply() {
@@ -346,8 +299,7 @@ export default function App({ forcedView, embedMode = false }: AppProps = {}) {
   }
 
   return (
-    <div className={embedMode || forcedView ? "scanner-embed" : "app-shell"}>
-      {!embedMode && !forcedView ? (
+    <div className="app-shell">
       <div className="main-nav-bar">
         <div className="main-nav-inner">
           <button data-testid="nav-scanner" type="button" className={`main-nav-tab ${mainView === "scanner" ? "is-active" : ""}`} onClick={() => setMainView("scanner")}>
@@ -418,22 +370,17 @@ export default function App({ forcedView, embedMode = false }: AppProps = {}) {
           </div>
         </div>
       </div>
-      ) : null}
 
       {mainView === "profile" ? (
-        <Suspense fallback={<ViewFallback />}>
-          <UserProfilePage
-            onNavigate={(view) => {
-              if (view === "scanner") setMainView("scanner");
-              else if (view === "paper-trading") setMainView("paper-trading");
-              else setMainView("home");
-            }}
-          />
-        </Suspense>
+        <UserProfilePage
+          onNavigate={(view) => {
+            if (view === "scanner") setMainView("scanner");
+            else if (view === "paper-trading") setMainView("paper-trading");
+            else setMainView("home");
+          }}
+        />
       ) : mainView === "central_command" ? (
-        <Suspense fallback={<ViewFallback />}>
-          <CentralCommand />
-        </Suspense>
+        <CentralCommand />
       ) : mainView === "scanner" ? (
         <DashboardHeader
           isLoading={isLoading}
@@ -460,35 +407,27 @@ export default function App({ forcedView, embedMode = false }: AppProps = {}) {
       {mainView === "profile" ? null : (
       <div className="app-main-scroll">
         {mainView === "logs" ? (
-          <Suspense fallback={<ViewFallback />}>
-            <SystemLogs />
-          </Suspense>
+          <SystemLogs />
         ) : mainView === "home" ? (
-          <Suspense fallback={<ViewFallback />}>
-            <WorkstationPage onLoadSavedScan={loadSavedScan} />
-          </Suspense>
+          <WorkstationPage onLoadSavedScan={loadSavedScan} />
         ) : mainView === "paper-trading" ? (
           <div className="dashboard-grid">
-            <Suspense fallback={<ViewFallback />}>
-              <PaperTradingPage
-                recommendationPrefill={paperTradingPrefill}
-                onPrefillConsumed={() => setPaperTradingPrefill(null)}
-                scannerCandidates={shortlistRows}
-                lastScanAt={screenerResult?.analysis?.generated_at ?? null}
-              />
-            </Suspense>
+            <PaperTradingPage
+              recommendationPrefill={paperTradingPrefill}
+              onPrefillConsumed={() => setPaperTradingPrefill(null)}
+              scannerCandidates={shortlistRows}
+              lastScanAt={screenerResult?.analysis?.generated_at ?? null}
+            />
           </div>
         ) : detailViewOpen && selectedRow ? (
           <main className="detail-screen-layout">
-            <Suspense fallback={<ViewFallback />}>
-              <StockDetailPanel
-                row={selectedRow}
-                onBack={() => setDetailViewOpen(false)}
-                onSendToPaperTrading={(row, suggestedEntry) => {
-                  sendRowToPaperTrading(row, suggestedEntry);
-                }}
-              />
-            </Suspense>
+            <StockDetailPanel
+              row={selectedRow}
+              onBack={() => setDetailViewOpen(false)}
+              onSendToPaperTrading={(row, suggestedEntry) => {
+                sendRowToPaperTrading(row, suggestedEntry);
+              }}
+            />
           </main>
         ) : (
           <main className="dashboard-grid">

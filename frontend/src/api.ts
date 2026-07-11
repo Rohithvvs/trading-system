@@ -22,7 +22,6 @@ import {
   mapNetworkError,
   toUserFacingApiMessage,
 } from "./utils/apiErrors";
-import { cachedFetch, CACHE_KEYS, invalidateCache, setCached } from "./utils/appCache";
 
 export { toUserFacingApiMessage, ApiClientError } from "./utils/apiErrors";
 
@@ -214,7 +213,7 @@ export async function runPresetScreener(
   return payload;
 }
 
-async function _fetchPaperTradingDashboardRaw(selectedSymbol?: string): Promise<PaperTradingDashboardResponse> {
+export async function fetchPaperTradingDashboard(selectedSymbol?: string): Promise<PaperTradingDashboardResponse> {
   const params = selectedSymbol ? `?selected_symbol=${encodeURIComponent(selectedSymbol)}` : "";
   const response = await fetchWithDiagnostics(`/paper-trading/dashboard${params}`, undefined, "Paper dashboard");
   if (!response.ok) {
@@ -224,47 +223,22 @@ async function _fetchPaperTradingDashboardRaw(selectedSymbol?: string): Promise<
   return response.json() as Promise<PaperTradingDashboardResponse>;
 }
 
-export async function fetchPaperTradingDashboard(
-  selectedSymbol?: string,
-  opts?: { force?: boolean },
-): Promise<PaperTradingDashboardResponse> {
-  const key = selectedSymbol
-    ? CACHE_KEYS.paperDashboardSymbol(selectedSymbol)
-    : CACHE_KEYS.paperDashboard;
-  return cachedFetch(key, () => _fetchPaperTradingDashboardRaw(selectedSymbol), {
-    force: opts?.force,
-    swr: !opts?.force,
-    softTimeoutMs: 3000,
-  });
-}
-
-export async function fetchPaperAccountSummary(opts?: { force?: boolean }): Promise<any> {
-  return cachedFetch(
-    CACHE_KEYS.paperAccount,
-    async () => {
-      const response = await fetchWithDiagnostics(`/paper-trading/account/summary`, undefined, "Paper account summary");
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to load account summary");
-      }
-      return response.json();
-    },
-    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3000 },
-  );
+export async function fetchPaperAccountSummary(): Promise<any> {
+  const response = await fetchWithDiagnostics(`/paper-trading/account/summary`, undefined, "Paper account summary");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load account summary");
+  }
+  return response.json();
 }
 
 export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: string; reason: string; current_ist?: string; next_open_ist?: string | null }> {
-  return cachedFetch(
-    CACHE_KEYS.marketStatus,
-    async () => {
-      const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
-      if (!response.ok) {
-        throw new Error("Market status unavailable");
-      }
-      return response.json();
-    },
-    { swr: true, ttlMs: 5 * 60 * 1000, softTimeoutMs: 2500 },
-  );
+  const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
+  if (!response.ok) {
+    // Non-fatal, client will fall back to local time checks
+    throw new Error("Market status unavailable");
+  }
+  return response.json();
 }
 
 export async function fetchPaperQuote(symbol: string): Promise<PaperQuoteResponse> {
@@ -304,7 +278,6 @@ export async function placePaperOrder(ticket: PaperOrderTicketState, idempotency
       symbol: ticket.symbol,
       side: ticket.side,
       type: ticket.type,
-      product_type: ticket.productType ?? "CNC",
       qty: ticket.qty,
       limit_price: ticket.limitPrice,
       stop_price: ticket.stopPrice,
@@ -314,7 +287,6 @@ export async function placePaperOrder(ticket: PaperOrderTicketState, idempotency
       source_signal: ticket.sourceSignal,
       source_score: ticket.sourceScore,
       source_confidence: ticket.sourceConfidence,
-      idempotency_key: idempotencyKey || crypto.randomUUID(),
     }),
   }, "Paper order");
   if (!response.ok) {
@@ -337,27 +309,15 @@ export async function stopMarketEngine(): Promise<MarketEngineStatus> {
 }
 
 export async function fetchMarketEngineStatus(): Promise<MarketEngineStatus> {
-  return cachedFetch(
-    CACHE_KEYS.marketEngineStatus,
-    async () => {
-      const response = await fetchWithDiagnostics("/paper-trading/engine/status", undefined, "Market engine status");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load market engine status");
-      return response.json() as Promise<MarketEngineStatus>;
-    },
-    { swr: true, ttlMs: 15 * 1000, softTimeoutMs: 2500 },
-  );
+  const response = await fetchWithDiagnostics("/paper-trading/engine/status", undefined, "Market engine status");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load market engine status");
+  return response.json() as Promise<MarketEngineStatus>;
 }
 
 export async function fetchPaperTradingEngineStatus(): Promise<import('./types').MarketEngineHealth> {
-  return cachedFetch(
-    CACHE_KEYS.marketEngineHealth,
-    async () => {
-      const response = await fetchWithDiagnostics("/paper-trading/engine-status", undefined, "Paper engine status");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load paper engine status");
-      return response.json() as Promise<import('./types').MarketEngineHealth>;
-    },
-    { swr: true, ttlMs: 15 * 1000, softTimeoutMs: 2500 },
-  );
+  const response = await fetchWithDiagnostics("/paper-trading/engine-status", undefined, "Paper engine status");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load paper engine status");
+  return response.json() as Promise<import('./types').MarketEngineHealth>;
 }
 
 export async function cancelPaperOrder(orderId: number): Promise<PaperOrderActionResponse> {
@@ -493,42 +453,30 @@ export async function deletePaperOrder(orderId: number): Promise<PaperOrderActio
 }
 
 export async function loadLatestScan(): Promise<ScreenerResponse | null> {
-  return cachedFetch(
-    CACHE_KEYS.latestScan,
-    async () => {
-      const response = await fetchWithDiagnostics("/analysis/scan/latest", undefined, "Load latest scan");
-      if (!response.ok) {
-        return null;
-      }
-      const data = await response.json() as ({ available?: boolean } & ScreenerResponse);
-      if (!data.available) {
-        return null;
-      }
-      return data as ScreenerResponse;
-    },
-    { swr: true, softTimeoutMs: 3000 },
-  );
+  const response = await fetchWithDiagnostics("/analysis/scan/latest", undefined, "Load latest scan");
+  if (!response.ok) {
+    return null;
+  }
+  const data = await response.json() as ({ available?: boolean } & ScreenerResponse);
+  if (!data.available) {
+    return null;
+  }
+  return data as ScreenerResponse;
 }
 
 export async function getLatestScan(): Promise<any> {
-  return cachedFetch(
-    `${CACHE_KEYS.latestScan}:scanner`,
-    async () => {
-      const response = await fetchWithDiagnostics("/scanner/latest", {
-        method: "GET",
-        headers: {
-          "Accept": "application/json",
-        },
-      }, "Get latest scan");
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch latest scan");
-      }
-
-      return await response.json();
+  const response = await fetchWithDiagnostics("/scanner/latest", {
+    method: "GET",
+    headers: {
+      "Accept": "application/json",
     },
-    { swr: true, softTimeoutMs: 3000 },
-  );
+  }, "Get latest scan");
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch latest scan");
+  }
+
+  return await response.json();
 }
 
 
@@ -540,90 +488,13 @@ export async function loadTodayCandidates(): Promise<any[]> {
   return response.json() as Promise<any[]>;
 }
 
-export async function fetchAnalytics(opts?: { force?: boolean }): Promise<any> {
-  return cachedFetch(
-    CACHE_KEYS.paperAnalytics,
-    async () => {
-      const response = await fetchWithDiagnostics(`/paper-trading/analytics`, undefined, "Paper analytics");
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to load analytics");
-      }
-      return response.json();
-    },
-    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3000 },
-  );
-}
-
-export type DailyAnalyticsPeriod = "today" | "yesterday" | "week" | "month" | "custom";
-
-export async function fetchDailyAnalytics(opts?: {
-  period?: DailyAnalyticsPeriod;
-  start_date?: string;
-  end_date?: string;
-  include_ai?: boolean;
-  force?: boolean;
-}): Promise<any> {
-  const period = opts?.period ?? "today";
-  const params = new URLSearchParams({ period, include_ai: String(opts?.include_ai ?? true) });
-  if (opts?.start_date) params.set("start_date", opts.start_date);
-  if (opts?.end_date) params.set("end_date", opts.end_date);
-  const cacheKey = CACHE_KEYS.paperDailyAnalytics(
-    `${period}:${opts?.start_date || ""}:${opts?.end_date || ""}`,
-  );
-  return cachedFetch(
-    cacheKey,
-    async () => {
-      const response = await fetchWithDiagnostics(
-        `/paper-trading/daily-analytics?${params.toString()}`,
-        undefined,
-        "Daily analytics",
-      );
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to load daily analytics");
-      }
-      return response.json();
-    },
-    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3500, ttlMs: 3 * 60 * 1000 },
-  );
-}
-
-export async function fetchDailyJournal(journalDate?: string): Promise<any> {
-  const q = journalDate ? `?journal_date=${encodeURIComponent(journalDate)}` : "";
-  return cachedFetch(
-    CACHE_KEYS.paperDailyJournal(journalDate || "today"),
-    async () => {
-      const response = await fetchWithDiagnostics(`/paper-trading/daily-journal${q}`, undefined, "Daily journal");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load journal");
-      return response.json();
-    },
-    { swr: true, ttlMs: 2 * 60 * 1000 },
-  );
-}
-
-export async function saveDailyJournal(payload: {
-  journal_date?: string;
-  observations?: string;
-  mistakes?: string;
-  lessons?: string;
-  tomorrow_plan?: string;
-}): Promise<any> {
-  const response = await fetchWithDiagnostics(
-    `/paper-trading/daily-journal`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
-    "Save daily journal",
-  );
-  if (!response.ok) throw new Error(await response.text() || "Failed to save journal");
-  const data = await response.json();
-  // Bust journal + daily analytics cache for this user scope
-  invalidateCache("paper_daily_journal");
-  invalidateCache("paper_daily_analytics");
-  return data;
+export async function fetchAnalytics(): Promise<any> {
+  const response = await fetchWithDiagnostics(`/paper-trading/analytics`, undefined, "Paper analytics");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load analytics");
+  }
+  return response.json();
 }
 
 export async function updatePaperAccountCapital(amount: number): Promise<any> {
@@ -742,19 +613,13 @@ export async function markAllNotificationsRead(): Promise<{ marked: number }> {
   return response.json();
 }
 
-export async function fetchAlerts(opts?: { force?: boolean }): Promise<{ id: number; symbol: string; condition: string; target_price: number; status: string; created_at: string; triggered_at?: string | null; triggered_price?: number | null }[]> {
-  return cachedFetch(
-    CACHE_KEYS.paperAlerts,
-    async () => {
-      const response = await fetchWithDiagnostics(`/paper-trading/alerts`, undefined, "Fetch alerts");
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to fetch alerts");
-      }
-      return response.json();
-    },
-    { force: opts?.force, swr: !opts?.force },
-  );
+export async function fetchAlerts(): Promise<{ id: number; symbol: string; condition: string; target_price: number; status: string; created_at: string; triggered_at?: string | null; triggered_price?: number | null }[]> {
+  const response = await fetchWithDiagnostics(`/paper-trading/alerts`, undefined, "Fetch alerts");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to fetch alerts");
+  }
+  return response.json();
 }
 
 export async function createAlert(payload: { symbol: string; condition: string; price: number }) {
@@ -799,76 +664,42 @@ export async function saveAccessToken(access_token: string) {
     }
     throw new Error(errorMessage);
   }
-  // Force refresh of token caches after manual reconnect
-  invalidateCache(CACHE_KEYS.fyersToken);
-  invalidateCache(CACHE_KEYS.fyersTokenHistory);
   return response.json();
 }
 
-export async function getTokenStatus(opts?: { force?: boolean }) {
-  return cachedFetch(
-    CACHE_KEYS.fyersToken,
-    async () => {
-      const response = await fetchWithDiagnostics('/api/token/status', undefined, 'Token status');
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to get token status');
-      }
-      return response.json();
-    },
-    // Token status is DB-only on backend (no FYERS call) — cache 8 min; force on reconnect
-    { force: opts?.force, swr: !opts?.force, ttlMs: 8 * 60 * 1000, softTimeoutMs: 3000 },
-  );
+export async function getTokenStatus() {
+  const response = await fetchWithDiagnostics('/api/token/status', undefined, 'Token status');
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'Failed to get token status');
+  }
+  return response.json();
 }
 export async function getTokenHistory(limit = 50) {
-  return cachedFetch(
-    CACHE_KEYS.fyersTokenHistory,
-    async () => {
-      const response = await fetchWithDiagnostics(`/api/token/history?limit=${encodeURIComponent(String(limit))}`, undefined, 'Token history');
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to get token history');
-      }
-      return response.json();
-    },
-    { swr: true, ttlMs: 8 * 60 * 1000 },
-  );
+  const response = await fetchWithDiagnostics(`/api/token/history?limit=${encodeURIComponent(String(limit))}`, undefined, 'Token history');
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'Failed to get token history');
+  }
+  return response.json();
 }
 
 export async function fetchUniverses(): Promise<{ name: string; symbols: string[]; count: number }[]> {
-  return cachedFetch(
-    CACHE_KEYS.universes,
-    async () => {
-      const response = await fetchWithDiagnostics("/workstation/universes", undefined, "Universes");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load universes");
-      return response.json();
-    },
-    { swr: true, ttlMs: 30 * 60 * 1000 },
-  );
+  const response = await fetchWithDiagnostics("/workstation/universes", undefined, "Universes");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load universes");
+  return response.json();
 }
 
 export async function fetchMarketOverview(): Promise<any> {
-  return cachedFetch(
-    CACHE_KEYS.marketOverview,
-    async () => {
-      const response = await fetchWithDiagnostics("/workstation/market-overview", undefined, "Market overview");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load market overview");
-      return response.json();
-    },
-    { swr: true, ttlMs: 2 * 60 * 1000, softTimeoutMs: 3000 },
-  );
+  const response = await fetchWithDiagnostics("/workstation/market-overview", undefined, "Market overview");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load market overview");
+  return response.json();
 }
 
 export async function fetchSavedScans(): Promise<any[]> {
-  return cachedFetch(
-    CACHE_KEYS.savedScans,
-    async () => {
-      const response = await fetchWithDiagnostics("/workstation/saved-scans", undefined, "Saved scans");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load saved scans");
-      return response.json();
-    },
-    { swr: true },
-  );
+  const response = await fetchWithDiagnostics("/workstation/saved-scans", undefined, "Saved scans");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load saved scans");
+  return response.json();
 }
 
 export async function saveScannerPreset(payload: any): Promise<any> {
@@ -900,15 +731,9 @@ export async function compareScan(scanId: number): Promise<any> {
 }
 
 export async function fetchWorkstationAlerts(): Promise<any[]> {
-  return cachedFetch(
-    CACHE_KEYS.workstationAlerts,
-    async () => {
-      const response = await fetchWithDiagnostics("/workstation/alerts", undefined, "Workstation alerts");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load alerts");
-      return response.json();
-    },
-    { swr: true },
-  );
+  const response = await fetchWithDiagnostics("/workstation/alerts", undefined, "Workstation alerts");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load alerts");
+  return response.json();
 }
 
 export async function createWorkstationAlert(payload: any): Promise<any> {
@@ -928,15 +753,9 @@ export async function deleteWorkstationAlert(alertId: number): Promise<any> {
 }
 
 export async function fetchRiskSettings(): Promise<any> {
-  return cachedFetch(
-    CACHE_KEYS.riskSettings,
-    async () => {
-      const response = await fetchWithDiagnostics("/workstation/risk-settings", undefined, "Risk settings");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load risk settings");
-      return response.json();
-    },
-    { swr: true, ttlMs: 10 * 60 * 1000 },
-  );
+  const response = await fetchWithDiagnostics("/workstation/risk-settings", undefined, "Risk settings");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load risk settings");
+  return response.json();
 }
 
 export async function updateRiskSettings(payload: any): Promise<any> {
@@ -950,20 +769,9 @@ export async function updateRiskSettings(payload: any): Promise<any> {
 }
 
 export async function fetchApiHealth(): Promise<any> {
-  return cachedFetch(
-    CACHE_KEYS.apiHealth,
-    async () => {
-      const response = await fetchWithDiagnostics("/workstation/api-health", undefined, "API health");
-      if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
-      return response.json();
-    },
-    { swr: true, ttlMs: 2 * 60 * 1000, softTimeoutMs: 3000 },
-  );
-}
-
-/** Invalidate paper-trading related caches after mutations. */
-export function invalidatePaperCaches(): void {
-  invalidateCache("paper_");
+  const response = await fetchWithDiagnostics("/workstation/api-health", undefined, "API health");
+  if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
+  return response.json();
 }
 function formatAuthErrorDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail;
