@@ -18,6 +18,8 @@ interface AuthContextType {
   isRevalidating: boolean;
   login: (user: AuthUser) => void;
   logout: () => void;
+  /** Update header/sidebar user after profile save (no full reload). */
+  updateUser: (partial: Partial<AuthUser>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -130,6 +132,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void authLogout();
   }, []);
 
+  const updateUser = useCallback((partial: Partial<AuthUser>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...partial };
+      try {
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(next));
+        setCached(CACHE_KEYS.authMe, next);
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -138,8 +154,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isRevalidating,
       login,
       logout,
+      updateUser,
     }),
-    [user, isLoading, isRevalidating, login, logout],
+    [user, isLoading, isRevalidating, login, logout, updateUser],
   );
 
   return (

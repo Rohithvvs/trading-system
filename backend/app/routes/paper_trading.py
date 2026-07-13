@@ -26,7 +26,6 @@ from ..schemas.paper_trading import (
     NotificationMarkReadRequest,
     AlertCreateRequest,
     AlertItem,
-    AnalyticsResponse,
     PaperAccountCapitalUpdateRequest,
     TransactionPageResponse,
     MarketEngineStatusResponse,
@@ -123,11 +122,11 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
         from ..services.trading_hours_service import trading_hours
         status_info = trading_hours.get_market_status()
         if status_info["status"] == "OPEN":
-            market_status = "OPEN 🟢"
+            market_status = "OPEN"
         elif status_info["status"] == "PRE_OPEN":
-            market_status = "PRE-OPEN 🟡"
+            market_status = "PRE-OPEN"
         else:
-            market_status = "CLOSED 🔴"
+            market_status = "CLOSED"
     except Exception:
         # Fallback to previous simple logic
         now_time = now_ist.time()
@@ -137,11 +136,11 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
         open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
 
         if pre_open_start <= now_time < pre_open_end:
-            market_status = "PRE-OPEN 🟡"
+            market_status = "PRE-OPEN"
         elif open_start <= now_time < open_end:
-            market_status = "OPEN 🟢"
+            market_status = "OPEN"
         else:
-            market_status = "CLOSED 🔴"
+            market_status = "CLOSED"
 
     payload = {
         "total_capital": total_capital,
@@ -565,16 +564,29 @@ def delete_alert(alert_id: int, service: PaperTradingService = Depends(get_servi
     return JSONResponse(content=sanitize_for_json({"deleted": alert_id}))
 
 
-@router.get("/analytics", response_model=AnalyticsResponse)
-def get_analytics(service: PaperTradingService = Depends(get_service)):
-    """Paper trading analytics. Calculations unchanged; serialization hardened at response layer."""
+@router.get("/analytics")
+def get_analytics(
+    period: str = Query(
+        default="all",
+        description="today|week|month|last_month|last_3_months|last_6_months|last_year|all",
+    ),
+    service: PaperTradingService = Depends(get_service),
+):
+    """Paper trading analytics. Calculated from closed trades; returns empty defaults when no trades exist."""
     logger = logging.getLogger("app.http.paper_trading")
     try:
-        data = service.get_analytics()
+        data = service.get_analytics(period=period)
     except ValueError as exc:
+        logger.exception("Analytics ValueError: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Analytics unexpected error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"error_type": "ANALYTICS_ERROR", "message": "Failed to compute paper trading analytics."},
+        ) from exc
 
-    # Pre-sanitize diagnostics: surface any Decimal still living in the raw payload
+    # Always sanitize — Numeric/Decimal columns must never reach JSONResponse.
     from ..utils import collect_decimal_paths, assert_json_serializable, find_non_jsonable
 
     decimal_paths = collect_decimal_paths(data, "analytics")
@@ -586,7 +598,7 @@ def get_analytics(service: PaperTradingService = Depends(get_service)):
         )
 
     try:
-        safe = assert_json_serializable(data, root_name="analytics")
+        safe = assert_json_serializable(sanitize_for_json(data), root_name="analytics")
     except TypeError as exc:
         remaining = find_non_jsonable(sanitize_for_json(data), "analytics")
         for path in remaining:
@@ -596,7 +608,7 @@ def get_analytics(service: PaperTradingService = Depends(get_service)):
             status_code=500,
             detail={
                 "error_type": "JSON_SERIALIZE_ERROR",
-                "message": str(exc),
+                "message": "Analytics data could not be serialized.",
                 "paths": remaining,
             },
         ) from exc

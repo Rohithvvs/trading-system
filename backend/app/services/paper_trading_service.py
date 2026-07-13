@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time as dt_time
 from decimal import Decimal
 from math import isfinite
 
@@ -1094,10 +1094,10 @@ class PaperTradingService:
         # Create a notification
         try:
             if reason == "TARGET_HIT":
-                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Target Hit ✅"
+                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Target Hit"
                 level = "success"
             elif reason == "STOPLOSS_HIT":
-                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Stop Loss Hit 🔴"
+                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Stop Loss Hit"
                 level = "error"
             else:
                 msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — {reason}"
@@ -1448,65 +1448,215 @@ class PaperTradingService:
             is_price_stale=(snapshot.source != "FYERS_QUOTE"),
         )
 
-    def get_analytics(self) -> dict:
+    @staticmethod
+    def _aware_dt(dt: datetime | None) -> datetime | None:
+        """Normalize naive/aware datetimes so analytics never raises on subtract."""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
+    def _analytics_period_bounds(period: str) -> tuple[datetime | None, datetime | None, str]:
+        """Return (start_utc, end_utc, label). None start means all-time."""
+        from zoneinfo import ZoneInfo
+
+        IST = ZoneInfo("Asia/Kolkata")
+        now_ist = datetime.now(IST)
+        today = now_ist.date()
+        end = now_ist.astimezone(timezone.utc) + timedelta(seconds=1)
+
+        def day_start(d):
+            return datetime.combine(d, dt_time.min, tzinfo=IST).astimezone(timezone.utc)
+
+        p = (period or "all").lower().strip()
+        if p in ("today",):
+            return day_start(today), end, "Today"
+        if p in ("week", "this_week"):
+            start = today - timedelta(days=today.weekday())
+            return day_start(start), end, "This Week"
+        if p in ("month", "this_month"):
+            start = today.replace(day=1)
+            return day_start(start), end, "This Month"
+        if p in ("last_month",):
+            first_this = today.replace(day=1)
+            last_prev = first_this - timedelta(days=1)
+            start = last_prev.replace(day=1)
+            return day_start(start), day_start(first_this), "Last Month"
+        if p in ("last_3_months", "3m"):
+            return day_start(today - timedelta(days=90)), end, "Last 3 Months"
+        if p in ("last_6_months", "6m"):
+            return day_start(today - timedelta(days=180)), end, "Last 6 Months"
+        if p in ("last_year", "year", "1y"):
+            return day_start(today - timedelta(days=365)), end, "Last Year"
+        # all time
+        return None, end, "All Time"
+
+    def get_analytics(self, period: str = "all") -> dict:
+        """Full paper-trading analytics dashboard payload.
+
+        Always returns JSON-safe floats (never Decimal). Empty-history accounts
+        get zeroed defaults so the UI can render charts without erroring.
+        """
+        import math
+        from collections import defaultdict
+
         account = self._get_or_create_account()
-        trades = self._trade_models(account.id)
+        all_trades = self._trade_models(account.id)
+        start_utc, end_utc, range_label = self._analytics_period_bounds(period)
+
+        def in_range(t: PaperTradeHistory) -> bool:
+            closed = self._aware_dt(t.closed_at)
+            if closed is None:
+                return False
+            if start_utc and closed < start_utc:
+                return False
+            if end_utc and closed >= end_utc:
+                return False
+            return True
+
+        trades = [t for t in all_trades if in_range(t)]
+        positions = self._position_models(account.id)
+        open_positions = [p for p in positions if (p.status or "").upper() == "OPEN"]
+        orders = self._order_models(account.id)
+
+        def fnum(v) -> float:
+            try:
+                return as_float(v)
+            except Exception:
+                try:
+                    return float(v or 0)
+                except Exception:
+                    return 0.0
 
         total_trades = len(trades)
-        wins = [t for t in trades if t.pnl > 0]
-        losses = [t for t in trades if t.pnl < 0]
-        sum_wins = round(sum(t.pnl for t in wins), 2) if wins else 0.0
-        sum_losses = round(sum(t.pnl for t in losses), 2) if losses else 0.0
+        wins = [t for t in trades if fnum(t.pnl) > 0]
+        losses = [t for t in trades if fnum(t.pnl) < 0]
+        sum_wins = round(sum(fnum(t.pnl) for t in wins), 2)
+        sum_losses = round(sum(fnum(t.pnl) for t in losses), 2)  # negative or zero
+        gross_loss_abs = abs(sum_losses)
 
-        profit_factor = None
-        if abs(sum_losses) > 1e-9:
-            profit_factor = round((sum_wins / abs(sum_losses)) if sum_losses != 0 else None, 2)
+        profit_factor: float | None = None
+        if gross_loss_abs > 1e-9:
+            profit_factor = round(sum_wins / gross_loss_abs, 2)
+        elif sum_wins > 0:
+            profit_factor = 99.0
 
-        average_profit = round((sum_wins / len(wins)), 2) if wins else None
-        average_loss = round((sum_losses / len(losses)), 2) if losses else None
+        average_profit = round(sum_wins / len(wins), 2) if wins else None
+        average_loss = round(sum_losses / len(losses), 2) if losses else None
+        avg_rr = None
+        if average_profit is not None and average_loss is not None and abs(average_loss) > 1e-9:
+            avg_rr = round(abs(average_profit / average_loss), 2)
 
-        best_trade = max(trades, key=lambda t: t.pnl) if trades else None
-        worst_trade = min(trades, key=lambda t: t.pnl) if trades else None
+        best_trade = max(trades, key=lambda t: fnum(t.pnl)) if trades else None
+        worst_trade = min(trades, key=lambda t: fnum(t.pnl)) if trades else None
 
-        # daily pnl aggregation by closed date (ISO date)
+        # Today's realized (IST calendar day) from all history, not just filtered set
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")
+        today_ist = datetime.now(IST).date()
+        todays_pnl = 0.0
+        for t in all_trades:
+            closed = self._aware_dt(t.closed_at)
+            if closed and closed.astimezone(IST).date() == today_ist:
+                todays_pnl += fnum(t.pnl)
+        todays_pnl = round(todays_pnl, 2)
+
+        # Unrealized / portfolio from open positions
+        unrealized = round(sum(fnum(p.unrealized_pnl) for p in open_positions), 2)
+        invested = round(
+            sum(fnum(p.avg_entry_price) * fnum(p.qty) for p in open_positions), 2
+        )
+        cash = round(fnum(account.cash_balance), 2)
+        starting = round(fnum(account.starting_balance), 2) or 1_000_000.0
+        realized_all = round(sum(fnum(t.pnl) for t in all_trades), 2)
+        realized_period = round(sum(fnum(t.pnl) for t in trades), 2)
+        portfolio_value = round(cash + invested + unrealized, 2)
+        total_pnl = round(realized_period + unrealized, 2)
+        roi_pct = round(((portfolio_value - starting) / starting) * 100, 2) if starting else 0.0
+
+        # Daily + monthly + equity curve
         daily_map: dict[str, float] = {}
+        monthly_map: dict[str, float] = {}
         for t in trades:
-            try:
-                key = t.closed_at.date().isoformat()
-            except Exception as e:
-                print(f"ERROR parsing closed_at for trade id {getattr(t,'id',None)}: {e}")
-                key = str(t.closed_at)[:10]
-            daily_map[key] = daily_map.get(key, 0.0) + float(t.pnl)
+            closed = self._aware_dt(t.closed_at)
+            if closed is None:
+                continue
+            local = closed.astimezone(IST)
+            dkey = local.date().isoformat()
+            mkey = local.strftime("%Y-%m")
+            pnl = fnum(t.pnl)
+            daily_map[dkey] = daily_map.get(dkey, 0.0) + pnl
+            monthly_map[mkey] = monthly_map.get(mkey, 0.0) + pnl
 
         sorted_dates = sorted(daily_map.keys())
-        daily_pnl = [
-            {"date": d, "pnl": round(daily_map[d], 2)} for d in sorted_dates
-        ]
+        daily_pnl = [{"date": d, "pnl": round(daily_map[d], 2)} for d in sorted_dates]
+        monthly_pnl = [{"date": m, "pnl": round(monthly_map[m], 2)} for m in sorted(monthly_map.keys())]
+
         cumulative_pnl = []
+        equity_curve = []
+        capital_growth = []
         running = 0.0
-        peak_equity = float(account.starting_balance)
+        peak_equity = starting
         max_drawdown = 0.0
+        daily_returns: list[float] = []
+        prev_equity = starting
         for d in sorted_dates:
             running += daily_map[d]
-            equity = float(account.starting_balance) + running
+            equity = starting + running
             peak_equity = max(peak_equity, equity)
-            max_drawdown = max(max_drawdown, peak_equity - equity)
+            dd = peak_equity - equity
+            max_drawdown = max(max_drawdown, dd)
             cumulative_pnl.append({"date": d, "pnl": round(running, 2)})
+            equity_curve.append({"date": d, "equity": round(equity, 2)})
+            capital_growth.append({"date": d, "value": round(equity, 2)})
+            if prev_equity:
+                daily_returns.append((equity - prev_equity) / prev_equity)
+            prev_equity = equity
+
+        max_drawdown_pct = round((max_drawdown / peak_equity) * 100, 2) if peak_equity else 0.0
+
+        # Optional Sharpe (daily returns, risk-free ~0)
+        sharpe_ratio = None
+        if len(daily_returns) >= 2:
+            mean_r = sum(daily_returns) / len(daily_returns)
+            var = sum((r - mean_r) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+            std = math.sqrt(var) if var > 0 else 0.0
+            if std > 1e-12:
+                sharpe_ratio = round((mean_r / std) * math.sqrt(252), 2)
 
         wins_count = len(wins)
         losses_count = len(losses)
+        win_rate_pct = round((wins_count / total_trades * 100), 2) if total_trades else 0.0
 
-        # holding periods per symbol
+        # Holding / symbol stats (timezone-safe)
         symbol_stats: dict[str, dict] = {}
+        hold_mins_all: list[float] = []
+        entry_prices: list[float] = []
+        exit_prices: list[float] = []
+        returns_pct: list[float] = []
         for t in trades:
             s = t.symbol
             if s not in symbol_stats:
-                symbol_stats[s] = {"durations": [], "count": 0, "wins": 0}
-            dur_min = (t.closed_at - t.opened_at).total_seconds() / 60
+                symbol_stats[s] = {"durations": [], "count": 0, "wins": 0, "pnl": 0.0}
+            opened = self._aware_dt(t.opened_at)
+            closed = self._aware_dt(t.closed_at)
+            dur_min = 0.0
+            if opened and closed:
+                try:
+                    dur_min = (closed - opened).total_seconds() / 60.0
+                except Exception:
+                    dur_min = 0.0
             symbol_stats[s]["durations"].append(dur_min)
             symbol_stats[s]["count"] += 1
-            if t.pnl > 0:
+            symbol_stats[s]["pnl"] += fnum(t.pnl)
+            if fnum(t.pnl) > 0:
                 symbol_stats[s]["wins"] += 1
+            hold_mins_all.append(dur_min)
+            entry_prices.append(fnum(t.entry_price))
+            exit_prices.append(fnum(t.exit_price))
+            returns_pct.append(fnum(t.pnl_percent))
 
         holding_periods = []
         for s, data in symbol_stats.items():
@@ -1517,13 +1667,45 @@ class PaperTradingService:
                 "avg_holding_minutes": round(avg_h, 2),
                 "total_trades": data["count"],
                 "win_rate_pct": round(win_rate, 2),
+                "total_pnl": round(data["pnl"], 2),
             })
+        holding_periods.sort(key=lambda r: r["total_pnl"], reverse=True)
 
-        win_rate_pct = round((wins_count / total_trades * 100), 2) if total_trades else 0.0
+        most_profitable_symbol = holding_periods[0]["symbol"] if holding_periods and holding_periods[0]["total_pnl"] > 0 else None
+        most_losing_symbol = None
+        if holding_periods:
+            worst_sym = min(holding_periods, key=lambda r: r["total_pnl"])
+            if worst_sym["total_pnl"] < 0:
+                most_losing_symbol = worst_sym["symbol"]
+
+        # Streaks
+        chronological = sorted(
+            trades,
+            key=lambda t: self._aware_dt(t.closed_at) or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        longest_win_streak = 0
+        longest_loss_streak = 0
+        cur_win = 0
+        cur_loss = 0
+        for trade in chronological:
+            pnl = fnum(trade.pnl)
+            if pnl > 0:
+                cur_win += 1
+                cur_loss = 0
+            elif pnl < 0:
+                cur_loss += 1
+                cur_win = 0
+            else:
+                cur_win = 0
+                cur_loss = 0
+            longest_win_streak = max(longest_win_streak, cur_win)
+            longest_loss_streak = max(longest_loss_streak, cur_loss)
+
         streak_type = "none"
         streak_count = 0
-        for trade in sorted(trades, key=lambda t: t.closed_at, reverse=True):
-            trade_type = "win" if trade.pnl > 0 else "loss" if trade.pnl < 0 else "flat"
+        for trade in reversed(chronological):
+            pnl = fnum(trade.pnl)
+            trade_type = "win" if pnl > 0 else "loss" if pnl < 0 else "flat"
             if streak_type == "none":
                 streak_type = trade_type
                 streak_count = 1
@@ -1532,27 +1714,144 @@ class PaperTradingService:
             else:
                 break
 
-        result = {
-            "total_trades": total_trades,
-            "win_rate_pct": win_rate_pct,
-            "profit_factor": profit_factor,
-            "average_profit": average_profit,
-            "average_loss": average_loss,
-            "best_trade_symbol": best_trade.symbol if best_trade else None,
-            "best_trade_amount": round(best_trade.pnl, 2) if best_trade else None,
-            "worst_trade_symbol": worst_trade.symbol if worst_trade else None,
-            "worst_trade_amount": round(worst_trade.pnl, 2) if worst_trade else None,
-            "daily_pnl": daily_pnl,
-            "cumulative_pnl": cumulative_pnl,
-            "wins": wins_count,
-            "losses": losses_count,
-            "holding_periods": holding_periods,
-            "max_drawdown": round(max_drawdown, 2),
-            "max_drawdown_pct": round((max_drawdown / peak_equity) * 100, 2) if peak_equity else 0.0,
-            "current_streak_type": streak_type,
-            "current_streak_count": streak_count,
+        # Order performance metrics (in range by created_at)
+        def order_in_range(o: PaperOrder) -> bool:
+            created = self._aware_dt(o.created_at)
+            if created is None:
+                return True if start_utc is None else False
+            if start_utc and created < start_utc:
+                return False
+            if end_utc and created >= end_utc:
+                return False
+            return True
+
+        orders_f = [o for o in orders if order_in_range(o)]
+        total_orders = len(orders_f)
+        executed_orders = len([o for o in orders_f if (o.status or "").upper() == "FILLED"])
+        cancelled_orders = len([o for o in orders_f if (o.status or "").upper() == "CANCELLED"])
+        pending_orders = len([o for o in orders_f if (o.status or "").upper() == "PENDING"])
+        buy_orders = len([o for o in orders_f if (o.side or "").upper() == "BUY"])
+        sell_orders = len([o for o in orders_f if (o.side or "").upper() == "SELL"])
+        intraday_trades = len([o for o in orders_f if (o.product_type or "").upper() == "MIS"])
+        delivery_trades = len([o for o in orders_f if (o.product_type or "").upper() in ("CNC", "DELIVERY", "")])
+
+        # Sector performance (lightweight map)
+        _SECTOR = {
+            "HDFCBANK": "Banking", "ICICIBANK": "Banking", "SBIN": "Banking", "KOTAKBANK": "Banking",
+            "AXISBANK": "Banking", "TCS": "IT", "INFY": "IT", "WIPRO": "IT", "HCLTECH": "IT",
+            "TECHM": "IT", "MARUTI": "Auto", "TATAMOTORS": "Auto", "M&M": "Auto",
+            "RELIANCE": "Energy", "ONGC": "Energy", "NTPC": "Energy", "POWERGRID": "Energy",
+            "BAJFINANCE": "Finance", "BAJAJFINSV": "Finance", "SUNPHARMA": "Pharma",
+            "DRREDDY": "Pharma", "CIPLA": "Pharma", "HINDUNILVR": "FMCG", "ITC": "FMCG",
         }
 
+        def sector_for(sym: str) -> str:
+            s = (sym or "").upper().replace("NSE:", "").replace("-EQ", "").strip()
+            return _SECTOR.get(s, "Others")
+
+        sector_map: dict[str, float] = defaultdict(float)
+        for t in trades:
+            sector_map[sector_for(t.symbol)] += fnum(t.pnl)
+        sector_performance = [
+            {"sector": k, "pnl": round(v, 2)} for k, v in sorted(sector_map.items(), key=lambda x: -x[1])
+        ]
+
+        # Trade frequency (by date)
+        freq_map: dict[str, int] = defaultdict(int)
+        for t in trades:
+            closed = self._aware_dt(t.closed_at)
+            if closed:
+                freq_map[closed.astimezone(IST).date().isoformat()] += 1
+        trade_frequency = [{"date": d, "count": freq_map[d]} for d in sorted(freq_map.keys())]
+
+        # Portfolio allocation (open positions)
+        allocation = []
+        for p in open_positions:
+            val = fnum(p.avg_entry_price) * fnum(p.qty)
+            allocation.append({
+                "symbol": p.symbol,
+                "value": round(val, 2),
+                "pct": round((val / invested * 100), 2) if invested else 0.0,
+            })
+        if cash > 0:
+            total_alloc = invested + cash
+            allocation.append({
+                "symbol": "CASH",
+                "value": cash,
+                "pct": round((cash / total_alloc * 100), 2) if total_alloc else 0.0,
+            })
+
+        avg_hold = round(sum(hold_mins_all) / len(hold_mins_all), 2) if hold_mins_all else 0.0
+        avg_entry = round(sum(entry_prices) / len(entry_prices), 2) if entry_prices else None
+        avg_exit = round(sum(exit_prices) / len(exit_prices), 2) if exit_prices else None
+        avg_return_pct = round(sum(returns_pct) / len(returns_pct), 2) if returns_pct else 0.0
+
+        result = {
+            "period": period or "all",
+            "range_label": range_label,
+            # Overview cards
+            "total_trades": total_trades,
+            "winning_trades": wins_count,
+            "losing_trades": losses_count,
+            "wins": wins_count,
+            "losses": losses_count,
+            "win_rate_pct": win_rate_pct,
+            "total_pnl": total_pnl,
+            "todays_pnl": todays_pnl,
+            "unrealized_pnl": unrealized,
+            "realized_pnl": realized_period,
+            "realized_pnl_all_time": realized_all,
+            "portfolio_value": portfolio_value,
+            "available_cash": cash,
+            "capital_utilized": invested,
+            "roi_pct": roi_pct,
+            "average_profit": average_profit,
+            "average_loss": average_loss,
+            "profit_factor": profit_factor,
+            "average_risk_reward": avg_rr,
+            "largest_profit": round(fnum(best_trade.pnl), 2) if best_trade else None,
+            "largest_loss": round(fnum(worst_trade.pnl), 2) if worst_trade else None,
+            "max_drawdown": round(max_drawdown, 2),
+            "max_drawdown_pct": max_drawdown_pct,
+            "sharpe_ratio": sharpe_ratio,
+            "open_positions_count": len(open_positions),
+            # Trade analytics
+            "average_holding_minutes": avg_hold,
+            "average_holding_period": avg_hold,
+            "average_entry_price": avg_entry,
+            "average_exit_price": avg_exit,
+            "best_trade_symbol": best_trade.symbol if best_trade else None,
+            "best_trade_amount": round(fnum(best_trade.pnl), 2) if best_trade else None,
+            "worst_trade_symbol": worst_trade.symbol if worst_trade else None,
+            "worst_trade_amount": round(fnum(worst_trade.pnl), 2) if worst_trade else None,
+            "most_profitable_symbol": most_profitable_symbol,
+            "most_losing_symbol": most_losing_symbol,
+            "longest_winning_streak": longest_win_streak,
+            "longest_losing_streak": longest_loss_streak,
+            "average_return_pct": avg_return_pct,
+            "current_streak_type": streak_type,
+            "current_streak_count": streak_count,
+            # Performance / orders
+            "total_orders": total_orders,
+            "executed_orders": executed_orders,
+            "cancelled_orders": cancelled_orders,
+            "pending_orders": pending_orders,
+            "buy_orders": buy_orders,
+            "sell_orders": sell_orders,
+            "intraday_trades": intraday_trades,
+            "delivery_trades": delivery_trades,
+            # Series for charts
+            "daily_pnl": daily_pnl,
+            "monthly_pnl": monthly_pnl,
+            "cumulative_pnl": cumulative_pnl,
+            "equity_curve": equity_curve,
+            "capital_growth": capital_growth,
+            "sector_performance": sector_performance,
+            "trade_frequency": trade_frequency,
+            "portfolio_allocation": allocation,
+            "holding_periods": holding_periods,
+            "starting_balance": starting,
+        }
         return result
 
     def update_starting_capital(self, amount: float) -> PaperTradingDashboardResponse:

@@ -121,7 +121,7 @@ async def screener_full(payload: ScreenerRequest):
 
 
 @router.get("/symbol/{symbol}/detail")
-def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
+async def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
     """Run a single-symbol full analysis and return enriched fields used by the frontend detail page.
 
     This endpoint runs the same full analysis flow but also computes additional derived
@@ -136,7 +136,7 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
     cfg = TimeframeConfig()
     req = AnalysisRequest(symbols=[symbol.strip().upper()], mode=AnalysisMode.swing, timeframe=cfg)
     try:
-        response = RouterAgent(db).full_analysis(req)
+        response = await RouterAgent(db).full_analysis(req)
 
         if not response.items:
             return JSONResponse(content={"error": "no_data"})
@@ -238,10 +238,10 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
         })
 
     except Exception as e:
-        logger.exception("Error in /symbol/%s/detail: %s", symbol, str(e))
+        logger.exception("Research failed for symbol=%s: %s", symbol, str(e))
         raise HTTPException(status_code=500, detail={
             "error_type": "SCANNER_ERROR",
-            "message": str(e),
+            "message": "Unable to load research. Please retry. If the issue persists, check your broker connection.",
             "action": "Check backend logs for details.",
         })
 

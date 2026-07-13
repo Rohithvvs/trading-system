@@ -33,9 +33,17 @@ export function CentralCommand() {
     };
     try {
       await placePaperOrder(ticket, crypto.randomUUID());
-      alert("Order placed successfully");
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "success", message: "Order placed successfully" },
+        }),
+      );
     } catch (err: any) {
-      alert("Order failed: " + err.message);
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "error", message: "Order failed", description: err.message },
+        }),
+      );
     }
   };
 

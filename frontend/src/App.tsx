@@ -1,17 +1,15 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
 
-import { fetchSavedScans, fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
+import { fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
-import { FilterBar } from "./components/FilterBar";
-import { isMarketOpenForDisplay, checkCanPlaceBuyOrder } from "./utils/tradingHours";
+import { isMarketOpenForDisplay, checkCanPlaceBuyOrder, showMarketClosedAlert } from "./utils/tradingHours";
 import { SummaryRow } from "./components/SummaryRow";
-import { InfrastructureStatus } from "./components/InfrastructureStatus";
 import type {
   CandidateRow,
   DashboardFilters,
-  MainAppView,
   RankingItem,
   RecommendationPrefillRequest,
   ScanHistoryItem,
@@ -19,12 +17,17 @@ import type {
   ScreenerResponse,
   SortKey,
   StockAnalysisResult,
-  ThemeMode,
 } from "./types";
 
 import { useAuth } from "./hooks/useAuth";
+import { useTheme } from "./hooks/useTheme";
 import { prefetchAppData } from "./utils/prefetchAppData";
 import { ChartSkeleton, PanelSkeleton } from "./components/Skeleton";
+import { AppShell } from "./layout/AppShell";
+import { EmptyState, useToast } from "./design-system";
+import { ScannerProgress } from "./components/ScannerProgress";
+import { AdminRoute } from "./components/AdminRoute";
+import FyersCallback from "./components/FyersCallback";
 
 /** Code-split heavy modules — shell/nav paint first */
 const PaperTradingPage = lazy(() =>
@@ -32,9 +35,6 @@ const PaperTradingPage = lazy(() =>
 );
 const UserProfilePage = lazy(() =>
   import("./components/profile/UserProfilePage").then((m) => ({ default: m.UserProfilePage })),
-);
-const WorkstationPage = lazy(() =>
-  import("./components/WorkstationPage").then((m) => ({ default: m.WorkstationPage })),
 );
 const SystemLogs = lazy(() =>
   import("./pages/SystemLogs").then((m) => ({ default: m.SystemLogs })),
@@ -45,10 +45,19 @@ const CentralCommand = lazy(() =>
 const StockDetailPanel = lazy(() =>
   import("./components/StockDetailPanel").then((m) => ({ default: m.StockDetailPanel })),
 );
+const MarketsPage = lazy(() =>
+  import("./pages/MarketsPage").then((m) => ({ default: m.MarketsPage })),
+);
+const WatchlistPage = lazy(() =>
+  import("./pages/WatchlistPage").then((m) => ({ default: m.WatchlistPage })),
+);
+const PerformancePage = lazy(() =>
+  import("./pages/PerformancePage").then((m) => ({ default: m.PerformancePage })),
+);
 
 function ViewFallback() {
   return (
-    <div className="dashboard-grid" style={{ padding: 16 }} aria-busy="true">
+    <div className="page-container" style={{ padding: 16 }} aria-busy="true">
       <PanelSkeleton title="Loading">
         <ChartSkeleton height={120} />
       </PanelSkeleton>
@@ -64,17 +73,14 @@ const DEFAULT_FILTERS: DashboardFilters = {
   onlyHighConfidence: false,
 };
 
-import { ScannerProgress } from "./components/ScannerProgress";
-
 export default function App() {
-  const [mainView, setMainView] = useState<MainAppView>(() => {
-    if (window.location.pathname === "/logs") return "logs";
-    if (window.location.pathname === "/profile") return "profile";
-    return "home";
-  });
-  const [theme, setTheme] = useState<ThemeMode>("dark");
-  const { user, logout } = useAuth();
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const symbolParam = searchParams.get("symbol");
+
   const [timeframe, setTimeframe] = useState("1d");
   const [lookback, setLookback] = useState(180);
   const [topN, setTopN] = useState(20);
@@ -91,27 +97,38 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
 
-
-  // Streaming Progress State
   const [progressStage, setProgressStage] = useState("Initializing...");
   const [progressPercent, setProgressPercent] = useState(0);
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+  const universesMapped = useMemo(
+    () => universes.map(({ name, count }) => ({ name, count })),
+    [universes],
+  );
 
-  // Warm app cache after login so tabs open near-instantly
+  const handleSearchChange = useCallback(
+    (value: string) => setFilters((current) => ({ ...current, search: value })),
+    [],
+  );
+
+  const handleSelectSymbol = useCallback(
+    (symbol: string) => {
+      setSelectedSymbol(symbol);
+      setDetailViewOpen(true);
+      navigate(`/scanner?symbol=${encodeURIComponent(symbol)}`, { replace: true });
+    },
+    [navigate],
+  );
+
+  const handleDetailBack = useCallback(() => {
+    setDetailViewOpen(false);
+    navigate("/scanner", { replace: true });
+  }, [navigate]);
+
+  // Warm app cache after login
   useEffect(() => {
     if (user?.id) prefetchAppData();
   }, [user?.id]);
-
-  useEffect(() => {
-    const nextPath = mainView === "logs" ? "/logs" : mainView === "profile" ? "/profile" : "/";
-    if (window.location.pathname !== nextPath) {
-      window.history.replaceState(null, "", nextPath);
-    }
-  }, [mainView]);
 
   useEffect(() => {
     function loadAndApply() {
@@ -121,17 +138,13 @@ export default function App() {
       });
     }
 
-    // Initial load on mount
     loadAndApply();
 
-    // 30 minute polling interval
     const intervalId = setInterval(() => {
       const status = getMarketStatus();
       if (status === "Open") {
         console.info("[scanner] 30-min auto-polling new cached scan...");
         loadAndApply();
-      } else {
-        console.info("[scanner] Auto-poll skipped (Market is closed)");
       }
     }, 30 * 60 * 1000);
 
@@ -142,22 +155,27 @@ export default function App() {
     void fetchUniverses().then(setUniverses).catch((err) => console.warn("Failed to load universes", err));
   }, []);
 
+  // Deep-link: /scanner?symbol=RELIANCE opens stock detail
+  useEffect(() => {
+    if (symbolParam) {
+      setSelectedSymbol(symbolParam.toUpperCase());
+      setDetailViewOpen(true);
+    }
+  }, [symbolParam]);
+
   const marketStatus = useMemo(() => getMarketStatus(), []);
   const analysisItems = screenerResult?.analysis?.items ?? [];
-  const shortlistRows = useMemo(
-    () => buildCandidateRows(screenerResult),
-    [screenerResult],
-  );
+  const shortlistRows = useMemo(() => buildCandidateRows(screenerResult), [screenerResult]);
 
   const filteredRows = useMemo(() => {
     const searchTerm = filters.search.trim().toUpperCase();
     return shortlistRows
       .filter((row) => {
-        if (filters.signal === 'ALL') return true;
-        const sig = (row.signal || '').toLowerCase().trim();
-        if (filters.signal === 'BUY')    return sig === 'buy'    || sig === 'bullish';
-        if (filters.signal === 'WATCH')  return sig === 'watch'  || sig === 'neutral' || sig === 'sideways';
-        if (filters.signal === 'REJECT') return sig === 'reject' || sig === 'bearish' || sig === 'sell';
+        if (filters.signal === "ALL") return true;
+        const sig = (row.signal || "").toLowerCase().trim();
+        if (filters.signal === "BUY") return sig === "buy" || sig === "bullish";
+        if (filters.signal === "WATCH") return sig === "watch" || sig === "neutral" || sig === "sideways";
+        if (filters.signal === "REJECT") return sig === "reject" || sig === "bearish" || sig === "sell";
         return true;
       })
       .filter((row) => row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1])
@@ -167,42 +185,48 @@ export default function App() {
   }, [filters, shortlistRows]);
 
   const selectedRow = useMemo(() => {
-    if (!filteredRows.length) {
-      return null;
-    }
+    if (!filteredRows.length) return null;
     return filteredRows.find((row) => row.symbol === selectedSymbol) ?? filteredRows[0];
   }, [filteredRows, selectedSymbol]);
 
   const summaryMetrics = useMemo(() => {
-    const shortlistedCount = screenerResult?.shortlisted_symbols.length ?? 0;
+    const favoritesCount = screenerResult?.shortlisted_symbols.length ?? 0;
     const buyCount = screenerResult?.buy_candidate_symbols.length ?? 0;
     const watchCount = screenerResult?.watch_candidate_symbols.length ?? 0;
-    const rejectedCount = Math.max(shortlistedCount - buyCount - watchCount, 0);
+    const rejectedCount = Math.max(favoritesCount - buyCount - watchCount, 0);
 
     return [
-      { label: "Total scanned", value: screenerResult?.scanned_symbols ?? "--", helper: "Stocks checked in the Nifty 500 universe." },
-      { label: "Data valid", value: screenerResult?.data_valid_symbols?.length ?? "--", helper: "Names with enough clean OHLCV history for scoring." },
-      { label: "Broad trend matched", value: screenerResult?.eligible_symbols?.length ?? "--", helper: "Names passing the broad trend gate.", tone: "positive" as const },
-      { label: "Shortlisted", value: shortlistedCount || "--", helper: "Top set moved into deeper analysis." },
-      { label: "BUY candidates", value: buyCount || "--", helper: "Actionable swing ideas right now.", tone: "positive" as const },
-      { label: "WATCH candidates", value: watchCount || "--", helper: "Promising names needing cleaner confirmation.", tone: "warning" as const },
-      { label: "Rejected", value: rejectedCount || "--", helper: "Shortlisted names that failed final recommendation.", tone: "negative" as const },
+      { label: "Total scanned", value: screenerResult?.scanned_symbols ?? "--", helper: "Stocks checked in the universe." },
+      { label: "Data valid", value: screenerResult?.data_valid_symbols?.length ?? "--", helper: "Names with enough clean OHLCV history." },
+      { label: "Trend matched", value: screenerResult?.eligible_symbols?.length ?? "--", helper: "Names passing the broad trend gate.", tone: "positive" as const },
+      { label: "Favorites", value: favoritesCount || "--", helper: "Top set moved into deeper analysis." },
+      { label: "BUY ideas", value: buyCount || "--", helper: "Actionable swing ideas right now.", tone: "positive" as const },
+      { label: "WATCH ideas", value: watchCount || "--", helper: "Promising names needing confirmation.", tone: "warning" as const },
+      { label: "Rejected", value: rejectedCount || "--", helper: "Names that failed final recommendation.", tone: "negative" as const },
     ];
   }, [screenerResult]);
 
-  async function handleRunScanner() {
+  const applyScanResult = useCallback((response: ScreenerResponse, _source: "fresh" | "restored") => {
+    response.shortlisted_symbols = response.shortlisted_symbols || [];
+    response.buy_candidate_symbols = response.buy_candidate_symbols || [];
+    response.watch_candidate_symbols = response.watch_candidate_symbols || [];
+
+    setScreenerResult(response);
+    setScanHistory((current) => saveScanHistory(response, current));
+    setSelectedSymbol(
+      response.shortlisted_symbols[0] ?? response.buy_candidate_symbols[0] ?? response.watch_candidate_symbols[0] ?? null,
+    );
+    setDetailViewOpen(false);
+  }, []);
+
+  const handleRunScanner = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    setProgressStage("Authenticating & Waking Agents...");
+    setProgressStage("Connecting data feed...");
     setProgressPercent(0);
     setScanStartTime(Date.now());
 
     try {
-      console.info("[scanner] handleRunScanner triggered", {
-        timeframe,
-        lookback,
-        topN,
-      });
       const response = await runPresetScreener(
         "swing",
         {
@@ -215,18 +239,11 @@ export default function App() {
         (stage, progress) => {
           setProgressStage(stage);
           setProgressPercent(progress);
-        }
+        },
       );
 
-      console.info("[scanner] storing scanner result", {
-        scanned: response.scanned_symbols,
-        shortlisted: response.shortlisted_symbols.length,
-        buy: response.buy_candidate_symbols.length,
-        watch: response.watch_candidate_symbols.length,
-        visibleAnalysisItems: response.analysis?.items.length ?? 0,
-      });
-
       applyScanResult(response, "fresh");
+      toast.success("Scan complete", `${response.buy_candidate_symbols?.length ?? 0} BUY · ${response.watch_candidate_symbols?.length ?? 0} WATCH`);
     } catch (requestError: any) {
       console.error("[scanner] scanner request failed", requestError);
       const detail = requestError?.response?.data?.detail || requestError?.detail || null;
@@ -234,46 +251,54 @@ export default function App() {
       let errorMessage = "Scanner failed. Please try again.";
 
       if (detail?.error_type === "FYERS_TOKEN_EXPIRED") {
-        errorMessage = "🔴 Fyers Access Token Expired — Please re-authenticate with Fyers and restart the backend.";
+        errorMessage = "Broker session expired — reconnect your broker and try again.";
       } else if (detail?.error_type === "FYERS_TOKEN_INVALID") {
-        errorMessage = "🔴 Fyers Token Invalid — Your Fyers API credentials are wrong. Check your config file.";
+        errorMessage = "Broker credentials invalid — check your connection settings.";
       } else if (detail?.error_type === "FYERS_RATE_LIMIT") {
-        errorMessage = "⚠️ Fyers Rate Limit Hit — Please wait 60 seconds and try again.";
+        errorMessage = "Rate limit hit — wait about 60 seconds and try again.";
       } else if (detail?.error_type === "FYERS_API_ERROR") {
-        errorMessage = `🔴 Fyers API Error — ${detail.message}`;
+        errorMessage = `Broker error — ${detail.message}`;
       } else if (detail?.message) {
-        errorMessage = `❌ Error: ${detail.message}`;
+        errorMessage = detail.message;
       } else if (typeof requestError?.message === "string") {
-        errorMessage = `❌ ${requestError.message}`;
+        errorMessage = requestError.message;
       }
 
       setError(errorMessage);
+      toast.error("Scan failed", errorMessage);
       setScanStartTime(null);
     } finally {
-      console.info("[scanner] handleRunScanner completed");
       setIsLoading(false);
       setScanStartTime(null);
     }
-  }
+  }, [timeframe, lookback, selectedUniverse, universes, topN, toast, applyScanResult]);
 
   async function handleSaveCurrentScan() {
     const name = savedScanName.trim() || `${selectedUniverse} ${timeframe} scan`;
-    await saveScannerPreset({
-      name,
-      mode: "swing",
-      timeframe,
-      lookback_window: lookback,
-      top_n: topN,
-      universe: selectedUniverse,
-      symbols: selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
-      filters,
-    });
-    setSavedScanName("");
+    try {
+      await saveScannerPreset({
+        name,
+        mode: "swing",
+        timeframe,
+        lookback_window: lookback,
+        top_n: topN,
+        universe: selectedUniverse,
+        symbols: selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
+        filters,
+      });
+      setSavedScanName("");
+      toast.success("Scan saved", name);
+    } catch (e: any) {
+      toast.error("Could not save scan", e?.message);
+    }
   }
 
   function handleExportCsv() {
     const rows = screenerResult?.all_analyzed_stocks?.length ? screenerResult.all_analyzed_stocks : screenerResult?.matches ?? [];
-    if (!rows.length) return;
+    if (!rows.length) {
+      toast.info("Nothing to export yet");
+      return;
+    }
     const headers = ["symbol", "close", "screener_score", "technical_signal", "matched", "volume"];
     const csv = [headers.join(","), ...rows.map((row: any) => headers.map((key) => JSON.stringify(row[key] ?? "")).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -283,6 +308,7 @@ export default function App() {
     link.download = `scan-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+    toast.success("CSV exported");
   }
 
   function loadSavedScan(scan: any) {
@@ -290,28 +316,15 @@ export default function App() {
     setTimeframe(scan.timeframe ?? "1d");
     setLookback(scan.lookback_window ?? 180);
     setTopN(scan.top_n ?? 20);
-    setMainView("scanner");
+    navigate("/scanner");
   }
 
-  function applyScanResult(response: ScreenerResponse, source: "fresh" | "restored") {
-    // Sanitize backend response to prevent undefined errors
-    response.shortlisted_symbols = response.shortlisted_symbols || [];
-    response.buy_candidate_symbols = response.buy_candidate_symbols || [];
-    response.watch_candidate_symbols = response.watch_candidate_symbols || [];
-    
-    setScreenerResult(response);
-    setScanHistory((current) => saveScanHistory(response, current));
-    setSelectedSymbol(response.shortlisted_symbols[0] ?? response.buy_candidate_symbols[0] ?? response.watch_candidate_symbols[0] ?? null);
-    setDetailViewOpen(false);
-  }
-
-  function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null) {
-    // Prevent initiating BUY flow from scanner when market closed (no request will be made later)
+  const sendRowToPaperTrading = useCallback((row: CandidateRow, suggestedEntry?: number | null) => {
     const sig = (row as any).signal || (row as any).recommendation;
     if (sig === "BUY") {
       const check = checkCanPlaceBuyOrder();
       if (!check.allowed) {
-        import("./utils/tradingHours").then(({ showMarketClosedAlert }) => showMarketClosedAlert(check));
+        showMarketClosedAlert(check);
         return;
       }
     }
@@ -320,193 +333,90 @@ export default function App() {
       ...prefill,
       suggested_entry: suggestedEntry ?? prefill.suggested_entry,
     });
-    setMainView("paper-trading");
-  }
+    navigate("/paper");
+  }, [navigate]);
 
-  return (
-    <div className="app-shell">
-      <div className="main-nav-bar">
-        <div className="main-nav-inner">
-          <button data-testid="nav-scanner" type="button" className={`main-nav-tab ${mainView === "scanner" ? "is-active" : ""}`} onClick={() => setMainView("scanner")}>
-            Scanner
-          </button>
-          <button data-testid="nav-home" type="button" className={`main-nav-tab ${mainView === "home" ? "is-active" : ""}`} onClick={() => setMainView("home")}>
-            Home
-          </button>
-          <button data-testid="nav-central-command" type="button" className={`main-nav-tab ${mainView === "central_command" ? "is-active" : ""}`} onClick={() => setMainView("central_command")}>
-            Central Command
-          </button>
-          <button data-testid="nav-paper-trading" type="button" className={`main-nav-tab ${mainView === "paper-trading" ? "is-active" : ""}`} onClick={() => setMainView("paper-trading")}>
-            Paper Trading
-          </button>
-          <span className="main-nav-spacer" />
-          <button data-testid="nav-system-logs" type="button" className={`main-nav-tab ${mainView === "logs" ? "is-active" : ""}`} onClick={() => setMainView("logs")}>
-            System Logs
-          </button>
-          <InfrastructureStatus />
-          <div className="nav-profile-wrap">
-            <button
-              type="button"
-              data-testid="nav-profile"
-              className={`main-nav-tab nav-profile-btn ${mainView === "profile" ? "is-active" : ""}`}
-              onClick={() => setProfileMenuOpen((o) => !o)}
-              aria-expanded={profileMenuOpen}
-            >
-              <span className="nav-avatar" aria-hidden>
-                {(user?.full_name || user?.email || "U").slice(0, 1).toUpperCase()}
-              </span>
-              <span className="nav-profile-label">{user?.full_name?.split(" ")[0] || "Profile"}</span>
-            </button>
-            {profileMenuOpen ? (
-              <div className="nav-profile-menu" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMainView("profile");
-                    setProfileMenuOpen(false);
-                  }}
-                >
-                  User Profile
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMainView("paper-trading");
-                    setProfileMenuOpen(false);
-                  }}
-                >
-                  Paper Trading
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="danger"
-                  onClick={() => {
-                    setProfileMenuOpen(false);
-                    logout();
-                  }}
-                >
-                  Sign out
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      {mainView === "profile" ? (
+  const scannerView =
+    detailViewOpen && selectedRow ? (
+      <main className="page-container detail-screen-layout">
         <Suspense fallback={<ViewFallback />}>
-          <UserProfilePage
-            onNavigate={(view) => {
-              if (view === "scanner") setMainView("scanner");
-              else if (view === "paper-trading") setMainView("paper-trading");
-              else setMainView("home");
-            }}
+          <StockDetailPanel
+            row={selectedRow}
+            onBack={handleDetailBack}
+            onSendToPaperTrading={sendRowToPaperTrading}
           />
         </Suspense>
-      ) : mainView === "central_command" ? (
-        <Suspense fallback={<ViewFallback />}>
-          <CentralCommand />
-        </Suspense>
-      ) : mainView === "scanner" ? (
+      </main>
+    ) : (
+      <>
         <DashboardHeader
           isLoading={isLoading}
           lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
-
           marketStatus={marketStatus}
           search={filters.search}
-          onSearchChange={(value) => setFilters((current) => ({ ...current, search: value }))}
+          onSearchChange={handleSearchChange}
           onRunScanner={handleRunScanner}
           topN={topN}
           lookback={lookback}
           timeframe={timeframe}
           universe={selectedUniverse}
-          universes={universes.map(({ name, count }) => ({ name, count }))}
+          universes={universesMapped}
           onTopNChange={setTopN}
           onLookbackChange={setLookback}
           onTimeframeChange={setTimeframe}
           onUniverseChange={setSelectedUniverse}
           theme={theme}
-          onThemeToggle={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+          onThemeToggle={toggleTheme}
         />
-      ) : null}
 
-      {mainView === "profile" ? null : (
-      <div className="app-main-scroll">
-        {mainView === "logs" ? (
-          <Suspense fallback={<ViewFallback />}>
-            <SystemLogs />
-          </Suspense>
-        ) : mainView === "home" ? (
-          <Suspense fallback={<ViewFallback />}>
-            <WorkstationPage onLoadSavedScan={loadSavedScan} />
-          </Suspense>
-        ) : mainView === "paper-trading" ? (
-          <div className="dashboard-grid">
-            <Suspense fallback={<ViewFallback />}>
-              <PaperTradingPage
-                recommendationPrefill={paperTradingPrefill}
-                onPrefillConsumed={() => setPaperTradingPrefill(null)}
-                scannerCandidates={shortlistRows}
-                lastScanAt={screenerResult?.analysis?.generated_at ?? null}
-              />
-            </Suspense>
-          </div>
-        ) : detailViewOpen && selectedRow ? (
-          <main className="detail-screen-layout">
-            <Suspense fallback={<ViewFallback />}>
-              <StockDetailPanel
-                row={selectedRow}
-                onBack={() => setDetailViewOpen(false)}
-                onSendToPaperTrading={(row, suggestedEntry) => {
-                  sendRowToPaperTrading(row, suggestedEntry);
-                }}
-              />
-            </Suspense>
-          </main>
-        ) : (
-          <main className="dashboard-grid">
+        <main className="page-container scanner-layout">
+          <div className="scanner-center">
+            <div className="scanner-status-bar">
+              <span className={`ds-status-pill ds-status-pill--${marketStatus === "Open" ? "online" : "offline"}`}>
+                <span className="ds-status-pill__dot" aria-hidden />
+                Market {marketStatus === "Open" ? "open" : "closed"}
+              </span>
+              <span className={`ds-status-pill ds-status-pill--${screenerResult ? "online" : "idle"}`}>
+                <span className="ds-status-pill__dot" aria-hidden />
+                {isLoading ? "Scanning…" : screenerResult ? "Scan ready" : "Awaiting scan"}
+              </span>
+              <span className="ds-caption scanner-status-bar__meta">
+                {selectedUniverse} · {timeframe}
+                {screenerResult?.scanned_symbols != null ? ` · ${screenerResult.scanned_symbols} scanned` : ""}
+              </span>
+            </div>
             <SummaryRow metrics={summaryMetrics} />
 
             {screenerResult?.data_warning ? (
               <section className="panel warning-box">
-                <strong>Data source warning</strong>
+                <strong>Data feed notice</strong>
                 <p>{screenerResult.data_warning}</p>
               </section>
             ) : null}
 
-            {!showAllAnalyzedStocks ? <FilterBar filters={filters} onChange={setFilters} /> : null}
-
-            <section className="panel scanner-actions">
-              <label className="inline-field">
-                <span>Save scan name</span>
-                <input placeholder="Momentum pullback scan" value={savedScanName} onChange={(event) => setSavedScanName(event.target.value)} />
-              </label>
-              <button type="button" className="button ghost-button" onClick={() => void handleSaveCurrentScan()}>Save Scan</button>
-              <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
-            </section>
-
-            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+            <div className="scanner-result-tabs" role="tablist" aria-label="Result views">
               <button
                 type="button"
-                className={`button ${!showAllAnalyzedStocks ? "primary-button" : ""}`}
+                role="tab"
+                aria-selected={!showAllAnalyzedStocks}
+                className={`button ${!showAllAnalyzedStocks ? "primary-button" : "ghost-button"}`}
                 onClick={() => setShowAllAnalyzedStocks(false)}
               >
-                Shortlisted ({screenerResult?.shortlisted_symbols.length ?? 0})
+                Favorites ({screenerResult?.shortlisted_symbols.length ?? 0})
               </button>
               <button
                 type="button"
-                className={`button ${showAllAnalyzedStocks ? "primary-button" : ""}`}
+                role="tab"
+                aria-selected={showAllAnalyzedStocks}
+                className={`button ${showAllAnalyzedStocks ? "primary-button" : "ghost-button"}`}
                 onClick={() => setShowAllAnalyzedStocks(true)}
               >
-                All Analyzed ({screenerResult?.all_analyzed_stocks?.length ?? 0})
+                Scan results ({screenerResult?.all_analyzed_stocks?.length ?? 0})
               </button>
             </div>
 
             {isLoading ? (
-              <ScannerProgress 
+              <ScannerProgress
                 stage={progressStage}
                 progress={progressPercent}
                 error={error}
@@ -516,86 +426,151 @@ export default function App() {
             ) : null}
 
             {error ? (
-              <div style={{
-                background: "#fee2e2",
-                border: "1px solid #f87171",
-                borderRadius: "8px",
-                padding: "12px 16px",
-                color: "#991b1b",
-                fontWeight: 600,
-                fontSize: "14px",
-                margin: "12px 0"
-              }}>
-                <div>{error}</div>
-                <div style={{ marginTop: 8 }}>
-                  <button type="button" className="button primary-button" onClick={handleRunScanner}>
-                    Retry scan
-                  </button>
-                </div>
-              </div>
+              <section className="panel error-state" role="alert">
+                <h2 className="ds-title">Scan failed</h2>
+                <p>{error}</p>
+                <button type="button" className="button primary-button" onClick={handleRunScanner} style={{ marginTop: 12 }}>
+                  Retry scan
+                </button>
+              </section>
             ) : null}
 
             {!isLoading && !error ? (
               showAllAnalyzedStocks ? (
                 <AllAnalyzedStocksTable stocks={screenerResult?.all_analyzed_stocks ?? []} />
-              ) : (
+              ) : filteredRows.length ? (
                 <CandidateTable
                   rows={filteredRows}
                   selectedSymbol={selectedRow?.symbol ?? null}
-                  onSelect={(symbol) => {
-                    setSelectedSymbol(symbol);
-                    setDetailViewOpen(true);
-                  }}
-                  onBuy={(row) => sendRowToPaperTrading(row)}
+                  onSelect={handleSelectSymbol}
+                  onBuy={sendRowToPaperTrading}
                 />
-              )
+              ) : screenerResult ? (
+                <EmptyState
+                  title="No matches for these filters"
+                  description="Adjust signal, score range, or search to see more results."
+                  primaryAction={{ label: "Modify filters", onClick: () => setFilters(DEFAULT_FILTERS), variant: "secondary" }}
+                />
+              ) : null
             ) : null}
 
             {!screenerResult && !isLoading && !error ? (
-              <section className="panel empty-state intro-state">
-                <h2>Ready for the next scan</h2>
-                <p>This dashboard is built for one workflow: scan the Nifty 500, shortlist the best swing candidates, and inspect one stock in execution-ready detail.</p>
-                <div className="intro-grid">
-                  <article>
-                    <strong>1. Run scanner</strong>
-                    <p>Pull fresh data, validate it, and score the universe.</p>
-                  </article>
-                  <article>
-                    <strong>2. Review shortlist</strong>
-                    <p>Filter BUY, WATCH, and REJECT outcomes in one table.</p>
-                  </article>
-                  <article>
-                    <strong>3. Open a stock</strong>
-                    <p>Click the stock row to open a dedicated full-detail review screen.</p>
-                  </article>
-                </div>
-              </section>
+              <EmptyState
+                title="Ready for the next scan"
+                description="Scan the market, review favorites, and open a stock for execution-ready detail."
+                primaryAction={{ label: "Run scanner", onClick: () => void handleRunScanner(), variant: "trade" }}
+              />
             ) : null}
 
             {screenerResult ? (
               <section className="panel footer-note">
                 <p>
-                  <strong>{screenerResult.screener_name}</strong> is advisory only. The dashboard prioritizes usability and explainability, but you still make the final manual trading decision.
+                  <strong>{screenerResult.screener_name}</strong> is advisory only. You make the final trading decision.
                 </p>
                 <p>
-                  Sample rows: {analysisItems.length} analyzed | {filteredRows.length} visible after filters.
+                  Sample rows: {analysisItems.length} analyzed · {filteredRows.length} visible after filters.
                 </p>
               </section>
             ) : null}
+          </div>
+        </main>
+      </>
+    );
 
-            <ScanHistoryPanel
-              history={scanHistory}
-            />
-          </main>
-        )}
-      </div>
-      )}
+  const paperDeskView = (
+    <div className="page-container page-container--wide">
+      <Suspense fallback={<ViewFallback />}>
+        <PaperTradingPage
+          recommendationPrefill={paperTradingPrefill}
+          onPrefillConsumed={() => setPaperTradingPrefill(null)}
+          scannerCandidates={shortlistRows}
+          lastScanAt={screenerResult?.analysis?.generated_at ?? null}
+          retailMode
+        />
+      </Suspense>
     </div>
+  );
+
+  const profileView = (
+    <Suspense fallback={<ViewFallback />}>
+      <UserProfilePage
+        retailMode
+        onNavigate={(view) => {
+          if (view === "scanner") navigate("/scanner");
+          else if (view === "paper-trading") navigate("/paper");
+          else navigate("/markets");
+        }}
+      />
+    </Suspense>
+  );
+
+  return (
+    <AppShell>
+      <Suspense fallback={<ViewFallback />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/scanner" replace />} />
+          <Route path="/home" element={<Navigate to="/scanner" replace />} />
+          <Route
+            path="/markets"
+            element={
+              <Suspense fallback={<ViewFallback />}>
+                <MarketsPage onLoadSavedScan={loadSavedScan} />
+              </Suspense>
+            }
+          />
+          <Route path="/scanner" element={scannerView} />
+          <Route
+            path="/watchlist"
+            element={
+              <Suspense fallback={<ViewFallback />}>
+                <WatchlistPage />
+              </Suspense>
+            }
+          />
+          <Route path="/paper" element={paperDeskView} />
+          <Route path="/paper/:section" element={paperDeskView} />
+          <Route
+            path="/performance"
+            element={
+              <Suspense fallback={<ViewFallback />}>
+                <PerformancePage />
+              </Suspense>
+            }
+          />
+          <Route path="/profile" element={profileView} />
+          <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
+          <Route
+            path="/admin/logs"
+            element={
+              <AdminRoute>
+                <Suspense fallback={<ViewFallback />}>
+                  <SystemLogs />
+                </Suspense>
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/command"
+            element={
+              <AdminRoute>
+                <Suspense fallback={<ViewFallback />}>
+                  <CentralCommand />
+                </Suspense>
+              </AdminRoute>
+            }
+          />
+          <Route path="/fyers/callback" element={<FyersCallback />} />
+          <Route path="*" element={<Navigate to="/scanner" replace />} />
+        </Routes>
+      </Suspense>
+    </AppShell>
   );
 }
 
 function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillRequest {
-  const plan = row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ?? row.analysisItem?.recommendation.trade_plans[0];
+  const plan =
+    row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ??
+    row.analysisItem?.recommendation.trade_plans[0];
   return {
     symbol: row.symbol,
     suggested_entry: plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow,
@@ -610,9 +585,7 @@ function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillReque
 }
 
 function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateRow[] {
-  if (!screenerResult) {
-    return [];
-  }
+  if (!screenerResult) return [];
 
   const analysisBySymbol = new Map<string, StockAnalysisResult>();
   const matchBySymbol = new Map<string, ScreenerConditionResult>();
@@ -632,7 +605,9 @@ function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateR
     const analysis = analysisBySymbol.get(symbol);
     const match = matchBySymbol.get(symbol);
     const ranking = rankingBySymbol.get(symbol);
-    const plan = analysis?.recommendation.trade_plans.find((item) => item.mode === "swing") ?? analysis?.recommendation.trade_plans[0];
+    const plan =
+      analysis?.recommendation.trade_plans.find((item) => item.mode === "swing") ??
+      analysis?.recommendation.trade_plans[0];
     const technical = analysis?.technical.find((item) => item.mode === "swing") ?? analysis?.technical[0];
 
     let signal: CandidateRow["signal"] = "REJECT";
@@ -697,53 +672,10 @@ function saveScanHistory(response: ScreenerResponse, current: ScanHistoryItem[])
   return next;
 }
 
-function ScanHistoryPanel({
-  history,
-}: {
-  history: ScanHistoryItem[];
-}) {
-  if (!history.length) {
-    return null;
-  }
-  return (
-    <section className="panel scan-history-panel">
-      <div className="panel-header">
-        <div>
-          <p className="section-label">Scan history</p>
-          <h2>Recent scanner snapshots</h2>
-        </div>
-      </div>
-      <div className="scan-history-list">
-        {history.slice(0, 5).map((item) => (
-          <article key={item.id} className="scan-history-item">
-            <div>
-              <strong>{new Date(item.generated_at).toLocaleString()}</strong>
-              <p>{item.shortlisted_count} shortlisted from {item.scanned_symbols} scanned | source {item.data_source ?? "unknown"}</p>
-            </div>
-            <div className="scan-history-symbols">
-              {[...item.buy_symbols, ...item.watch_symbols].slice(0, 6).map((symbol) => (
-                <span key={`${item.id}-${symbol}`} className="helper-chip">
-                  {symbol}
-                </span>
-              ))}
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function compareRows(left: CandidateRow, right: CandidateRow, sortBy: SortKey) {
-  if (sortBy === "rank") {
-    return (left.rank ?? 999) - (right.rank ?? 999);
-  }
-  if (sortBy === "confidence") {
-    return (right.confidence ?? -1) - (left.confidence ?? -1);
-  }
-  if (sortBy === "riskReward") {
-    return (right.riskReward ?? -1) - (left.riskReward ?? -1);
-  }
+  if (sortBy === "rank") return (left.rank ?? 999) - (right.rank ?? 999);
+  if (sortBy === "confidence") return (right.confidence ?? -1) - (left.confidence ?? -1);
+  if (sortBy === "riskReward") return (right.riskReward ?? -1) - (left.riskReward ?? -1);
   return right.score - left.score;
 }
 
@@ -764,9 +696,7 @@ function formatMomentum(
   technical: StockAnalysisResult["technical"][number] | undefined,
   match: ScreenerConditionResult | undefined,
 ) {
-  if (!technical && !match) {
-    return "n/a";
-  }
+  if (!technical && !match) return "n/a";
   const macdPositive = technical ? Boolean(technical.indicators.macd_positive) : Boolean(match?.conditions.macd_positive);
   const rsiSupportive = technical ? Boolean(technical.indicators.rsi_supportive) : true;
   return macdPositive && rsiSupportive ? "supported" : macdPositive ? "mixed" : "weak";
@@ -781,9 +711,7 @@ function formatVolume(
     const expanding = Boolean(technical.indicators.volume_above_previous_day);
     return liquid && expanding ? "expanding" : liquid ? "adequate" : "thin";
   }
-  if (!match) {
-    return "n/a";
-  }
+  if (!match) return "n/a";
   return match.conditions.volume_above_previous_day ? "expanding" : "adequate";
 }
 

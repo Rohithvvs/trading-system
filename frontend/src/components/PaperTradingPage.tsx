@@ -6,6 +6,9 @@ import { apiUrl } from '../config';
 const DailyAnalyticsPanel = lazy(() =>
   import("./DailyAnalyticsPanel").then((m) => ({ default: m.DailyAnalyticsPanel })),
 );
+const AnalyticsPanel = lazy(() =>
+  import("./AnalyticsPanel").then((m) => ({ default: m.AnalyticsPanel })),
+);
 
 import {
   cancelPaperOrder,
@@ -27,7 +30,6 @@ import {
   squareOffAllPositions,
   fetchUnreadNotifications,
   markNotificationsRead,
-  fetchAnalytics,
   fetchAlerts,
   createAlert,
   deleteAlert,
@@ -145,9 +147,21 @@ type PaperTradingPageProps = {
   onPrefillConsumed?: () => void;
   scannerCandidates?: CandidateRow[];
   lastScanAt?: string | null;
+  /** Hide engine/token/ops controls for retail users */
+  retailMode?: boolean;
 };
 
 type PaperPanelTab = "positions" | "orders" | "history" | "analytics" | "daily-analytics" | "alerts" | "account";
+
+const VALID_PAPER_TABS: PaperPanelTab[] = [
+  "positions",
+  "orders",
+  "history",
+  "analytics",
+  "daily-analytics",
+  "alerts",
+  "account",
+];
 
 // Chart.js global loaded from CDN
 declare const Chart: any;
@@ -167,21 +181,45 @@ const DEFAULT_TICKET: PaperOrderTicketState = {
   sourceConfidence: null,
 };
 
+function readPaperTabFromUrl(): PaperPanelTab {
+  try {
+    const path = window.location.pathname;
+    const section = path.match(/\/paper\/([^/]+)/)?.[1];
+    if (section && VALID_PAPER_TABS.includes(section as PaperPanelTab)) {
+      return section as PaperPanelTab;
+    }
+    const q = new URLSearchParams(window.location.search).get("tab");
+    if (q && VALID_PAPER_TABS.includes(q as PaperPanelTab)) return q as PaperPanelTab;
+  } catch {
+    /* ignore */
+  }
+  return "positions";
+}
+
 export function PaperTradingPage({
   recommendationPrefill,
   onPrefillConsumed,
   scannerCandidates = [],
   lastScanAt = null,
+  retailMode = false,
 }: PaperTradingPageProps) {
   // Insert TokenStatus panel in account tab when active
-  const initialSymbol = recommendationPrefill?.symbol ?? scannerCandidates[0]?.symbol ?? DEFAULT_TICKET.symbol;
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const urlSymbol = urlParams?.get("symbol");
+  const urlSide = urlParams?.get("side");
+  const initialSymbol =
+    recommendationPrefill?.symbol ?? urlSymbol ?? scannerCandidates[0]?.symbol ?? DEFAULT_TICKET.symbol;
   // Instant shell: seed from cache so header/tabs/metrics paint immediately
   const [dashboard, setDashboard] = useState<PaperTradingDashboardResponse | null>(
     () => getCached<PaperTradingDashboardResponse>(CACHE_KEYS.paperDashboard) ?? getCached(CACHE_KEYS.paperDashboardSymbol(initialSymbol)),
   );
   const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol);
-  const [ticket, setTicket] = useState<PaperOrderTicketState>({ ...DEFAULT_TICKET, symbol: initialSymbol });
-  const [listTab, setListTab] = useState<PaperPanelTab>("positions");
+  const [ticket, setTicket] = useState<PaperOrderTicketState>({
+    ...DEFAULT_TICKET,
+    symbol: initialSymbol,
+    side: urlSide === "SELL" ? "SELL" : "BUY",
+  });
+  const [listTab, setListTab] = useState<PaperPanelTab>(() => readPaperTabFromUrl());
   const [resetBalance, setResetBalance] = useState(1000000);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +230,6 @@ export function PaperTradingPage({
   );
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
-  const [toasts, setToasts] = useState<Array<{ id: number; message: string; level: string }>>([]);
   const [engineStatus, setEngineStatus] = useState<MarketEngineStatus | null>(
     () => getCached(CACHE_KEYS.marketEngineStatus),
   );
@@ -202,7 +239,18 @@ export function PaperTradingPage({
   const [lastSuccessfulHealthPoll, setLastSuccessfulHealthPoll] = useState<number | null>(null);
   const [healthPollErrorCount, setHealthPollErrorCount] = useState<number>(0);
   const [selectedTrade, setSelectedTrade] = useState<PaperTradeHistoryItem | null>(null);
+  const [confirmAction, setConfirmAction] = useState<null | "reset" | "square-off">(null);
   const seenNotifications = useRef<Set<number>>(new Set());
+
+  // Keep tab in URL for deep links / refresh
+  useEffect(() => {
+    if (!window.location.pathname.startsWith("/paper")) return;
+    const desired = listTab === "positions" ? "/paper" : `/paper/${listTab}`;
+    const full = `${desired}${window.location.search || ""}`;
+    if (window.location.pathname + window.location.search !== full) {
+      window.history.replaceState(null, "", full);
+    }
+  }, [listTab]);
 
   // Check for offline gap replay after initial dashboard load.
   async function checkGapReplay() {
@@ -794,7 +842,11 @@ export function PaperTradingPage({
   }
 
   async function handleSquareOffAll() {
-    if (!confirm("Square off ALL positions?")) return;
+    setConfirmAction("square-off");
+  }
+
+  async function executeSquareOffAll() {
+    setConfirmAction(null);
     setIsBusy(true);
     try {
       const resp = await squareOffAllPositions();
@@ -802,6 +854,21 @@ export function PaperTradingPage({
       setStatusMessage("All positions squared off.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to square off all positions.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function executeReset() {
+    setConfirmAction(null);
+    setIsBusy(true);
+    setError(null);
+    try {
+      const response = await resetPaperTradingAccount(resetBalance);
+      setDashboard(response);
+      setStatusMessage(`Paper account reset to ₹${resetBalance.toLocaleString("en-IN")}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to reset account.");
     } finally {
       setIsBusy(false);
     }
@@ -845,8 +912,16 @@ export function PaperTradingPage({
           // mark as seen locally and schedule removal
           newItems.forEach((n) => {
             seenNotifications.current.add(n.id);
-            setToasts((t) => [...t, { id: n.id, message: n.message, level: n.level }]);
-            window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== n.id)), 6000);
+            // Single global toast stack — never a second paper-local banner
+            window.dispatchEvent(
+              new CustomEvent("app:toast", {
+                detail: {
+                  level: n.level === "error" ? "error" : n.level === "success" ? "success" : "info",
+                  message: n.message,
+                  dedupeKey: `paper-notif-${n.id}`,
+                },
+              }),
+            );
           });
           // mark read on server
           await markNotificationsRead(newItems.map((n) => n.id));
@@ -884,39 +959,47 @@ export function PaperTradingPage({
     <main className="paper-page">
       <section className="paper-header panel">
         <div>
-          <p className="section-label">Paper Trading</p>
-          <h1>Cash-only execution simulator</h1>
+          <p className="section-label">Paper Desk</p>
+          <h1>Practice trading</h1>
           <p className="muted-copy">
-            TradingView-style practice flow for Nifty 500 cash stocks, connected to your analysis and trade-plan outputs.
+            Paper portfolio for Nifty cash stocks — place orders, manage positions, and review performance without real capital.
           </p>
         </div>
         <div className="paper-header-actions">
-          <EngineStatusBadge status={engineStatus} />
-          <button data-testid="start-market-engine-button" type="button" className="button primary-button" onClick={() => void handleStartEngine()} disabled={isBusy}>
-            Start Market Engine
-          </button>
-          <button data-testid="stop-market-engine-button" type="button" className="button ghost-button" onClick={() => void handleStopEngine()} disabled={isBusy}>
-            Stop Engine
-          </button>
-          <label className="inline-field">
-            <span>Reset balance</span>
-            <input type="number" min={1000} step={1000} value={resetBalance} onChange={(event) => setResetBalance(Number(event.target.value))} />
-          </label>
+          {!retailMode ? (
+            <>
+              <EngineStatusBadge status={engineStatus} />
+              <button data-testid="start-market-engine-button" type="button" className="button ghost-button" onClick={() => void handleStartEngine()} disabled={isBusy}>
+                Start market feed
+              </button>
+              <button data-testid="stop-market-engine-button" type="button" className="button ghost-button" onClick={() => void handleStopEngine()} disabled={isBusy}>
+                Stop feed
+              </button>
+            </>
+          ) : null}
+          {!retailMode ? (
+            <label className="inline-field">
+              <span>Reset balance</span>
+              <input type="number" min={1000} step={1000} value={resetBalance} onChange={(event) => setResetBalance(Number(event.target.value))} />
+            </label>
+          ) : null}
           <button type="button" className="button ghost-button" onClick={() => void loadDashboard(selectedSymbol)} disabled={isBusy}>
             Refresh
           </button>
           <button type="button" className="button ghost-button" onClick={() => setIsLivePricing((current) => !current)}>
             {isLivePricing ? "Live price on" : "Live price off"}
           </button>
-          <button type="button" className="button primary-button" onClick={handleReset} disabled={isBusy}>
+          <button type="button" className="button ghost-button" onClick={() => setConfirmAction("reset")} disabled={isBusy}>
             Reset account
           </button>
         </div>
       </section>
 
       <AccountSummaryStrip dashboard={dashboard} />
-      
-      <MarketEngineHealthWidget health={engineHealth} lastSuccessfulPoll={lastSuccessfulHealthPoll} errorCount={healthPollErrorCount} />
+
+      {!retailMode ? (
+        <MarketEngineHealthWidget health={engineHealth} lastSuccessfulPoll={lastSuccessfulHealthPoll} errorCount={healthPollErrorCount} />
+      ) : null}
 
       <PaperAccountWidgets
         summary={accountSummary}
@@ -924,17 +1007,40 @@ export function PaperTradingPage({
         onQuickSell={(symbol?: string) => handleQuickOrder("SELL", symbol)}
       />
 
-      {/* Toast area for notifications */}
-      <div style={{ position: 'fixed', right: 20, top: 80, zIndex: 1200 }}>
-        {toasts.map((t) => (
-          <div key={t.id} style={{ marginBottom: 8, padding: 12, borderRadius: 6, minWidth: 260, boxShadow: '0 2px 6px rgba(0,0,0,0.12)', background: t.level === 'success' ? '#083f07' : t.level === 'error' ? '#4a0b0b' : '#083544', color: '#fff' }}>
-            <div style={{ fontWeight: 600 }}>{t.message}</div>
-          </div>
-        ))}
-      </div>
+      {statusMessage ? <section className="panel success-banner" role="status"><p>{statusMessage}</p></section> : null}
+      {error ? <section className="panel error-state" role="alert"><h2>Paper trading action failed</h2><p>{error}</p></section> : null}
 
-      {statusMessage ? <section className="panel success-banner"><p>{statusMessage}</p></section> : null}
-      {error ? <section className="panel error-state"><h2>Paper trading action failed</h2><p>{error}</p></section> : null}
+      {confirmAction === "reset" ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-reset-title">
+          <div className="confirm-modal">
+            <h2 id="confirm-reset-title">Reset paper account?</h2>
+            <p>This clears positions and orders and restores capital to ₹{resetBalance.toLocaleString("en-IN")}. This cannot be undone.</p>
+            {retailMode ? (
+              <label className="inline-field" style={{ marginTop: 12 }}>
+                <span>Starting capital</span>
+                <input type="number" min={1000} step={1000} value={resetBalance} onChange={(event) => setResetBalance(Number(event.target.value))} />
+              </label>
+            ) : null}
+            <div className="modal-actions">
+              <button type="button" className="button ghost-button" onClick={() => setConfirmAction(null)}>Cancel</button>
+              <button type="button" className="button danger-button" onClick={() => void executeReset()} disabled={isBusy}>Reset account</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmAction === "square-off" ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-sqoff-title">
+          <div className="confirm-modal">
+            <h2 id="confirm-sqoff-title">Square off all positions?</h2>
+            <p>Every open position will be closed at the current market price. This cannot be undone.</p>
+            <div className="modal-actions">
+              <button type="button" className="button ghost-button" onClick={() => setConfirmAction(null)}>Cancel</button>
+              <button type="button" className="button danger-button" onClick={() => void executeSquareOffAll()} disabled={isBusy}>Square off all</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="paper-layout">
         <section className="paper-left">
@@ -942,12 +1048,12 @@ export function PaperTradingPage({
             <div className="detail-tabs" role="tablist" aria-label="Paper trading data tabs">
               {[
                 ["positions", "Positions"],
-                ["orders", "Open Orders"],
+                ["orders", "Orders"],
                 ["history", "History"],
                 ["analytics", "Analytics"],
-                ["daily-analytics", "Daily Analytics"],
+                ["daily-analytics", "Daily"],
                 ["alerts", "Alerts"],
-                ["account", "Account"],
+                ["account", "Capital"],
               ].map(([id, label]) => (
                 <button
                   key={id}
@@ -963,7 +1069,7 @@ export function PaperTradingPage({
 
             {listTab === "positions" ? (
               <>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8, alignItems: 'center' }}>
                   <button type="button" className="button ghost-button" onClick={() => void handleSquareOffAll()} disabled={isBusy || !(dashboard?.positions?.length)}>
                     Square Off ALL
                   </button>
@@ -972,7 +1078,10 @@ export function PaperTradingPage({
                 {dashboard === null ? (
                   <TableSkeleton rows={5} cols={6} />
                 ) : (dashboard.positions?.length ?? 0) === 0 ? (
-                  <div className="empty-state">No open positions</div>
+                  <div className="ds-empty" role="status">
+                    <h3 className="ds-empty__title">No open positions</h3>
+                    <p className="ds-empty__desc">Place a BUY order to open your first paper position.</p>
+                  </div>
                 ) : (
                   <PositionsTable
                     positions={dashboard.positions}
@@ -992,7 +1101,10 @@ export function PaperTradingPage({
               dashboard === null ? (
                 <TableSkeleton rows={5} cols={6} />
               ) : (dashboard.open_orders?.length ?? 0) === 0 ? (
-                <div className="empty-state">No open orders</div>
+                <div className="ds-empty" role="status">
+                  <h3 className="ds-empty__title">No open orders</h3>
+                  <p className="ds-empty__desc">Use the order ticket to place a limit or market order.</p>
+                </div>
               ) : (
                 <OrdersTable
                   orders={dashboard.open_orders}
@@ -1011,14 +1123,29 @@ export function PaperTradingPage({
               dashboard === null ? (
                 <TableSkeleton rows={5} cols={6} />
               ) : (dashboard.trades?.length ?? 0) === 0 ? (
-                <div className="empty-state">No trade history</div>
+                <div className="ds-empty" role="status">
+                  <h3 className="ds-empty__title">No trade history</h3>
+                  <p className="ds-empty__desc">Closed trades will appear here after you exit positions.</p>
+                </div>
               ) : (
                 <HistoryTable trades={dashboard.trades} selectedTrade={selectedTrade} setSelectedTrade={setSelectedTrade} />
               )
             ) : null}
 
             {listTab === "analytics" ? (
-              <AnalyticsPanel />
+              <Suspense
+                fallback={
+                  <section aria-busy="true">
+                    <MetricCardSkeleton count={8} />
+                    <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+                      <ChartSkeleton height={200} />
+                      <ChartSkeleton height={200} />
+                    </div>
+                  </section>
+                }
+              >
+                <AnalyticsPanel />
+              </Suspense>
             ) : null}
             {listTab === "daily-analytics" ? (
               <Suspense
@@ -1038,7 +1165,10 @@ export function PaperTradingPage({
               <AlertsPanel onRefresh={() => void loadPositions(selectedSymbol)} />
             ) : null}
             {listTab === "account" ? (
-              <AccountPanel onAccountUpdate={(a) => setAccountSummary(a)} onDashboardUpdate={(d) => setDashboard(d)} />
+              <AccountPanel
+                onAccountUpdate={(a) => setAccountSummary(a)}
+                onDashboardUpdate={(d) => setDashboard(d)}
+              />
             ) : null}
           </section>
         </section>
@@ -1682,151 +1812,6 @@ function HistoryTable({ trades, selectedTrade, setSelectedTrade }: { trades: Pap
   );
 }
 
-function AnalyticsPanel() {
-  const [data, setData] = useState<any | null>(() => getCached(CACHE_KEYS.paperAnalytics));
-  const [loading, setLoading] = useState(() => !getCached(CACHE_KEYS.paperAnalytics));
-  const [err, setErr] = useState<string | null>(null);
-  const dailyRef = useRef<HTMLCanvasElement | null>(null);
-  const cumRef = useRef<HTMLCanvasElement | null>(null);
-  const pieRef = useRef<HTMLCanvasElement | null>(null);
-  const chartsRef = useRef<{ daily?: any; cum?: any; pie?: any }>({});
-
-  useEffect(() => {
-    let mounted = true;
-    // Only show loading skeleton if we have no cached data
-    if (!data) setLoading(true);
-    void (async () => {
-      try {
-        const resp = await fetchAnalytics();
-        if (!mounted) return;
-        setData(resp);
-      } catch (e: any) {
-        if (!mounted) return;
-        if (!data) setErr(e?.message ?? String(e));
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-      Object.values(chartsRef.current).forEach((c) => c?.destroy?.());
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!data) return;
-    // Daily P&L bar
-    try {
-      const labels = data.daily_pnl.map((p: any) => p.date);
-      const values = data.daily_pnl.map((p: any) => p.pnl);
-      const colors = values.map((v: number) => (v >= 0 ? "#1b7a1b" : "#a60b0b"));
-      const dctx = dailyRef.current?.getContext("2d");
-      if (dctx) {
-        chartsRef.current.daily = new Chart(dctx, {
-          type: "bar",
-          data: {
-            labels,
-            datasets: [{ label: "Daily P&L", data: values, backgroundColor: colors }],
-          },
-          options: { responsive: true, plugins: { legend: { display: false } } },
-        });
-      }
-
-      // Cumulative
-      const cLabels = data.cumulative_pnl.map((p: any) => p.date);
-      const cValues = data.cumulative_pnl.map((p: any) => p.pnl);
-      const cctx = cumRef.current?.getContext("2d");
-      if (cctx) {
-        chartsRef.current.cum = new Chart(cctx, {
-          type: "line",
-          data: {
-            labels: cLabels,
-            datasets: [{ label: "Cumulative P&L", data: cValues, borderColor: "#2b6cff", fill: false }],
-          },
-          options: { responsive: true },
-        });
-      }
-
-      // Pie
-      const pieCtx = pieRef.current?.getContext("2d");
-      if (pieCtx) {
-        chartsRef.current.pie = new Chart(pieCtx, {
-          type: "pie",
-          data: {
-            labels: ["Wins", "Losses"],
-            datasets: [{ data: [data.wins, data.losses], backgroundColor: ["#2ecc71", "#e74c3c"] }],
-          },
-          options: { responsive: true },
-        });
-      }
-    } catch (e) {
-      console.warn("Failed to render analytics charts", e);
-    }
-    return () => {
-      Object.values(chartsRef.current).forEach((c) => c?.destroy?.());
-      chartsRef.current = {} as any;
-    };
-  }, [data]);
-
-  if (loading && !data) {
-    return (
-      <section aria-busy="true">
-        <MetricCardSkeleton count={6} />
-        <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-          <ChartSkeleton height={200} />
-          <ChartSkeleton height={200} />
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <TableSkeleton rows={4} cols={4} />
-        </div>
-      </section>
-    );
-  }
-  if (err && !data) {
-    return <div className="empty-state"><h2>Failed to load analytics</h2><p>{err}</p></div>;
-  }
-  if (!data) {
-    return <div className="empty-state"><h2>No analytics yet</h2></div>;
-  }
-
-  return (
-    <section>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <div className="metric-card"><span>Total trades</span><strong>{data.total_trades}</strong><p>Closed trades</p></div>
-        <div className="metric-card"><span>Win rate</span><strong>{data.win_rate_pct}%</strong><p>Winning trades percent</p></div>
-        <div className="metric-card"><span>Profit factor</span><strong>{data.profit_factor ?? '--'}</strong><p>Sum wins / abs(sum losses)</p></div>
-        <div className="metric-card"><span>Average profit</span><strong>{data.average_profit ?? '--'}</strong><p>Avg winning trade P&L</p></div>
-        <div className="metric-card"><span>Average loss</span><strong>{data.average_loss ?? '--'}</strong><p>Avg losing trade P&L</p></div>
-        <div className="metric-card"><span>Best trade</span><strong>{data.best_trade_symbol ?? '--'} {data.best_trade_amount ? `₹${data.best_trade_amount}` : ''}</strong><p>Highest single trade</p></div>
-        <div className="metric-card"><span>Worst trade</span><strong>{data.worst_trade_symbol ?? '--'} {data.worst_trade_amount ? `₹${data.worst_trade_amount}` : ''}</strong><p>Lowest single trade</p></div>
-        <div className="metric-card"><span>Max drawdown</span><strong>₹{data.max_drawdown ?? 0}</strong><p>{data.max_drawdown_pct ?? 0}% peak-to-trough</p></div>
-        <div className="metric-card"><span>Current streak</span><strong>{data.current_streak_type ?? 'none'} {data.current_streak_count ?? 0}</strong><p>Consecutive outcomes</p></div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 380px', minWidth: 320 }} className="panel"><canvas ref={dailyRef} /></div>
-        <div style={{ flex: '1 1 380px', minWidth: 320 }} className="panel"><canvas ref={cumRef} /></div>
-        <div style={{ width: 260 }} className="panel"><canvas ref={pieRef} /></div>
-      </div>
-
-      <section className="panel">
-        <div className="panel-header"><div><p className="section-label">Holding periods</p><h2>Per-symbol stats</h2></div></div>
-        <div className="table-scroll">
-          <table className="candidate-table">
-            <thead>
-              <tr><th>Symbol</th><th>Avg hold (min)</th><th>Total trades</th><th>Win rate</th></tr>
-            </thead>
-            <tbody>
-              {data.holding_periods.map((row: any) => (
-                <tr key={row.symbol}><td>{row.symbol}</td><td className="number-cell">{row.avg_holding_minutes.toFixed(1)}</td><td>{row.total_trades}</td><td>{row.win_rate_pct}%</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </section>
-  );
-}
 
 function AlertsPanel({ onRefresh }: { onRefresh?: () => void }) {
   const [loading, setLoading] = useState(() => !getCached(CACHE_KEYS.paperAlerts));
@@ -1941,7 +1926,15 @@ function AlertsPanel({ onRefresh }: { onRefresh?: () => void }) {
   );
 }
 
-function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?: (d: any) => void; onDashboardUpdate?: (d: any) => void }) {
+function AccountPanel({
+  onAccountUpdate,
+  onDashboardUpdate,
+}: {
+  onAccountUpdate?: (d: any) => void;
+  onDashboardUpdate?: (d: any) => void;
+  /** @deprecated Token panel is always shown on Capital; kept for call-site compatibility */
+  hideOps?: boolean;
+}) {
   const [account, setAccount] = useState<any | null>(() => getCached(CACHE_KEYS.paperAccount));
   const [loading, setLoading] = useState(() => !getCached(CACHE_KEYS.paperAccount));
   const [saving, setSaving] = useState(false);
@@ -2054,14 +2047,14 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
 
       <section className="panel">
         <div className="panel-header"><div><p className="section-label">Configuration</p><h2>Account Settings</h2></div></div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <label style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="capital-settings-row">
+          <label className="capital-settings-field">
             Set Starting Capital
-            <input type="number" value={starting} onChange={(e) => setStarting(Number(e.target.value || 0))} style={{ width: 200, marginTop: 6 }} />
+            <input type="number" value={starting} onChange={(e) => setStarting(Number(e.target.value || 0))} />
           </label>
-          <div>
+          <div className="capital-settings-actions">
             <button className="button" onClick={() => void handleSaveStarting()} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
-            <button className="button ghost-button" onClick={() => void handleResetAccount()} style={{ marginLeft: 8 }} disabled={busy}>Reset Account</button>
+            <button className="button ghost-button" onClick={() => void handleResetAccount()} disabled={busy}>Reset Account</button>
           </div>
         </div>
       </section>
@@ -2090,10 +2083,8 @@ function AccountPanel({ onAccountUpdate, onDashboardUpdate }: { onAccountUpdate?
         </div>
       </section>
 
-      <section className="panel">
-        <div className="panel-header"><div><p className="section-label">FYERS Token</p><h2>Token Management</h2></div></div>
-        <TokenStatus />
-      </section>
+      {/* Paper Desk → Capital → Token Management */}
+      <TokenStatus embedded />
     </section>
   );
 }

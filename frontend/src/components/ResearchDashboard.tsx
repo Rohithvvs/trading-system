@@ -134,6 +134,298 @@ function FlagGrid({ flags }: { flags: Record<string, boolean> }) {
   );
 }
 
+/** Format a number as ₹ price for trading UI (never raw JSON). */
+function formatInr(v: unknown): string {
+  const n = num(v);
+  if (n === null) return "—";
+  return `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function humanizeLabel(raw: unknown): string {
+  if (raw == null || raw === "") return "Zone";
+  return String(raw)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+type ZoneKind = "demand" | "supply";
+
+function zoneTypeBadge(label: string, kind: ZoneKind): { text: string; tone: "demand" | "supply" | "support" | "resistance" } {
+  const l = label.toLowerCase();
+  if (kind === "demand") {
+    if (l.includes("swing")) return { text: "Strong Demand", tone: "demand" };
+    if (l.includes("support")) return { text: "Support", tone: "support" };
+    return { text: "Demand", tone: "demand" };
+  }
+  if (l.includes("swing")) return { text: "Resistance", tone: "resistance" };
+  if (l.includes("resistance")) return { text: "Resistance", tone: "resistance" };
+  return { text: "Supply", tone: "supply" };
+}
+
+function ZoneTable({
+  title,
+  zones,
+  kind,
+}: {
+  title: string;
+  zones: Array<Record<string, unknown>>;
+  kind: ZoneKind;
+}) {
+  const rows = Array.isArray(zones) ? zones : [];
+  return (
+    <div className={`sd-zone-panel sd-zone-panel--${kind}`}>
+      <h4 className="sd-zone-title">{title}</h4>
+      {rows.length === 0 ? (
+        <p className="sd-empty muted-copy">No {kind} zones detected</p>
+      ) : (
+        <>
+          {/* Desktop / tablet table — do NOT use .table-scroll (hidden ≤720px globally) */}
+          <div className="sd-zone-scroll">
+            <table className="sd-zone-table">
+              <thead>
+                <tr>
+                  <th>Zone</th>
+                  <th>Price Range</th>
+                  <th>Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((z, i) => {
+                  const label = humanizeLabel(z.label ?? z.name ?? z.zone);
+                  const low = z.zone_low ?? z.low ?? z.price_low;
+                  const high = z.zone_high ?? z.high ?? z.price_high;
+                  const badge = zoneTypeBadge(label, kind);
+                  return (
+                    <tr key={`${label}-${i}`}>
+                      <td>
+                        <span className="sd-zone-name">{label}</span>
+                      </td>
+                      <td className="number-cell sd-price-range">
+                        {formatInr(low)} – {formatInr(high)}
+                      </td>
+                      <td>
+                        <span className={`sd-badge sd-badge--${badge.tone}`}>{badge.text}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile card stack for readability at ≤480px */}
+          <div className="sd-zone-cards" aria-hidden="false">
+            {rows.map((z, i) => {
+              const label = humanizeLabel(z.label ?? z.name ?? z.zone);
+              const low = z.zone_low ?? z.low ?? z.price_low;
+              const high = z.zone_high ?? z.high ?? z.price_high;
+              const badge = zoneTypeBadge(label, kind);
+              return (
+                <article key={`card-${label}-${i}`} className={`sd-zone-card sd-zone-card--${kind}`}>
+                  <div className="sd-zone-card-top">
+                    <span className="sd-zone-name">{label}</span>
+                    <span className={`sd-badge sd-badge--${badge.tone}`}>{badge.text}</span>
+                  </div>
+                  <div className="sd-zone-card-range">
+                    <span className="section-label">Price Range</span>
+                    <strong className="sd-price-range">
+                      {formatInr(low)} – {formatInr(high)}
+                    </strong>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyInfo({ message }: { message: string }) {
+  return (
+    <div className="sd-empty-info" role="status">
+      <span className="sd-info-icon" aria-hidden="true" title="Information">
+        ℹ
+      </span>
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function formatLevelList(areas: unknown[]): string {
+  return areas
+    .map((a) => {
+      if (a != null && typeof a === "object") {
+        const o = a as Record<string, unknown>;
+        const level = o.level ?? o.price ?? o.zone_high ?? o.zone_low;
+        const status = o.status ? ` (${humanizeLabel(o.status)})` : "";
+        return `${formatInr(level)}${status}`;
+      }
+      return formatInr(a);
+    })
+    .join(", ");
+}
+
+function parseRetestLevel(item: unknown): { level: number | null; kind: "resistance" | "support" | "unknown" } {
+  if (item == null) return { level: null, kind: "unknown" };
+  if (typeof item === "number" || typeof item === "string") {
+    return { level: num(item), kind: "unknown" };
+  }
+  if (typeof item === "object") {
+    const o = item as Record<string, unknown>;
+    const level = num(o.level ?? o.price ?? o.value);
+    const t = String(o.type ?? o.side ?? o.label ?? "").toLowerCase();
+    if (t.includes("resist") || t.includes("supply")) return { level, kind: "resistance" };
+    if (t.includes("support") || t.includes("demand")) return { level, kind: "support" };
+    return { level, kind: "unknown" };
+  }
+  return { level: null, kind: "unknown" };
+}
+
+function SupplyDemandPanel({ sd }: { sd: Record<string, any> }) {
+  const demand = Array.isArray(sd.demand_zones) ? sd.demand_zones : [];
+  const supply = Array.isArray(sd.supply_zones) ? sd.supply_zones : [];
+  const breakouts = Array.isArray(sd.breakout_areas) ? sd.breakout_areas : [];
+  const breakdowns = Array.isArray(sd.breakdown_areas) ? sd.breakdown_areas : [];
+  const retests = Array.isArray(sd.retest_levels) ? sd.retest_levels : [];
+  const liquidity = Array.isArray(sd.liquidity_zones) ? sd.liquidity_zones : [];
+
+  const supportLevel = num(sd.support);
+  const resistanceLevel = num(sd.resistance);
+
+  // Map retest values into Resistance / Support without exposing raw CSV/JSON.
+  // Classic engine order for plain numbers: [resistance, support].
+  let retestResistance: number | null = null;
+  let retestSupport: number | null = null;
+  if (retests.length > 0) {
+    const parsed = retests.map(parseRetestLevel);
+    const byRes = parsed.find((p) => p.kind === "resistance" && p.level != null);
+    const bySup = parsed.find((p) => p.kind === "support" && p.level != null);
+    const unknowns = parsed
+      .filter((p) => p.kind === "unknown" && p.level != null)
+      .map((p) => p.level as number);
+    retestResistance = byRes?.level ?? null;
+    retestSupport = bySup?.level ?? null;
+    if (retestResistance == null && unknowns[0] != null) retestResistance = unknowns[0];
+    if (retestSupport == null && unknowns[1] != null) retestSupport = unknowns[1];
+  } else {
+    retestResistance = resistanceLevel;
+    retestSupport = supportLevel;
+  }
+
+  const buySide = liquidity.filter((z: any) => String(z?.type || "").toLowerCase().includes("buy"));
+  const sellSide = liquidity.filter((z: any) => String(z?.type || "").toLowerCase().includes("sell"));
+  const otherLiq = liquidity.filter(
+    (z: any) =>
+      !String(z?.type || "").toLowerCase().includes("buy") &&
+      !String(z?.type || "").toLowerCase().includes("sell"),
+  );
+
+  return (
+    <>
+      <div className="research-metric-grid">
+        <Metric label="Support" value={supportLevel != null ? formatInr(supportLevel) : sd.support} tone="pos" />
+        <Metric label="Resistance" value={resistanceLevel != null ? formatInr(resistanceLevel) : sd.resistance} tone="neg" />
+      </div>
+
+      <div className="research-two-col sd-zones-grid">
+        <ZoneTable title="Demand Zones" zones={demand} kind="demand" />
+        <ZoneTable title="Supply Zones" zones={supply} kind="supply" />
+      </div>
+
+      <div className="sd-secondary-grid">
+        <div className="sd-card">
+          <h4 className="sd-card-title">
+            Breakout / Breakdown
+            <span className="sd-badge sd-badge--neutral">Status</span>
+          </h4>
+          {breakouts.length === 0 ? (
+            <EmptyInfo message="✔ No active breakout zones" />
+          ) : (
+            <p className="sd-card-body">
+              <span className="sd-badge sd-badge--demand">Breakout</span> {formatLevelList(breakouts)}
+            </p>
+          )}
+          {breakdowns.length === 0 ? (
+            <EmptyInfo message="✔ No active breakdown zones" />
+          ) : (
+            <p className="sd-card-body">
+              <span className="sd-badge sd-badge--supply">Breakdown</span> {formatLevelList(breakdowns)}
+            </p>
+          )}
+        </div>
+
+        <div className="sd-card">
+          <h4 className="sd-card-title">
+            Retest Levels
+            <span className="sd-badge sd-badge--retest">Retest</span>
+          </h4>
+          {retestResistance == null && retestSupport == null && retests.length === 0 ? (
+            <EmptyInfo message="No retest levels available" />
+          ) : (
+            <ul className="sd-level-list">
+              {retestResistance != null ? (
+                <li>
+                  <span className="sd-level-label">
+                    <span className="sd-bullet" aria-hidden="true">
+                      •
+                    </span>
+                    <span className="sd-badge sd-badge--resistance">Resistance</span>
+                  </span>
+                  <strong>{formatInr(retestResistance)}</strong>
+                </li>
+              ) : null}
+              {retestSupport != null ? (
+                <li>
+                  <span className="sd-level-label">
+                    <span className="sd-bullet" aria-hidden="true">
+                      •
+                    </span>
+                    <span className="sd-badge sd-badge--support">Support</span>
+                  </span>
+                  <strong>{formatInr(retestSupport)}</strong>
+                </li>
+              ) : null}
+            </ul>
+          )}
+        </div>
+
+        <div className="sd-card">
+          <h4 className="sd-card-title">
+            Liquidity Zones
+            <span className="sd-badge sd-badge--liquidity">Liquidity</span>
+          </h4>
+          {liquidity.length === 0 ? (
+            <EmptyInfo message="No liquidity zones detected" />
+          ) : (
+            <div className="sd-liquidity-grid">
+              {buySide.map((z: any, i: number) => (
+                <div key={`buy-${i}`} className="sd-liquidity-item sd-liquidity-item--buy">
+                  <span className="sd-badge sd-badge--demand">Buy Side Liquidity</span>
+                  <strong>{formatInr(z.level ?? z.price)}</strong>
+                </div>
+              ))}
+              {sellSide.map((z: any, i: number) => (
+                <div key={`sell-${i}`} className="sd-liquidity-item sd-liquidity-item--sell">
+                  <span className="sd-badge sd-badge--supply">Sell Side Liquidity</span>
+                  <strong>{formatInr(z.level ?? z.price)}</strong>
+                </div>
+              ))}
+              {otherLiq.map((z: any, i: number) => (
+                <div key={`other-${i}`} className="sd-liquidity-item">
+                  <span className="sd-badge sd-badge--liquidity">{humanizeLabel(z.type || "Liquidity")}</span>
+                  <strong>{formatInr(z.level ?? z.price)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function exportBlob(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -354,28 +646,9 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
         </div>
       </Section>
 
-      {/* Supply demand */}
+      {/* Supply demand — human-readable cards/tables only (never raw JSON) */}
       <Section title="Supply & Demand" tipId="supply_demand">
-        <div className="research-metric-grid">
-          <Metric label="Support" value={sd.support} />
-          <Metric label="Resistance" value={sd.resistance} />
-        </div>
-        <div className="research-two-col">
-          <div>
-            <h4>Demand zones</h4>
-            <pre className="research-pre">{JSON.stringify(sd.demand_zones || [], null, 2)}</pre>
-          </div>
-          <div>
-            <h4>Supply zones</h4>
-            <pre className="research-pre">{JSON.stringify(sd.supply_zones || [], null, 2)}</pre>
-          </div>
-        </div>
-        <div className="research-metric-grid">
-          <Metric label="Breakout areas" value={(sd.breakout_areas || []).length ? JSON.stringify(sd.breakout_areas) : "None"} />
-          <Metric label="Breakdown areas" value={(sd.breakdown_areas || []).length ? JSON.stringify(sd.breakdown_areas) : "None"} />
-          <Metric label="Retest levels" value={(sd.retest_levels || []).join(", ") || NA} />
-          <Metric label="Liquidity zones" value={(sd.liquidity_zones || []).length ? JSON.stringify(sd.liquidity_zones) : NA} />
-        </div>
+        <SupplyDemandPanel sd={sd} />
       </Section>
 
       {/* Momentum / Volume / Volatility */}

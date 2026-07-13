@@ -1,4 +1,25 @@
 from .base import Base
-from .session import AsyncSessionLocal, engine, get_db, init_db, SessionLocal, sync_engine, get_sync_db
+from .session import (
+    AsyncSessionLocal,
+    dispose_async_pool,
+    engine,
+    get_db,
+    get_sync_db,
+    init_db,
+    is_stale_prepared_plan_error,
+    SessionLocal,
+    sync_engine,
+)
 
-__all__ = ["Base", "AsyncSessionLocal", "engine", "get_db", "init_db", "SessionLocal", "sync_engine", "get_sync_db"]
+__all__ = [
+    "Base",
+    "AsyncSessionLocal",
+    "dispose_async_pool",
+    "engine",
+    "get_db",
+    "get_sync_db",
+    "init_db",
+    "is_stale_prepared_plan_error",
+    "SessionLocal",
+    "sync_engine",
+]

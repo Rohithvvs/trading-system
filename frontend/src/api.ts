@@ -416,7 +416,12 @@ export async function prefillPaperTrade(payload: RecommendationPrefillRequest): 
 export async function fetchSymbolDetail(symbol: string): Promise<SymbolDetail> {
   const response = await fetchWithDiagnostics(`/analysis/symbol/${encodeURIComponent(symbol)}/detail`, undefined, `Symbol detail ${symbol}`);
   if (!response.ok) {
-    const message = await response.text();
+    const raw = await response.text();
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      message = parsed?.detail?.message || parsed?.detail || parsed?.message || raw;
+    } catch { /* use raw text */ }
     throw new Error(message || "Failed to fetch symbol detail");
   }
   const raw = await response.json();
@@ -538,18 +543,30 @@ export async function loadTodayCandidates(): Promise<any[]> {
   return response.json() as Promise<any[]>;
 }
 
-export async function fetchAnalytics(opts?: { force?: boolean }): Promise<any> {
+export async function fetchAnalytics(opts?: { force?: boolean; period?: string }): Promise<any> {
+  const period = opts?.period || "all";
+  const cacheKey = `${CACHE_KEYS.paperAnalytics}:${period}`;
   return cachedFetch(
-    CACHE_KEYS.paperAnalytics,
+    cacheKey,
     async () => {
-      const response = await fetchWithDiagnostics(`/paper-trading/analytics`, undefined, "Paper analytics");
+      const qs = new URLSearchParams({ period });
+      const response = await fetchWithDiagnostics(
+        `/paper-trading/analytics?${qs.toString()}`,
+        undefined,
+        "Paper analytics",
+      );
       if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to load analytics");
+        const raw = await response.text();
+        let message = raw;
+        try {
+          const parsed = JSON.parse(raw);
+          message = parsed?.detail?.message || parsed?.detail || parsed?.message || raw;
+        } catch { /* use raw text */ }
+        throw new Error(typeof message === "string" ? message : "Failed to load analytics");
       }
       return response.json();
     },
-    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3000 },
+    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 8000, ttlMs: 2 * 60 * 1000 },
   );
 }
 
@@ -795,11 +812,145 @@ export async function saveAccessToken(access_token: string) {
     } catch {
       errorMessage = await response.text() || errorMessage;
     }
-    throw new Error(errorMessage);
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Failed to validate access token");
   }
   // Force refresh of token caches after manual reconnect
   invalidateCache(CACHE_KEYS.fyersToken);
   invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export type BrokerTokenPayload = {
+  broker: string;
+  access_token: string;
+  api_key?: string;
+  api_secret?: string;
+  token_expiry?: string | null;
+  notes?: string;
+  validate?: boolean;
+};
+
+export async function fetchBrokerToken(broker = "FYERS") {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens?broker=${encodeURIComponent(broker)}`,
+    undefined,
+    "Broker token",
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load broker token");
+  }
+  return response.json();
+}
+
+export async function saveBrokerToken(payload: BrokerTokenPayload) {
+  // Never console.log payload.access_token / api_secret
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Save broker token",
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to save broker token";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Failed to save broker token");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export async function updateBrokerToken(payload: Partial<BrokerTokenPayload> & { broker?: string }) {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Update broker token",
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to update broker token";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Failed to update broker token");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export async function deleteBrokerToken(broker = "FYERS") {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens?broker=${encodeURIComponent(broker)}`,
+    { method: "DELETE" },
+    "Delete broker token",
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to delete broker token");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export async function validateBrokerToken(broker = "FYERS") {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens/validate?broker=${encodeURIComponent(broker)}`,
+    { method: "POST" },
+    "Validate broker token",
+  );
+  if (!response.ok) {
+    let errorMessage = "Token validation failed";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Token validation failed");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  return response.json();
+}
+
+export async function testBrokerConnection(payload?: BrokerTokenPayload) {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens/test-connection`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        payload || { broker: "FYERS", access_token: "", validate: true },
+      ),
+    },
+    "Test broker connection",
+  );
+  if (!response.ok) {
+    let errorMessage = "Connection test failed";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Connection test failed");
+  }
   return response.json();
 }
 
@@ -831,6 +982,32 @@ export async function getTokenHistory(limit = 50) {
     },
     { swr: true, ttlMs: 8 * 60 * 1000 },
   );
+}
+
+export async function getFyersAuthUrl(): Promise<{ oauth_available: boolean; auth_url: string | null; callback_url: string | null; message?: string }> {
+  const response = await fetchWithDiagnostics('/fyers/auth/url', undefined, 'FYERS auth URL');
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      message = parsed?.detail || parsed?.message || raw;
+    } catch { /* use raw text */ }
+    throw new Error(message || 'Failed to get FYERS auth URL');
+  }
+  return response.json();
+}
+
+export async function exchangeFyersAuthCode(authCode: string): Promise<{ status: string; message: string; expires_at?: string }> {
+  const response = await fetchWithDiagnostics('/fyers/auth/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ auth_code: authCode }),
+  }, 'FYERS auth exchange');
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'Failed to exchange FYERS auth code');
+  }
+  return response.json();
 }
 
 export async function fetchUniverses(): Promise<{ name: string; symbols: string[]; count: number }[]> {
@@ -1046,6 +1223,57 @@ export async function authMe(): Promise<any> {
   const response = await fetchWithDiagnostics("/auth/me", undefined, "Auth me");
   if (!response.ok) throw new Error("Not authenticated");
   return response.json();
+}
+
+/** Authenticated user profile (DB-backed — syncs across browsers/devices). */
+export async function fetchUserProfile(opts?: { force?: boolean }): Promise<any> {
+  return cachedFetch(
+    "user_profile",
+    async () => {
+      const response = await fetchWithDiagnostics("/auth/profile", undefined, "User profile");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load profile");
+      return response.json();
+    },
+    { force: opts?.force, swr: true, ttlMs: 60_000 },
+  );
+}
+
+export async function updateUserProfile(payload: Record<string, unknown>): Promise<any> {
+  const response = await fetchWithDiagnostics(
+    "/auth/profile",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Update user profile",
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Failed to update profile");
+  }
+  const data = await response.json();
+  setCached("user_profile", data);
+  return data;
+}
+
+export async function patchUserProfile(payload: Record<string, unknown>): Promise<any> {
+  const response = await fetchWithDiagnostics(
+    "/auth/profile",
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Patch user profile",
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Failed to update profile");
+  }
+  const data = await response.json();
+  setCached("user_profile", data);
+  return data;
 }
 
 export async function authLogout(): Promise<void> {

@@ -172,13 +172,26 @@ export function SystemLogs() {
       });
       if (!response.ok) {
         const errText = await response.text();
-        alert(`Failed to clear logs: ${errText}`);
+        window.dispatchEvent(
+          new CustomEvent("app:toast", {
+            detail: { level: "error", message: "Failed to clear logs", description: errText },
+          }),
+        );
         return;
       }
       setLogs([]);
       setClearOpen(false);
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "success", message: "Logs cleared" },
+        }),
+      );
     } catch (err) {
-      alert(`Network error while clearing logs: ${err}`);
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "error", message: "Network error while clearing logs", description: String(err) },
+        }),
+      );
     }
   }
 

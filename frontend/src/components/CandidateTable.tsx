@@ -4,6 +4,7 @@ import { InfoTooltip } from "./InfoTooltip";
 import { TOOLTIPS } from "../constants/tooltips";
 import { memo, useMemo, useState } from "react";
 import { checkCanPlaceBuyOrder } from "../utils/tradingHours";
+import { SignalBadge as DsSignalBadge } from "../design-system";
 
 type CandidateTableProps = {
   rows: CandidateRow[];
@@ -13,91 +14,44 @@ type CandidateTableProps = {
   liveTicks?: Record<string, number>;
 };
 
-export function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTicks }: CandidateTableProps) {
-  // Aggregate trailing performance metrics from the backtest engine across all visible candidates
-  const aggregateMetrics = useMemo(() => {
-    if (!rows.length) return { winRate: 0, profitFactor: 0 };
-    let totalWinRate = 0;
-    let totalProfitFactor = 0;
-    let count = 0;
-
-    for (const row of rows) {
-      const backtest = row.analysisItem?.backtests?.[0];
-      if (backtest) {
-        totalWinRate += backtest.win_rate;
-        totalProfitFactor += backtest.profit_factor;
-        count++;
-      }
-    }
-
-    if (count === 0) return { winRate: 64.5, profitFactor: 1.82 }; // Fallback defaults
-    return {
-      winRate: totalWinRate / count,
-      profitFactor: totalProfitFactor / count,
-    };
-  }, [rows]);
-
+export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTicks }: CandidateTableProps) {
   if (!rows.length) {
     return (
       <section className="panel table-panel">
-        <div
-          className="empty-state"
-          aria-live="polite"
-          style={{ textAlign: "center", color: "#6b7280", padding: "48px 16px" }}
-        >
-          <p style={{ margin: 0, fontWeight: 600 }}>No stocks match the current filters.</p>
-          <span style={{ display: "block", marginTop: 8 }}>Try relaxing the signal filter, score range, or search term.</span>
+        <div className="ds-empty" role="status" aria-live="polite">
+          <h3 className="ds-empty__title">No matching stocks</h3>
+          <p className="ds-empty__desc">
+            Try relaxing the signal filter, score range, or search term to see more scan results.
+          </p>
         </div>
       </section>
     );
   }
 
   return (
-    <section className="panel table-panel" style={{ overflow: "hidden" }}>
-      {/* SYSTEM ALPHA CARD */}
-      <div className="system-alpha-card" style={{ display: "flex", gap: "24px", padding: "16px 24px", background: "var(--bg-surface-elevated)", borderBottom: "1px solid var(--border-color)", alignItems: "center" }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: "14px", color: "var(--text-secondary)" }}>System Alpha Overview</h3>
-          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--text-muted)" }}>Trailing 30-Day Aggregate Performance</p>
-        </div>
-        <div style={{ width: "1px", height: "32px", background: "var(--border-color)" }}></div>
-        <div>
-          <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--signal-bullish)" }}>
-            {(aggregateMetrics.winRate * 100).toFixed(1)}%
-          </div>
-          <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Avg Win Rate</div>
-        </div>
-        <div style={{ width: "1px", height: "32px", background: "var(--border-color)" }}></div>
-        <div>
-          <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)" }}>
-            {aggregateMetrics.profitFactor.toFixed(2)}x
-          </div>
-          <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Profit Factor</div>
-        </div>
-      </div>
-
+    <section className="panel table-panel" style={{ overflow: "visible" }}>
       <div className="panel-header">
         <div>
-          <p className="section-label">Shortlisted stocks</p>
-          <h2>Candidate decision table</h2>
+          <p className="section-label">Favorites</p>
+          <h2>Scan results</h2>
         </div>
         <p className="panel-helper">
           <abbr title="Signal comes from the final recommendation layer">Signal</abbr>, score, confidence, trade plan, and support evidence stay aligned in one table.
         </p>
       </div>
 
-      <div className="table-scroll">
-        <table className="candidate-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+      <div className="table-scroll table-scroll--sticky">
+        <table className="candidate-table candidate-table--pro" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <thead>
             <tr>
-              <th style={{ width: "60px" }}>Rank</th>
-              <th style={{ width: "100px" }}>Symbol</th>
-              <th style={{ width: "100px" }}>Signal & Regime</th>
-              <th style={{ width: "140px" }}>Score Composition</th>
-              <th style={{ width: "240px" }}>Trade Plan <InfoTooltip content={TOOLTIPS.SCANNER.ENTRY_PRICE} /></th>
-              <th style={{ width: "140px" }}>Equity Curve <InfoTooltip content="Backtested trailing equity curve" /></th>
-              <th style={{ width: "100px" }}>Trend / Mom</th>
-              <th>Action</th>
+              <th className="col-sticky-left" style={{ minWidth: "3rem" }}>Rank</th>
+              <th className="col-sticky-symbol" style={{ minWidth: "6.5rem" }}>Symbol</th>
+              <th style={{ minWidth: "6.5rem" }}>Signal</th>
+              <th style={{ minWidth: "8rem" }}>Score</th>
+              <th style={{ minWidth: "11rem" }}>Trade plan <InfoTooltip content={TOOLTIPS.SCANNER.ENTRY_PRICE} /></th>
+              <th style={{ minWidth: "7rem" }}>Curve <InfoTooltip content="Backtested trailing equity curve" /></th>
+              <th style={{ minWidth: "5.5rem" }}>Trend</th>
+              <th style={{ minWidth: "5rem" }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -116,7 +70,7 @@ export function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTick
       </div>
     </section>
   );
-}
+});
 
 const CandidateTableRow = memo(({ 
   row, 
@@ -160,8 +114,8 @@ const CandidateTableRow = memo(({
         style={{ cursor: "pointer", borderBottom: "1px solid var(--border-color)" }}
         tabIndex={0}
       >
-        <td style={{ textAlign: "center", color: "var(--text-muted)" }}>{row.rank ?? "--"}</td>
-        <td className="symbol-cell">
+        <td className="col-sticky-left" style={{ textAlign: "center", color: "var(--text-muted)" }}>{row.rank ?? "--"}</td>
+        <td className="symbol-cell col-sticky-symbol">
           <strong>{row.symbol}</strong>
           <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
             {row.volume} Vol
@@ -257,15 +211,16 @@ const CandidateTableRow = memo(({
         <td>
           <button
             type="button"
-            className="button ghost-button small-button"
+            className="ds-btn ds-btn--buy ds-btn--sm"
             onClick={(event) => {
               event.stopPropagation();
               onBuy?.(row);
             }}
             disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
-            title={!checkCanPlaceBuyOrder().allowed ? "Market closed - Buy orders disabled" : undefined}
+            title={!checkCanPlaceBuyOrder().allowed ? "Market closed — BUY disabled" : "BUY on Paper Desk"}
+            aria-label={`Buy ${row.symbol}`}
           >
-            Buy
+            BUY
           </button>
         </td>
       </tr>
@@ -274,7 +229,7 @@ const CandidateTableRow = memo(({
 });
 
 function SignalBadge({ value }: { value: CandidateRow["signal"] }) {
-  return <span className={`signal-badge signal-${value.toLowerCase()}`}>{value}</span>;
+  return <DsSignalBadge signal={value} />;
 }
 
 function formatNumber(value: number | null) {

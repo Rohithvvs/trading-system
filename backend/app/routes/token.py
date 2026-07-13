@@ -15,24 +15,14 @@ logger = logging.getLogger("app.token")
 
 @router.post("/save-access-token")
 async def save_access_token_route(payload: FyersTokenCreate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
-    logger.info("=" * 50)
-    logger.info("POST /api/token HIT")
-    logger.info("=" * 50)
-
     token = payload.access_token
     if not token or not token.strip():
-        logger.error("Rejecting token payload: empty access_token field")
         raise HTTPException(status_code=400, detail="access_token cannot be empty")
 
-    logger.info("Token accepted. Calling token_service.save_access_token...")
     result = await token_service.save_access_token(token, db)
-    logger.info("Service result   : %s", result.get("status"))
 
     if result.get("status") == "error":
-        logger.error("Save failed: %s", result.get("message"))
         raise HTTPException(status_code=500, detail=result.get("message"))
-
-    logger.info("HTTP 200 OK returning success")
     
     # Auto-trigger scan
     from datetime import datetime, timezone
@@ -88,7 +78,7 @@ async def token_status(db: AsyncSession = Depends(get_db)):
         status = await token_service.get_token_status(db)
     except Exception as exc:
         logger.exception("Failed to load token status: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Unable to load token status.")
     return JSONResponse(content=status)
 
 
@@ -98,7 +88,7 @@ async def token_history(limit: int = Query(50, ge=1, le=500), db: AsyncSession =
         history = await token_service.get_token_history(db, limit=limit)
     except Exception as exc:
         logger.exception("Failed to load token history: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Unable to load token history.")
     return JSONResponse(content={"history": history})
 
 
@@ -113,7 +103,7 @@ async def token_diagnostic(db: AsyncSession = Depends(get_db)):
         "db_url": str(engine.url),
         "token_row_exists": row is not None,
         "token_is_set": bool(row and row.access_token),
-        "token_preview": ("..." + row.access_token[-8:]) if (row and row.access_token and len(row.access_token) >= 8) else None,
+        "token_preview": None,  # never expose raw/encrypted token material
         "token_status": row.status if row else "no_row",
         "token_saved_at": str(row.access_token_saved_at) if (row and row.access_token_saved_at) else None,
     }

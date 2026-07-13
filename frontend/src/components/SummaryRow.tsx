@@ -1,3 +1,5 @@
+import { StatCard } from "../design-system/components/StatCard";
+
 type SummaryMetric = {
   label: string;
   value: string | number;
@@ -9,16 +11,29 @@ type SummaryRowProps = {
   metrics: SummaryMetric[];
 };
 
+/**
+ * KPI strip — large numbers, short labels, reduced helper noise.
+ */
 export function SummaryRow({ metrics }: SummaryRowProps) {
   return (
-    <section className="summary-row" aria-label="Scan summary">
+    <section className="summary-row summary-row--kpi" aria-label="Scan summary">
       {metrics.map((metric) => (
-        <article key={metric.label} className={`metric-card metric-card-${metric.tone ?? "default"}`}>
-          <span>{metric.label}</span>
-          <strong>{metric.value}</strong>
-          <p>{metric.helper}</p>
-        </article>
+        <StatCard
+          key={metric.label}
+          label={metric.label}
+          value={metric.value}
+          subtitle={shortHelper(metric.helper)}
+          tone={metric.tone ?? "default"}
+          compact
+        />
       ))}
     </section>
   );
+}
+
+/** Keep only first short phrase for cleaner KPI cards */
+function shortHelper(helper: string): string {
+  if (!helper) return "";
+  const cut = helper.split(/[.,]/)[0];
+  return cut.length > 42 ? `${cut.slice(0, 40)}…` : cut;
 }

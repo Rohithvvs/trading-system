@@ -316,6 +316,14 @@ async def lifespan(app: FastAPI):
         logger.info("STARTUP PROGRESS: Validating database schema lineage...")
         check_alembic_head()
         logger.info("STARTUP PROGRESS: Database schema is up-to-date.")
+
+        # Drop any async connections that may hold prepared plans from before DDL
+        try:
+            from .db.session import dispose_async_pool
+
+            await dispose_async_pool(reason="post_alembic_startup")
+        except Exception:
+            logger.warning("Could not dispose async DB pool after alembic check", exc_info=True)
         
         logger.info("STARTUP PROGRESS: settings module loaded successfully.")
         

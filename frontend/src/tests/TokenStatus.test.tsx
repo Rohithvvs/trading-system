@@ -3,91 +3,95 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import TokenStatus from '../components/TokenStatus';
 import * as api from '../api';
 
-// Mock the API methods
 vi.mock('../api', () => ({
   getTokenStatus: vi.fn(),
   getTokenHistory: vi.fn(),
+  getFyersAuthUrl: vi.fn(),
+  getLatestScan: vi.fn(),
+  fetchBrokerToken: vi.fn(),
+  saveBrokerToken: vi.fn(),
+  updateBrokerToken: vi.fn(),
+  deleteBrokerToken: vi.fn(),
+  validateBrokerToken: vi.fn(),
+  testBrokerConnection: vi.fn(),
   saveAccessToken: vi.fn(),
 }));
 
 describe('TokenStatus Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Default mocks for standard rendering
     vi.mocked(api.getTokenStatus).mockResolvedValue({
       access_token_active: false,
       access_token_saved_at: null,
       status: 'no_token',
       last_error: null,
     });
-    
     vi.mocked(api.getTokenHistory).mockResolvedValue({ history: [] });
+    vi.mocked(api.getLatestScan).mockResolvedValue(null as any);
+    vi.mocked(api.fetchBrokerToken).mockResolvedValue({
+      exists: false,
+      broker: 'FYERS',
+      connection_status: 'Disconnected',
+    });
   });
 
   it('renders default state without token', async () => {
     render(<TokenStatus />);
-    
-    expect(screen.getByText('FYERS Access Token')).toBeDefined();
-    
+
+    expect(screen.getByText('Token Management')).toBeDefined();
+
     await waitFor(() => {
-      expect(screen.getByTestId('token-status-badge').textContent).toBe('No token');
+      const badge = screen.getByTestId('token-status-badge');
+      expect(badge.textContent).toMatch(/Disconnected/i);
     });
 
     const input = screen.getByTestId('access-token-input') as HTMLInputElement;
     expect(input.value).toBe('');
-    
+
     const button = screen.getByTestId('save-access-token-button') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
   });
 
   it('handles successful token validation and save (Success UI Flow)', async () => {
-    vi.mocked(api.saveAccessToken).mockResolvedValue({ status: 'ok', saved_at: '2023-01-01T00:00:00Z' });
-    
+    vi.mocked(api.saveBrokerToken).mockResolvedValue({
+      status: 'ok',
+      message: 'Token successfully verified and saved.',
+      token: { token_masked: '************************ABCD', connection_status: 'Connected' },
+    });
+
     render(<TokenStatus />);
-    
+
     const input = screen.getByTestId('access-token-input') as HTMLInputElement;
     const button = screen.getByTestId('save-access-token-button') as HTMLButtonElement;
-    
-    fireEvent.change(input, { target: { value: 'valid_token' } });
+
+    fireEvent.change(input, { target: { value: 'valid_token_long_enough' } });
     expect(button.disabled).toBe(false);
-    
+
     fireEvent.click(button);
-    
-    // Immediate state should be saving - button disabled and text updated
+
     expect(button.disabled).toBe(true);
-    expect(screen.getByText('Validating with broker...')).toBeDefined();
-    
-    // Wait for success completion banner
+
+    // After the busy state resolves
     await waitFor(() => {
-      const successBox = screen.getByText('Token successfully verified and saved.');
-      expect(successBox).toBeDefined();
-      expect(successBox.className).toBe('success-box');
+      expect(screen.getByText('Token successfully verified and saved.')).toBeDefined();
     });
-    
-    // Verify input was cleared
-    expect(input.value).toBe('');
   });
 
   it('handles failed token validation (Error UI Flow)', async () => {
-    vi.mocked(api.saveAccessToken).mockRejectedValue(new Error('Invalid or Expired FYERS Token.'));
-    
+    vi.mocked(api.saveBrokerToken).mockRejectedValue(new Error('Invalid or Expired FYERS Token.'));
+
     render(<TokenStatus />);
-    
+
     const input = screen.getByTestId('access-token-input') as HTMLInputElement;
     const button = screen.getByTestId('save-access-token-button') as HTMLButtonElement;
-    
-    fireEvent.change(input, { target: { value: 'invalid_token' } });
+
+    fireEvent.change(input, { target: { value: 'invalid_token_long' } });
     fireEvent.click(button);
-    
-    // Wait for error banner
+
     await waitFor(() => {
-      const errorBox = screen.getByText('Invalid or Expired FYERS Token.');
-      expect(errorBox).toBeDefined();
-      expect(errorBox.className).toBe('error-box');
+      expect(screen.getByText('Invalid or Expired FYERS Token.')).toBeDefined();
     });
-    
-    // Verify success banner is not present
+
     expect(screen.queryByText('Token successfully verified and saved.')).toBeNull();
   });
 });

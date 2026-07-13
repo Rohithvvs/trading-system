@@ -12,6 +12,7 @@ from .paper_trading import (
 from .stock import WatchedStock
 from .fyers_token import FyersToken
 from .fyers_token_history import FyersTokenHistory
+from .broker_token import BrokerToken
 from .idempotency import IdempotencyRecord
 from .workstation import RiskSettings, SavedScan, ScanHistorySnapshot, WorkstationAlert
 from .system_log import SystemLog
@@ -21,6 +22,7 @@ from . import system_log
 from . import infrastructure
 from .live_trading import LiveAccount, LivePosition, LiveOrder, BrokerExecutionLog, OrderExecutionEvent
 from .auth import User, UserSession, Device, AuditLog, OTP
+from .user_profile import UserProfile
 __all__ = [
     "AnalysisHistory",
     "BacktestHistory",
@@ -35,6 +37,7 @@ __all__ = [
     "WatchedStock",
     "FyersToken",
     "FyersTokenHistory",
+    "BrokerToken",
     "RiskSettings",
     "SavedScan",
     "ScanHistorySnapshot",
@@ -51,4 +54,5 @@ __all__ = [
     "Device",
     "AuditLog",
     "OTP",
+    "UserProfile",
 ]

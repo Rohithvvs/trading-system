@@ -1,8 +1,4 @@
-/**
- * Daily Analytics — professional trading journal view (user-scoped).
- * Shell + skeletons first; data loads async. Charts lazy-rendered when data arrives.
- */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchDailyAnalytics,
   saveDailyJournal,
@@ -10,6 +6,7 @@ import {
 } from "../api";
 import { getCached, CACHE_KEYS } from "../utils/appCache";
 import { MetricCardSkeleton, ChartSkeleton, TableSkeleton } from "./Skeleton";
+import { StatCard } from "../design-system";
 
 declare const Chart: any;
 
@@ -93,10 +90,9 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
 
   useEffect(() => {
     void load(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, customStart, customEnd]);
 
-  // Charts — destroy/recreate when data changes
   useEffect(() => {
     if (!data?.charts || typeof Chart === "undefined") return;
     Object.values(chartsRef.current).forEach((c) => c?.destroy?.());
@@ -119,7 +115,7 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               },
             ],
           },
-          options: { responsive: true, plugins: { legend: { display: false } } },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
         });
       }
 
@@ -137,7 +133,7 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               },
             ],
           },
-          options: { responsive: true, plugins: { legend: { display: false } } },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
         });
       }
 
@@ -154,7 +150,7 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               },
             ],
           },
-          options: { responsive: true },
+          options: { responsive: true, maintainAspectRatio: false },
         });
       }
 
@@ -171,7 +167,7 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               },
             ],
           },
-          options: { responsive: true },
+          options: { responsive: true, maintainAspectRatio: false },
         });
       }
 
@@ -188,7 +184,7 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               },
             ],
           },
-          options: { responsive: true },
+          options: { responsive: true, maintainAspectRatio: false },
         });
       }
     } catch (e) {
@@ -258,16 +254,8 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
     URL.revokeObjectURL(url);
   }
 
-  function exportJsonAsExcelish() {
-    // Lightweight: download JSON (Excel can open CSV; full xlsx needs extra dep)
-    if (!data) return;
-    exportCsv();
-  }
-
-  function exportPdf() {
-    // Print-friendly view
-    window.print();
-  }
+  function exportCsvAlt() { exportCsv(); }
+  function exportPdf() { window.print(); }
 
   const ov = data?.overview;
   const score = data?.trading_score;
@@ -300,27 +288,27 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
     ];
   }, [ov]);
 
+  const periods: [DailyAnalyticsPeriod, string][] = [
+    ["today", "Today"],
+    ["yesterday", "Yesterday"],
+    ["week", "This Week"],
+    ["month", "This Month"],
+    ["custom", "Custom"],
+  ];
+
   return (
-    <section className="daily-analytics" data-testid="daily-analytics-panel">
-      <div className="panel" style={{ marginBottom: 12 }}>
-        <div className="panel-header" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+    <section className="da-panel" data-testid="daily-analytics-panel">
+      <div className="da-section">
+        <div className="da-header">
           <div>
-            <p className="section-label">Daily Analytics</p>
-            <h2 style={{ margin: 0 }}>Session performance journal</h2>
-            <p className="muted-copy" style={{ marginTop: 4 }}>
-              {data?.range_label ? `Range: ${data.range_label}` : "Loading range…"} · User-isolated paper book
+            <p className="da-section__label">Daily Analytics</p>
+            <h2 className="da-section__title">Session performance journal</h2>
+            <p className="ds-muted" style={{ marginTop: 4 }}>
+              {data?.range_label ? `Range: ${data.range_label}` : "Loading range..."} &middot; User-isolated paper book
             </p>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-            {(
-              [
-                ["today", "Today"],
-                ["yesterday", "Yesterday"],
-                ["week", "This Week"],
-                ["month", "This Month"],
-                ["custom", "Custom"],
-              ] as const
-            ).map(([id, label]) => (
+          <div className="da-period-bar">
+            {periods.map(([id, label]) => (
               <button
                 key={id}
                 type="button"
@@ -336,257 +324,226 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
                 <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} />
               </>
             ) : null}
-            <button type="button" className="button ghost-button" onClick={() => void load(true)}>
-              Refresh
-            </button>
-            <button type="button" className="button ghost-button" onClick={exportCsv} disabled={!data}>
-              CSV
-            </button>
-            <button type="button" className="button ghost-button" onClick={exportJsonAsExcelish} disabled={!data}>
-              Excel
-            </button>
-            <button type="button" className="button ghost-button" onClick={exportPdf} disabled={!data}>
-              PDF
-            </button>
+            <button type="button" className="button ghost-button" onClick={() => void load(true)}>Refresh</button>
+            <button type="button" className="button ghost-button" onClick={exportCsv} disabled={!data}>CSV</button>
+            <button type="button" className="button ghost-button" onClick={exportCsvAlt} disabled={!data}>Excel</button>
+            <button type="button" className="button ghost-button" onClick={exportPdf} disabled={!data}>PDF</button>
           </div>
         </div>
       </div>
 
       {error && !data ? (
-        <section className="panel error-state">
+        <div className="da-section error-state">
           <h2>Failed to load Daily Analytics</h2>
           <p>{error}</p>
-          <button type="button" className="button primary-button" onClick={() => void load(true)}>
-            Retry
-          </button>
-        </section>
+          <button type="button" className="button primary-button" onClick={() => void load(true)}>Retry</button>
+        </div>
       ) : null}
 
-      {/* Trading score + overview */}
-      <section className="panel" style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "stretch" }}>
-          <div
-            className={`metric-card ${score ? scoreClass(score.score) : ""}`}
-            style={{ minWidth: 160, textAlign: "center" }}
-            data-testid="daily-trading-score"
-          >
-            <span>Daily Trading Score</span>
-            {loading && !score ? (
-              <div className="app-skel" style={{ height: 48, marginTop: 8 }} />
-            ) : (
-              <>
-                <strong style={{ fontSize: "2rem" }}>{score?.score ?? "—"}</strong>
-                <p>{score?.label ?? "—"}</p>
-              </>
-            )}
-          </div>
-          <div style={{ flex: 1, minWidth: 240 }}>
-            {loading && !ov ? (
-              <MetricCardSkeleton count={8} />
-            ) : (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {metricTiles.map(([label, value]) => (
-                  <div key={String(label)} className="metric-card" style={{ minWidth: 120, flex: "1 1 120px" }}>
-                    <span>{label}</span>
-                    <strong>{value}</strong>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+      <div className="da-overview">
+        <div className={`da-score ${score ? scoreClass(score.score) : ""}`} data-testid="daily-trading-score">
+          <span className="da-score__label">Daily Trading Score</span>
+          {loading && !score ? (
+            <div className="app-skel" style={{ height: 48, width: 60, margin: "8px auto", borderRadius: 8 }} />
+          ) : (
+            <>
+              <span className="da-score__value">{score?.score ?? "—"}</span>
+              <span className="da-score__desc">{score?.label ?? "—"}</span>
+            </>
+          )}
         </div>
-      </section>
-
-      {/* Trade summary + performance + portfolio */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 12 }}>
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Trade summary</p>
-              <h2>Activity</h2>
+        <div>
+          {loading && !ov ? (
+            <MetricCardSkeleton count={8} />
+          ) : (
+            <div className="da-metrics">
+              {metricTiles.map(([label, value]) => (
+                <div key={String(label)} className="da-metric">
+                  <span className="da-metric__label">{label}</span>
+                  <span className="da-metric__value">{value}</span>
+                </div>
+              ))}
             </div>
+          )}
+        </div>
+      </div>
+
+      <div className="da-grid-3">
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Trade summary</p>
+            <h2 className="da-section__title">Activity</h2>
           </div>
           {loading && !summary ? (
             <MetricCardSkeleton count={4} />
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div className="metric-card"><span>Total trades</span><strong>{summary?.total_trades ?? "—"}</strong></div>
-              <div className="metric-card"><span>Executed</span><strong>{summary?.executed_orders ?? "—"}</strong></div>
-              <div className="metric-card"><span>Pending</span><strong>{summary?.pending_orders ?? "—"}</strong></div>
-              <div className="metric-card"><span>Cancelled</span><strong>{summary?.cancelled_orders ?? "—"}</strong></div>
-              <div className="metric-card"><span>Rejected</span><strong>{summary?.rejected_orders ?? "—"}</strong></div>
-              <div className="metric-card"><span>Avg hold (min)</span><strong>{summary?.average_holding_minutes ?? "—"}</strong></div>
-              <div className="metric-card"><span>Avg size</span><strong>{money(summary?.average_position_size)}</strong></div>
+            <div className="da-subgrid-2">
+              <div className="da-metric"><span className="da-metric__label">Total trades</span><span className="da-metric__value">{summary?.total_trades ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Executed</span><span className="da-metric__value">{summary?.executed_orders ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Pending</span><span className="da-metric__value">{summary?.pending_orders ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Cancelled</span><span className="da-metric__value">{summary?.cancelled_orders ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Rejected</span><span className="da-metric__value">{summary?.rejected_orders ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Avg hold (min)</span><span className="da-metric__value">{summary?.average_holding_minutes ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Avg size</span><span className="da-metric__value">{money(summary?.average_position_size)}</span></div>
             </div>
           )}
-        </section>
+        </div>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Performance</p>
-              <h2>Edge metrics</h2>
-            </div>
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Performance</p>
+            <h2 className="da-section__title">Edge metrics</h2>
           </div>
           {loading && !perf ? (
             <MetricCardSkeleton count={6} />
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div className="metric-card"><span>Net profit</span><strong>{money(perf?.net_profit)}</strong></div>
-              <div className="metric-card"><span>Gross profit</span><strong>{money(perf?.gross_profit)}</strong></div>
-              <div className="metric-card"><span>Gross loss</span><strong>{money(perf?.gross_loss)}</strong></div>
-              <div className="metric-card"><span>Profit factor</span><strong>{perf?.profit_factor ?? "—"}</strong></div>
-              <div className="metric-card"><span>Win rate</span><strong>{pct(perf?.win_rate)}</strong></div>
-              <div className="metric-card"><span>Loss rate</span><strong>{pct(perf?.loss_rate)}</strong></div>
-              <div className="metric-card"><span>R:R</span><strong>{perf?.risk_reward_ratio ?? "—"}</strong></div>
-              <div className="metric-card"><span>Expectancy</span><strong>{money(perf?.expectancy)}</strong></div>
-              <div className="metric-card"><span>Max DD</span><strong>{money(perf?.maximum_drawdown)}</strong></div>
-              <div className="metric-card"><span>Sharpe</span><strong>{perf?.sharpe_ratio ?? "—"}</strong></div>
-              <div className="metric-card"><span>Sortino</span><strong>{perf?.sortino_ratio ?? "—"}</strong></div>
-              <div className="metric-card"><span>Recovery</span><strong>{perf?.recovery_factor ?? "—"}</strong></div>
+            <div className="da-subgrid-2">
+              <div className="da-metric"><span className="da-metric__label">Net profit</span><span className="da-metric__value">{money(perf?.net_profit)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Gross profit</span><span className="da-metric__value">{money(perf?.gross_profit)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Gross loss</span><span className="da-metric__value">{money(perf?.gross_loss)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Profit factor</span><span className="da-metric__value">{perf?.profit_factor ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Win rate</span><span className="da-metric__value">{pct(perf?.win_rate)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Loss rate</span><span className="da-metric__value">{pct(perf?.loss_rate)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">R:R</span><span className="da-metric__value">{perf?.risk_reward_ratio ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Expectancy</span><span className="da-metric__value">{money(perf?.expectancy)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Max DD</span><span className="da-metric__value">{money(perf?.maximum_drawdown)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Sharpe</span><span className="da-metric__value">{perf?.sharpe_ratio ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Sortino</span><span className="da-metric__value">{perf?.sortino_ratio ?? "—"}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Recovery</span><span className="da-metric__value">{perf?.recovery_factor ?? "—"}</span></div>
             </div>
           )}
-        </section>
+        </div>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Portfolio</p>
-              <h2>Allocation</h2>
-            </div>
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Portfolio</p>
+            <h2 className="da-section__title">Allocation</h2>
           </div>
           {loading && !port ? (
             <MetricCardSkeleton count={4} />
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div className="metric-card"><span>Portfolio value</span><strong>{money(port?.portfolio_value)}</strong></div>
-              <div className="metric-card"><span>Cash</span><strong>{money(port?.cash_balance)}</strong></div>
-              <div className="metric-card"><span>Invested</span><strong>{money(port?.invested_amount)}</strong></div>
-              <div className="metric-card"><span>Allocation %</span><strong>{pct(port?.allocation_pct)}</strong></div>
-              <div className="metric-card"><span>Utilization %</span><strong>{pct(port?.utilization_pct)}</strong></div>
+            <div className="da-subgrid-2">
+              <div className="da-metric"><span className="da-metric__label">Portfolio value</span><span className="da-metric__value">{money(port?.portfolio_value)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Cash</span><span className="da-metric__value">{money(port?.cash_balance)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Invested</span><span className="da-metric__value">{money(port?.invested_amount)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Allocation %</span><span className="da-metric__value">{pct(port?.allocation_pct)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Utilization %</span><span className="da-metric__value">{pct(port?.utilization_pct)}</span></div>
             </div>
           )}
-        </section>
+        </div>
       </div>
 
-      {/* Charts */}
-      <section className="panel" style={{ marginBottom: 12 }}>
-        <div className="panel-header">
-          <div>
-            <p className="section-label">Charts</p>
-            <h2>Visual analysis</h2>
-          </div>
+      <div className="da-section">
+        <div className="da-section__header">
+          <p className="da-section__label">Charts</p>
+          <h2 className="da-section__title">Visual analysis</h2>
         </div>
         {loading && !data ? (
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div className="da-charts">
             <ChartSkeleton height={200} />
             <ChartSkeleton height={200} />
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <div className="panel" style={{ flex: "1 1 320px", minWidth: 280 }}>
-              <p className="section-label">Daily equity curve</p>
-              <canvas ref={equityRef} height={160} />
+          <div className="da-charts">
+            <div className="da-chart">
+              <p className="da-section__label" style={{ marginBottom: 8 }}>Daily equity curve</p>
+              <canvas ref={equityRef} />
             </div>
-            <div className="panel" style={{ flex: "1 1 320px", minWidth: 280 }}>
-              <p className="section-label">Hourly P&L</p>
-              <canvas ref={hourlyRef} height={160} />
+            <div className="da-chart">
+              <p className="da-section__label" style={{ marginBottom: 8 }}>Hourly P&L</p>
+              <canvas ref={hourlyRef} />
             </div>
-            <div className="panel" style={{ width: 240 }}>
-              <p className="section-label">Win / Loss</p>
-              <canvas ref={pieRef} height={160} />
+            <div className="da-chart da-chart--narrow">
+              <p className="da-section__label" style={{ marginBottom: 8 }}>Win / Loss</p>
+              <canvas ref={pieRef} />
             </div>
-            <div className="panel" style={{ width: 240 }}>
-              <p className="section-label">Sector allocation</p>
-              <canvas ref={sectorRef} height={160} />
+            <div className="da-chart da-chart--narrow">
+              <p className="da-section__label" style={{ marginBottom: 8 }}>Sector allocation</p>
+              <canvas ref={sectorRef} />
             </div>
-            <div className="panel" style={{ width: 240 }}>
-              <p className="section-label">Capital usage</p>
-              <canvas ref={capitalRef} height={160} />
+            <div className="da-chart da-chart--narrow">
+              <p className="da-section__label" style={{ marginBottom: 8 }}>Capital usage</p>
+              <canvas ref={capitalRef} />
             </div>
           </div>
         )}
-      </section>
+      </div>
 
-      {/* Best / worst / risk / time */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
-        <section className="panel">
-          <p className="section-label">Best trade</p>
-          <h2>{data?.best_trade?.symbol ?? "—"}</h2>
+      <div className="da-grid-4">
+        <div className="da-section">
+          <p className="da-section__label">Best trade</p>
+          <h2 className="da-section__title">{data?.best_trade?.symbol ?? "—"}</h2>
           {data?.best_trade ? (
-            <div className="muted-copy">
-              <div>Entry {money(data.best_trade.entry)} → Exit {money(data.best_trade.exit)}</div>
+            <div className="ds-muted">
+              <div>Entry {money(data.best_trade.entry)} &rarr; Exit {money(data.best_trade.exit)}</div>
               <div>Profit {money(data.best_trade.profit)} ({pct(data.best_trade.return_pct)})</div>
               <div>Hold {data.best_trade.holding_time_minutes} min</div>
               <div>Reason: {data.best_trade.reason}</div>
             </div>
           ) : (
-            <p className="muted-copy">No closed trades in range.</p>
+            <p className="ds-muted">No closed trades in range.</p>
           )}
-        </section>
-        <section className="panel">
-          <p className="section-label">Worst trade</p>
-          <h2>{data?.worst_trade?.symbol ?? "—"}</h2>
+        </div>
+        <div className="da-section">
+          <p className="da-section__label">Worst trade</p>
+          <h2 className="da-section__title">{data?.worst_trade?.symbol ?? "—"}</h2>
           {data?.worst_trade ? (
-            <div className="muted-copy">
+            <div className="ds-muted">
               <div>Loss {money(data.worst_trade.loss)}</div>
               <div>Hold {data.worst_trade.holding_time_minutes} min</div>
               <div>Mistake: {data.worst_trade.mistake}</div>
             </div>
           ) : (
-            <p className="muted-copy">No closed trades in range.</p>
+            <p className="ds-muted">No closed trades in range.</p>
           )}
-        </section>
-        <section className="panel">
-          <p className="section-label">Risk analysis</p>
-          <h2>Exposure</h2>
+        </div>
+        <div className="da-section">
+          <p className="da-section__label">Risk analysis</p>
+          <h2 className="da-section__title">Exposure</h2>
           {risk ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div className="metric-card"><span>Largest</span><strong>{money(risk.largest_position)}</strong></div>
-              <div className="metric-card"><span>Smallest</span><strong>{money(risk.smallest_position)}</strong></div>
-              <div className="metric-card"><span>Risk %</span><strong>{pct(risk.risk_pct)}</strong></div>
-              <div className="metric-card"><span>Exposure</span><strong>{money(risk.exposure)}</strong></div>
-              <div className="metric-card"><span>Concentration</span><strong>{pct(risk.capital_concentration)}</strong></div>
+            <div className="da-subgrid-2">
+              <div className="da-metric"><span className="da-metric__label">Largest</span><span className="da-metric__value">{money(risk.largest_position)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Smallest</span><span className="da-metric__value">{money(risk.smallest_position)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Risk %</span><span className="da-metric__value">{pct(risk.risk_pct)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Exposure</span><span className="da-metric__value">{money(risk.exposure)}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Concentration</span><span className="da-metric__value">{pct(risk.capital_concentration)}</span></div>
             </div>
           ) : (
             <MetricCardSkeleton count={3} />
           )}
-        </section>
-        <section className="panel">
-          <p className="section-label">Emotional analysis</p>
-          <h2>Process scores</h2>
+        </div>
+        <div className="da-section">
+          <p className="da-section__label">Emotional analysis</p>
+          <h2 className="da-section__title">Process scores</h2>
           {emotional ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div className="metric-card"><span>Discipline</span><strong>{emotional.discipline}</strong></div>
-              <div className="metric-card"><span>Patience</span><strong>{emotional.patience}</strong></div>
-              <div className="metric-card"><span>Risk control</span><strong>{emotional.risk_control}</strong></div>
-              <div className="metric-card"><span>Execution</span><strong>{emotional.execution_quality}</strong></div>
-              <div className="metric-card"><span>Consistency</span><strong>{emotional.consistency}</strong></div>
+            <div className="da-subgrid-2">
+              <div className="da-metric"><span className="da-metric__label">Discipline</span><span className="da-metric__value">{emotional.discipline}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Patience</span><span className="da-metric__value">{emotional.patience}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Risk control</span><span className="da-metric__value">{emotional.risk_control}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Execution</span><span className="da-metric__value">{emotional.execution_quality}</span></div>
+              <div className="da-metric"><span className="da-metric__label">Consistency</span><span className="da-metric__value">{emotional.consistency}</span></div>
             </div>
           ) : (
             <MetricCardSkeleton count={3} />
           )}
-        </section>
+        </div>
       </div>
 
-      {/* Time analysis */}
-      <section className="panel" style={{ marginBottom: 12 }}>
-        <div className="panel-header">
-          <div>
-            <p className="section-label">Time analysis</p>
-            <h2>Trades by session slot</h2>
-          </div>
+      <div className="da-section">
+        <div className="da-section__header">
+          <p className="da-section__label">Time analysis</p>
+          <h2 className="da-section__title">Trades by session slot</h2>
         </div>
         {loading && !data ? (
           <TableSkeleton rows={3} cols={3} />
         ) : (
-          <div className="table-scroll">
-            <table className="candidate-table">
+          <div className="da-table-scroll">
+            <table className="perf-table">
               <thead>
                 <tr>
                   <th>Slot</th>
                   <th>Trades</th>
-                  <th>P&L</th>
+                  <th>P&amp;L</th>
                 </tr>
               </thead>
               <tbody>
@@ -601,27 +558,24 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
             </table>
           </div>
         )}
-      </section>
+      </div>
 
-      {/* Sector + symbols */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12, marginBottom: 12 }}>
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Sector analysis</p>
-              <h2>Allocation & P&L</h2>
-            </div>
+      <div className="da-grid-2">
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Sector analysis</p>
+            <h2 className="da-section__title">Allocation &amp; P&amp;L</h2>
           </div>
           {loading && !data ? (
             <TableSkeleton rows={4} cols={5} />
           ) : (
-            <div className="table-scroll">
-              <table className="candidate-table">
+            <div className="da-table-scroll">
+              <table className="perf-table">
                 <thead>
                   <tr>
                     <th>Sector</th>
                     <th>Trades</th>
-                    <th>Allocation</th>
+                    <th className="perf-hide-mobile">Allocation</th>
                     <th>Profit</th>
                     <th>Loss</th>
                   </tr>
@@ -631,7 +585,7 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
                     <tr key={s.sector}>
                       <td>{s.sector}</td>
                       <td>{s.trades}</td>
-                      <td className="number-cell">{money(s.allocation)}</td>
+                      <td className="number-cell perf-hide-mobile">{money(s.allocation)}</td>
                       <td className="number-cell">{money(s.profit)}</td>
                       <td className="number-cell">{money(s.loss)}</td>
                     </tr>
@@ -640,29 +594,27 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               </table>
             </div>
           )}
-        </section>
+        </div>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Symbol performance</p>
-              <h2>Per-name results</h2>
-            </div>
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Symbol performance</p>
+            <h2 className="da-section__title">Per-name results</h2>
           </div>
           {loading && !data ? (
             <TableSkeleton rows={5} cols={6} />
           ) : (
-            <div className="table-scroll">
-              <table className="candidate-table">
+            <div className="da-table-scroll">
+              <table className="perf-table">
                 <thead>
                   <tr>
                     <th>Symbol</th>
                     <th>Entry</th>
-                    <th>Exit</th>
-                    <th>Qty</th>
+                    <th className="perf-hide-mobile">Exit</th>
+                    <th className="perf-hide-tablet">Qty</th>
                     <th>Return %</th>
-                    <th>Hold</th>
-                    <th>P&L</th>
+                    <th className="perf-hide-mobile">Hold</th>
+                    <th>P&amp;L</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -670,10 +622,10 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
                     <tr key={`${r.symbol}-${i}`}>
                       <td>{r.symbol}</td>
                       <td className="number-cell">{money(r.entry)}</td>
-                      <td className="number-cell">{r.exit != null ? money(r.exit) : "—"}</td>
-                      <td>{r.quantity}</td>
+                      <td className="number-cell perf-hide-mobile">{r.exit != null ? money(r.exit) : "—"}</td>
+                      <td className="perf-hide-tablet">{r.quantity}</td>
                       <td className="number-cell">{pct(r.return_pct)}</td>
-                      <td>{r.holding_time_minutes}m</td>
+                      <td className="perf-hide-mobile">{r.holding_time_minutes}m</td>
                       <td className="number-cell">{money(r.pnl)}</td>
                     </tr>
                   ))}
@@ -681,20 +633,19 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               </table>
             </div>
           )}
-        </section>
+        </div>
       </div>
 
-      {/* AI + Journal + Market */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 12 }}>
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">AI insights</p>
-              <h2>Coach notes {ai?.confidence_score != null ? `· conf ${ai.confidence_score}` : ""}</h2>
-            </div>
+      <div className="da-grid-3">
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">AI insights</p>
+            <h2 className="da-section__title">
+              Coach notes {ai?.confidence_score != null ? `· conf ${ai.confidence_score}` : ""}
+            </h2>
           </div>
           {ai ? (
-            <div className="muted-copy" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="ds-muted" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <p><strong>Summary:</strong> {ai.summary}</p>
               <div>
                 <strong>Strengths</strong>
@@ -721,63 +672,59 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
           ) : (
             <ChartSkeleton height={160} />
           )}
-        </section>
+        </div>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Daily journal</p>
-              <h2>
-                Notes {journalSaving ? "· saving…" : journalMsg ? `· ${journalMsg}` : "· auto-save"}
-              </h2>
-            </div>
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Daily journal</p>
+            <h2 className="da-section__title">
+              Notes {journalSaving ? "· saving..." : journalMsg ? `· ${journalMsg}` : "· auto-save"}
+            </h2>
           </div>
           <label className="filter-field" style={{ display: "block", marginBottom: 8 }}>
             <span>Today&apos;s observations</span>
             <textarea
               rows={3}
+              className="da-textarea"
               value={journal.observations}
               onChange={(e) => updateJournal("observations", e.target.value)}
-              style={{ width: "100%", marginTop: 4 }}
             />
           </label>
           <label className="filter-field" style={{ display: "block", marginBottom: 8 }}>
             <span>Mistakes</span>
             <textarea
               rows={2}
+              className="da-textarea"
               value={journal.mistakes}
               onChange={(e) => updateJournal("mistakes", e.target.value)}
-              style={{ width: "100%", marginTop: 4 }}
             />
           </label>
           <label className="filter-field" style={{ display: "block", marginBottom: 8 }}>
             <span>Lessons</span>
             <textarea
               rows={2}
+              className="da-textarea"
               value={journal.lessons}
               onChange={(e) => updateJournal("lessons", e.target.value)}
-              style={{ width: "100%", marginTop: 4 }}
             />
           </label>
           <label className="filter-field" style={{ display: "block" }}>
             <span>Tomorrow&apos;s plan</span>
             <textarea
               rows={2}
+              className="da-textarea"
               value={journal.tomorrow_plan}
               onChange={(e) => updateJournal("tomorrow_plan", e.target.value)}
-              style={{ width: "100%", marginTop: 4 }}
             />
           </label>
-        </section>
+        </div>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Market context</p>
-              <h2>Session backdrop</h2>
-            </div>
+        <div className="da-section">
+          <div className="da-section__header">
+            <p className="da-section__label">Market context</p>
+            <h2 className="da-section__title">Session backdrop</h2>
           </div>
-          <div className="muted-copy">
+          <div className="ds-muted">
             <div>Nifty: {data?.market_context?.nifty ?? "—"}</div>
             <div>Bank Nifty: {data?.market_context?.bank_nifty ?? "—"}</div>
             <div>VIX: {data?.market_context?.vix ?? "—"}</div>
@@ -785,10 +732,10 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
             <div>Sector strength: {data?.market_context?.sector_strength ?? "—"}</div>
             <p style={{ marginTop: 8, fontSize: 12 }}>{data?.market_context?.note}</p>
           </div>
-        </section>
+        </div>
       </div>
     </section>
   );
 }
 
-export default DailyAnalyticsPanel;
+export default memo(DailyAnalyticsPanel);

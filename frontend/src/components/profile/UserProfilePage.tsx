@@ -1,4 +1,14 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   authMe,
@@ -6,15 +16,20 @@ import {
   fetchPaperTradingDashboard,
   getTokenStatus,
   fetchApiHealth,
+  fetchUserProfile,
+  updateUserProfile,
 } from "../../api";
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
 import {
   initialsFromName,
   loadProfilePrefs,
-  saveProfilePrefs,
+  cacheProfilePrefs,
+  profileFromApi,
+  prefsToApiPayload,
   type ProfilePreferences,
 } from "../../utils/profilePrefs";
+import { useToast } from "../../design-system";
 import {
   cachedFetch,
   getCached,
@@ -54,9 +69,11 @@ type SectionId =
 
 type Props = {
   onNavigate?: (view: "scanner" | "paper-trading" | "home") => void;
+  /** Simplified retail profile — hide unfinished AI coach & clutter */
+  retailMode?: boolean;
 };
 
-const SIDEBAR: { id: SectionId; label: string; badge?: string }[] = [
+const SIDEBAR_FULL: { id: SectionId; label: string; badge?: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "personal", label: "Personal Information" },
   { id: "security", label: "Security" },
@@ -74,6 +91,21 @@ const SIDEBAR: { id: SectionId; label: string; badge?: string }[] = [
   { id: "about", label: "About" },
 ];
 
+/** Retail profile IA — Overview first, then account sections */
+const SIDEBAR_RETAIL: { id: SectionId; label: string; badge?: string }[] = [
+  { id: "overview", label: "Profile Overview" },
+  { id: "personal", label: "Personal Info" },
+  { id: "brokers", label: "Broker Connections" },
+  { id: "security", label: "Security" },
+  { id: "preferences", label: "Preferences & Appearance" },
+  { id: "notifications", label: "Notifications" },
+  { id: "paper", label: "Paper Trading Summary" },
+  { id: "portfolio", label: "Holdings snapshot" },
+  { id: "privacy", label: "Privacy" },
+  { id: "support", label: "Support" },
+  { id: "about", label: "About" },
+];
+
 function money(n: number | null | undefined, digits = 2): string {
   if (n == null || Number.isNaN(Number(n))) return "—";
   return `₹${Number(n).toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
@@ -87,10 +119,20 @@ function MetricSkeleton() {
   return <div className="glass-card metric-tile-card profile-skel metric-skel" style={{ minHeight: 100 }} />;
 }
 
-export function UserProfilePage({ onNavigate }: Props) {
-  const { user, logout } = useAuth();
+export function UserProfilePage({ onNavigate, retailMode = false }: Props) {
+  const SIDEBAR = retailMode ? SIDEBAR_RETAIL : SIDEBAR_FULL;
+  const { user, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [section, setSection] = useState<SectionId>("overview");
+  const toast = useToast();
+  const [section, setSection] = useState<SectionId>(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("section") as SectionId | null;
+      if (q) return q;
+    } catch {
+      /* ignore */
+    }
+    return "overview";
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Instant shell: seed from auth context + cache (no network wait)
@@ -105,26 +147,58 @@ export function UserProfilePage({ onNavigate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<ProfilePreferences>(() => loadProfilePrefs(user?.id));
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [loadedSections, setLoadedSections] = useState<Set<SectionId>>(() => new Set(["overview"]));
 
   const userId = user?.id || profile?.id;
 
-  /** Priority 1: auth/me (or reuse context) — never block layout */
+  // True while the user has unsaved form edits — server reloads must not clobber them
+  const formDirtyRef = useRef(false);
+  const profileHydratedRef = useRef(false);
+  const userIdStable = user?.id;
+
+  /** Load auth user + DB profile once per session (or force refresh). Never loop on `user` object identity. */
   const loadMe = useCallback(async (force = false) => {
     setMeLoading(true);
     try {
       if (user && !force) {
         setProfile((prev: any) => prev || user);
       }
-      const me = await cachedFetch(PROFILE_CACHE_KEYS.me, () => authMe(), { force });
-      setProfile(me);
-      if (me?.id) setPrefs(loadProfilePrefs(String(me.id)));
+      const [me, serverProfile] = await Promise.all([
+        cachedFetch(PROFILE_CACHE_KEYS.me, () => authMe(), { force }).catch(() => user),
+        fetchUserProfile({ force }).catch(() => null),
+      ]);
+      if (me) setProfile(me);
+      if (serverProfile) {
+        const mapped = profileFromApi(serverProfile);
+        // Only hydrate editable prefs from server when:
+        // - first load, or forced refresh, AND user is not mid-edit
+        if (force || !profileHydratedRef.current) {
+          if (!formDirtyRef.current || force) {
+            setPrefs(mapped);
+            formDirtyRef.current = false;
+          }
+          profileHydratedRef.current = true;
+        } else if (!formDirtyRef.current && force) {
+          setPrefs(mapped);
+        }
+        if (me?.id || serverProfile.user_id) {
+          cacheProfilePrefs(String(me?.id || serverProfile.user_id), mapped);
+        }
+        // Only touch auth context when the name actually changed (avoids infinite loadMe loops)
+        const nextName = (serverProfile.display_name || serverProfile.full_name || "").trim();
+        const currentName = (user?.full_name || "").trim();
+        if (nextName && nextName !== currentName) {
+          updateUser({ full_name: nextName });
+        }
+      }
     } catch (e: any) {
       if (!user) setError(e?.message || "Failed to load profile");
     } finally {
       setMeLoading(false);
     }
-  }, [user]);
+    // Depend on stable user id only — NOT the whole user object (updateUser was recreating loadMe forever)
+  }, [userIdStable, user, updateUser]);
 
   /** Overview bundle: paper + analytics + token — parallel, non-blocking */
   const loadOverviewData = useCallback(async (force = false) => {
@@ -193,13 +267,14 @@ export function UserProfilePage({ onNavigate }: Props) {
     await loadOverviewData();
   }, [dashboard, analytics, loadOverviewData]);
 
-  // Mount: paint immediately, then progressive fetch
+  // Mount once (and when account switches) — do NOT re-run when loadMe identity changes after updateUser
   useEffect(() => {
     let cancelled = false;
+    profileHydratedRef.current = false;
+    formDirtyRef.current = false;
     (async () => {
       await loadMe(false);
       if (cancelled) return;
-      // Overview data after first paint frame
       requestAnimationFrame(() => {
         if (!cancelled) void loadOverviewData(false);
       });
@@ -207,7 +282,8 @@ export function UserProfilePage({ onNavigate }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [loadMe, loadOverviewData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: hydrate per user id only
+  }, [userIdStable]);
 
   // Section-on-demand: only fetch when tab opened
   useEffect(() => {
@@ -362,11 +438,39 @@ export function UserProfilePage({ onNavigate }: Props) {
     return rows.slice(0, 8);
   }, [profile, trades, email, fyersConnected]);
 
-  function persistPrefs(next: ProfilePreferences) {
+  function markPrefsDraft(next: ProfilePreferences) {
+    formDirtyRef.current = true;
     setPrefs(next);
-    if (userId) saveProfilePrefs(String(userId), next);
-    setSaveMsg("Preferences saved on this device");
-    setTimeout(() => setSaveMsg(null), 2500);
+  }
+
+  async function persistPrefs(next: ProfilePreferences): Promise<boolean> {
+    if (!userId) {
+      toast.warning("Sign in required", "Profile is saved to your account after login.");
+      return false;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateUserProfile(prefsToApiPayload(next));
+      const mapped = profileFromApi(updated);
+      setPrefs(mapped);
+      formDirtyRef.current = false;
+      cacheProfilePrefs(String(userId), mapped);
+      const nextName = (mapped.displayName || "").trim();
+      if (nextName && nextName !== (user?.full_name || "").trim()) {
+        updateUser({ full_name: nextName });
+      }
+      setSaveMsg("Profile saved to your account");
+      toast.success("Profile saved", "Synced across devices");
+      setTimeout(() => setSaveMsg(null), 2500);
+      return true;
+    } catch (e: any) {
+      // Keep form draft — do not clear fields on API failure
+      formDirtyRef.current = true;
+      toast.error("Could not save profile", e?.message || "Please try again");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   }
 
   function selectSection(id: SectionId) {
@@ -533,11 +637,17 @@ export function UserProfilePage({ onNavigate }: Props) {
 
         {section === "personal" ? (
           <PersonalSection
-            prefs={prefs}
+            key={`personal-${userIdStable || "anon"}`}
+            savedPrefs={prefs}
             fullName={fullName}
             email={email}
-            onChange={(p) => setPrefs(p)}
-            onSave={() => persistPrefs(prefs)}
+            saving={saving}
+            onDirtyChange={(dirty) => {
+              formDirtyRef.current = dirty;
+            }}
+            onSaved={async (next) => {
+              await persistPrefs(next);
+            }}
           />
         ) : null}
 
@@ -550,16 +660,16 @@ export function UserProfilePage({ onNavigate }: Props) {
             prefs={prefs}
             theme={theme}
             onTheme={setTheme}
-            onChange={setPrefs}
-            onSave={() => persistPrefs(prefs)}
+            onChange={markPrefsDraft}
+            onSave={() => void persistPrefs(prefs)}
           />
         ) : null}
 
         {section === "notifications" ? (
           <NotificationsSection
             prefs={prefs}
-            onChange={(n) => setPrefs({ ...prefs, notifications: n })}
-            onSave={() => persistPrefs(prefs)}
+            onChange={(n) => markPrefsDraft({ ...prefs, notifications: n })}
+            onSave={() => void persistPrefs(prefs)}
           />
         ) : null}
 
@@ -777,6 +887,52 @@ const OverviewSection = memo(function OverviewSection(props: {
         </div>
       </section>
 
+      {/* Status grid — profile overview hierarchy */}
+      <section className="profile-status-grid" aria-label="Account status">
+        <article className="glass-card profile-status-tile">
+          <span className="muted">Verification</span>
+          <strong>Email verified</strong>
+          <span className="profile-chip ok">Active</span>
+        </article>
+        <article className="glass-card profile-status-tile">
+          <span className="muted">Broker</span>
+          <strong>{fyersConnected ? "Connected" : "Not connected"}</strong>
+          <span className={`profile-chip ${fyersConnected ? "ok" : "warn"}`}>{fyersConnected ? "Live" : "Setup"}</span>
+        </article>
+        <article className="glass-card profile-status-tile">
+          <span className="muted">2FA / Security</span>
+          <strong>Sessions protected</strong>
+          <button type="button" className="button ghost-button small-button" onClick={props.onPassword}>Security</button>
+        </article>
+        <article className="glass-card profile-status-tile">
+          <span className="muted">Theme</span>
+          <strong>System preference</strong>
+          <button type="button" className="button ghost-button small-button" onClick={props.onSettings}>Appearance</button>
+        </article>
+        <article className="glass-card profile-status-tile">
+          <span className="muted">Holdings</span>
+          <strong>{holdingsCount}</strong>
+          <button type="button" className="button ghost-button small-button" onClick={props.onPortfolio}>View</button>
+        </article>
+        <article className="glass-card profile-status-tile">
+          <span className="muted">Open positions</span>
+          <strong>{holdingsCount}</strong>
+          <button type="button" className="button ghost-button small-button" onClick={props.onPaper}>Paper Desk</button>
+        </article>
+      </section>
+
+      <section className="profile-quick-actions-bar glass-card" aria-label="Quick actions">
+        <p className="ds-label" style={{ margin: 0 }}>Quick actions</p>
+        <div className="profile-quick-btns">
+          <button type="button" className="button primary-button" onClick={props.onEdit}>Edit profile</button>
+          <button type="button" className="button ghost-button" onClick={props.onPassword}>Security</button>
+          <button type="button" className="button ghost-button" onClick={props.onSettings}>Notifications</button>
+          <button type="button" className="button ghost-button" onClick={props.onSettings}>Appearance</button>
+          <button type="button" className="button ghost-button" onClick={props.onPaper}>Paper trading</button>
+          <button type="button" className="button ghost-button" onClick={props.onScanner}>Run scanner</button>
+        </div>
+      </section>
+
       {/* Metric strip */}
       <section className="profile-metrics">
         {metricsLoading ? (
@@ -786,20 +942,20 @@ const OverviewSection = memo(function OverviewSection(props: {
           </>
         ) : (
           <>
-            <MetricCard title="Virtual Balance" value={money(portfolioValue)} sub={`Available Cash ${money(availableCash)}`} icon="wallet" />
-            <MetricCard title="Portfolio Value" value={money(portfolioValue)} sub={`Invested ${money(invested)}`} icon="pie" />
+            <MetricCard title="Paper balance" value={money(portfolioValue)} sub={`Available ${money(availableCash)}`} icon="wallet" />
+            <MetricCard title="Portfolio value" value={money(portfolioValue)} sub={`Invested ${money(invested)}`} icon="pie" />
             <MetricCard
-              title="Total P&L"
+              title="Overall P&L"
               value={money(totalPnl)}
-              sub="Realized + Unrealized"
+              sub="Realized + unrealized"
               icon="trend"
               tone={totalPnl >= 0 ? "pos" : "neg"}
             />
-            <MetricCard title="Win Rate" value={winRate != null ? `${Number(winRate).toFixed(2)}%` : "—"} sub={`Total Trades ${closedCount}`} icon="target" />
-            <MetricCard title="Profit Factor" value={profitFactor != null ? Number(profitFactor).toFixed(2) : "—"} sub={`Expectancy ${expectancy != null ? money(Number(expectancy)) : "—"}`} icon="bars" />
+            <MetricCard title="Win rate" value={winRate != null ? `${Number(winRate).toFixed(1)}%` : "—"} sub={`${closedCount} closed trades`} icon="target" />
+            <MetricCard title="Profit factor" value={profitFactor != null ? Number(profitFactor).toFixed(2) : "—"} sub={`Expectancy ${expectancy != null ? money(Number(expectancy)) : "—"}`} icon="bars" />
             <MetricCard
-              title="Max Drawdown"
-              value={maxDd != null ? `${Number(maxDd).toFixed(2)}%` : money(maxDdAmt)}
+              title="Max drawdown"
+              value={maxDd != null ? `${Number(maxDd).toFixed(1)}%` : money(maxDdAmt)}
               sub="Peak to trough"
               icon="shield"
               tone="neg"
@@ -983,44 +1139,161 @@ const MetricCard = memo(function MetricCard({
 
 /* ───────────────── Other sections ───────────────── */
 
+/**
+ * Editable personal form with local draft state.
+ * Parent `savedPrefs` only seeds the draft — typing never depends on parent re-fetches.
+ */
 function PersonalSection({
-  prefs,
+  savedPrefs,
   fullName,
   email,
-  onChange,
-  onSave,
+  saving,
+  onDirtyChange,
+  onSaved,
 }: {
-  prefs: ProfilePreferences;
+  savedPrefs: ProfilePreferences;
   fullName: string;
   email: string;
-  onChange: (p: ProfilePreferences) => void;
-  onSave: () => void;
+  saving?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  onSaved: (next: ProfilePreferences) => boolean | Promise<boolean>;
 }) {
-  const set = (k: keyof ProfilePreferences, v: string) => onChange({ ...prefs, [k]: v });
+  const baselineRef = useRef<ProfilePreferences>(savedPrefs);
+  const [draft, setDraft] = useState<ProfilePreferences>(() => ({ ...savedPrefs }));
+  const [baseline, setBaseline] = useState<ProfilePreferences>(() => ({ ...savedPrefs }));
+
+  // Seed once when parent first delivers server prefs (empty → filled). Never while dirty.
+  useEffect(() => {
+    const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
+    if (dirty) return;
+    // Only re-seed if savedPrefs actually changed from our baseline
+    if (JSON.stringify(savedPrefs) === JSON.stringify(baselineRef.current)) return;
+    baselineRef.current = savedPrefs;
+    setBaseline(savedPrefs);
+    setDraft(savedPrefs);
+    onDirtyChange?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed when savedPrefs identity content changes while clean
+  }, [savedPrefs]);
+
+  const dirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(baseline),
+    [draft, baseline],
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  const setField = useCallback((k: keyof ProfilePreferences, v: string) => {
+    setDraft((prev) => ({ ...prev, [k]: v }));
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    setDraft(baseline);
+    onDirtyChange?.(false);
+  }, [baseline, onDirtyChange]);
+
+  const handleSave = useCallback(async () => {
+    const ok = await onSaved(draft);
+    if (!ok) {
+      // Keep draft editable with user changes intact
+      return;
+    }
+    setBaseline(draft);
+    baselineRef.current = draft;
+    onDirtyChange?.(false);
+  }, [draft, onSaved, onDirtyChange]);
+
   return (
-    <section className="glass-card profile-form-card animate-fade-in">
+    <section className="glass-card profile-form-card animate-fade-in" data-testid="personal-info-form">
       <h2>Personal Information</h2>
-      <p className="muted">Core identity comes from your account. Extra fields are saved on this device until a profile API is enabled.</p>
+      <p className="muted">
+        Account email is read-only. All other fields save to your account and sync across devices.
+      </p>
       <div className="profile-form-grid">
         <Field label="Full name (account)" value={fullName} readOnly />
         <Field label="Email (account)" value={email} readOnly />
-        <Field label="Display name" value={prefs.displayName || ""} onChange={(v) => set("displayName", v)} />
-        <Field label="Username" value={prefs.username || ""} onChange={(v) => set("username", v)} />
-        <Field label="Phone" value={prefs.phone || ""} onChange={(v) => set("phone", v)} />
-        <Field label="Country" value={prefs.country || ""} onChange={(v) => set("country", v)} />
-        <Field label="State" value={prefs.state || ""} onChange={(v) => set("state", v)} />
-        <Field label="City" value={prefs.city || ""} onChange={(v) => set("city", v)} />
-        <Field label="Language" value={prefs.language || ""} onChange={(v) => set("language", v)} />
-        <Field label="Currency" value={prefs.currency || ""} onChange={(v) => set("currency", v)} />
-        <Field label="Timezone" value={prefs.timezone || ""} onChange={(v) => set("timezone", v)} />
-        <Field label="Postal code" value={prefs.postalCode || ""} onChange={(v) => set("postalCode", v)} />
-        <Field label="Address" value={prefs.address || ""} onChange={(v) => set("address", v)} className="full" />
+        <Field
+          label="Display name"
+          value={draft.displayName || ""}
+          onChange={(v) => setField("displayName", v)}
+          autoComplete="nickname"
+        />
+        <Field
+          label="Username"
+          value={draft.username || ""}
+          onChange={(v) => setField("username", v)}
+          autoComplete="username"
+        />
+        <Field
+          label="Phone"
+          value={draft.phone || ""}
+          onChange={(v) => setField("phone", v)}
+          autoComplete="tel"
+          inputMode="tel"
+        />
+        <Field
+          label="Country"
+          value={draft.country || ""}
+          onChange={(v) => setField("country", v)}
+          autoComplete="country-name"
+        />
+        <Field
+          label="State"
+          value={draft.state || ""}
+          onChange={(v) => setField("state", v)}
+          autoComplete="address-level1"
+        />
+        <Field
+          label="City"
+          value={draft.city || ""}
+          onChange={(v) => setField("city", v)}
+          autoComplete="address-level2"
+        />
+        <Field label="Language" value={draft.language || ""} onChange={(v) => setField("language", v)} />
+        <Field label="Currency" value={draft.currency || ""} onChange={(v) => setField("currency", v)} />
+        <Field label="Timezone" value={draft.timezone || ""} onChange={(v) => setField("timezone", v)} />
+        <Field
+          label="Postal code"
+          value={draft.postalCode || ""}
+          onChange={(v) => setField("postalCode", v)}
+          autoComplete="postal-code"
+        />
+        <Field
+          label="Address"
+          value={draft.address || ""}
+          onChange={(v) => setField("address", v)}
+          className="full"
+          autoComplete="street-address"
+        />
+        <Field
+          label="Bio"
+          value={draft.bio || ""}
+          onChange={(v) => setField("bio", v)}
+          className="full"
+          multiline
+        />
       </div>
       <div className="profile-form-actions">
-        <button type="button" className="button primary-button" onClick={onSave}>
-          Save Changes
+        <button
+          type="button"
+          className="button ghost-button"
+          onClick={handleCancel}
+          disabled={!dirty || saving}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="button primary-button"
+          onClick={() => void handleSave()}
+          disabled={!dirty || saving}
+          data-testid="personal-save"
+        >
+          {saving ? "Saving…" : "Save Changes"}
         </button>
       </div>
+      {dirty ? <p className="muted" style={{ marginTop: 8 }}>You have unsaved changes.</p> : null}
     </section>
   );
 }
@@ -1031,17 +1304,48 @@ function Field({
   onChange,
   readOnly,
   className = "",
+  autoComplete,
+  inputMode,
+  multiline,
 }: {
   label: string;
   value: string;
   onChange?: (v: string) => void;
   readOnly?: boolean;
   className?: string;
+  autoComplete?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  multiline?: boolean;
 }) {
+  const id = useId();
   return (
-    <label className={`profile-field ${className}`}>
+    <label className={`profile-field ${className}`} htmlFor={id}>
       <span>{label}</span>
-      <input value={value} readOnly={readOnly} onChange={(e) => onChange?.(e.target.value)} />
+      {multiline ? (
+        <textarea
+          id={id}
+          value={value}
+          readOnly={readOnly}
+          disabled={readOnly}
+          onChange={(e) => onChange?.(e.target.value)}
+          rows={3}
+          className="profile-input"
+        />
+      ) : (
+        <input
+          id={id}
+          type="text"
+          value={value}
+          readOnly={!!readOnly}
+          disabled={false}
+          onChange={(e) => {
+            if (!readOnly) onChange?.(e.target.value);
+          }}
+          autoComplete={autoComplete}
+          inputMode={inputMode}
+          className="profile-input"
+        />
+      )}
     </label>
   );
 }
@@ -1353,7 +1657,7 @@ function BrokersSection({ fyersConnected, token }: { fyersConnected: boolean; to
         <h3>FYERS</h3>
         <p className={fyersConnected ? "pos" : "neg"}>{fyersConnected ? "Connected" : "Not connected"}</p>
         <p className="muted">Status: {token?.status || token?.message || "unknown"}</p>
-        <p className="muted">Manage token from Paper Trading → Account / Token panel. Existing broker APIs are reused.</p>
+        <p className="muted">Manage token from Paper Desk → Capital → Broker Access Token. Existing broker APIs are reused.</p>
       </article>
       {["Upstox", "Zerodha", "Angel One"].map((name) => (
         <article key={name} className="glass-card muted-card">

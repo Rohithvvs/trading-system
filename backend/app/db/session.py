@@ -55,6 +55,11 @@ connect_args.update(ssl_connect_args)
 # Increase connection timeout to 120s to allow Render free tier Postgres to wake up
 if database_url.startswith("postgresql"):
     connect_args["command_timeout"] = 120
+    # Disable asyncpg prepared-statement LRU cache.
+    # After ALTER TABLE / migrations (and with Neon / PgBouncer poolers), cached plans
+    # raise InvalidCachedStatementError and fail the request unless we retry or disable.
+    # statement_cache_size=0 is the stable fix; small CPU tradeoff for reliability.
+    connect_args["statement_cache_size"] = 0
 
 # Connection Pooling Limits for Postgres / Neon
 # pool_pre_ping keeps connections warm and detects drops without full reconnect every request
@@ -69,6 +74,32 @@ engine = create_async_engine(
     **pool_kwargs
 )
 
+# ---------------------------------------------------------------------------
+# DB POOL FORENSICS — passive observers, no business logic changes
+# ---------------------------------------------------------------------------
+import logging as _db_logging
+
+_db_forensics_logger = _db_logging.getLogger("app.db_forensics")
+
+
+def is_stale_prepared_plan_error(exc: BaseException) -> bool:
+    """True when asyncpg/SQLAlchemy rejects a cached plan after schema change."""
+    name = type(exc).__name__
+    if "InvalidCachedStatement" in name:
+        return True
+    msg = str(exc)
+    return "InvalidCachedStatement" in msg or "cached statement plan is invalid" in msg
+
+
+async def dispose_async_pool(reason: str = "manual") -> None:
+    """Drop all pooled async connections (e.g. after DDL or stale plan errors)."""
+    try:
+        await engine.dispose()
+        _db_forensics_logger.warning("DB_POOL_DISPOSED | reason=%s", reason)
+    except Exception as exc:  # pragma: no cover
+        _db_forensics_logger.warning("DB_POOL_DISPOSE_FAILED | reason=%s | err=%s", reason, exc)
+
+
 @event.listens_for(engine.sync_engine, "connect")
 def set_postgres_timeouts(dbapi_connection, connection_record):
     if engine.name != "postgresql":
@@ -80,12 +111,6 @@ def set_postgres_timeouts(dbapi_connection, connection_record):
     cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, class_=AsyncSession)
-
-# ---------------------------------------------------------------------------
-# DB POOL FORENSICS — passive observers, no business logic changes
-# ---------------------------------------------------------------------------
-import logging as _db_logging
-_db_forensics_logger = _db_logging.getLogger("app.db_forensics")
 
 @event.listens_for(engine.sync_engine, "checkout")
 def _log_pool_checkout(dbapi_connection, connection_record, connection_proxy):
@@ -113,8 +138,16 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     db = AsyncSessionLocal()
     try:
         yield db
-    except Exception:
-        await db.rollback()
+    except Exception as exc:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # One-shot pool recovery for post-migration prepared-plan invalidation.
+        # Route handlers that catch exceptions still need their own retry; this
+        # ensures uncaught cases invalidate the pool for subsequent requests.
+        if is_stale_prepared_plan_error(exc):
+            await dispose_async_pool(reason="stale_prepared_plan")
         raise
     finally:
         await db.close()

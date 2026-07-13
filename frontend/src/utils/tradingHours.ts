@@ -139,9 +139,25 @@ export function isMarketOpenForDisplay(now: Date = new Date()): string {
   return "Closed"; // pre-open also treated closed for trading purposes
 }
 
-// Helper to show the alert exactly as specified
+/**
+ * Single notification path — always go through ToastProvider via app:toast.
+ * Never create a second DOM toast (that caused overlapping banners).
+ */
 export function showMarketClosedAlert(result: MarketCheckResult) {
-  // Use a clean modal or alert. For existing codebase we use window.alert for minimal change.
-  // In real app, replace with a nice toast / modal component.
-  alert(result.message);
+  const message = result.message || "Buy orders cannot be placed while the market is closed.";
+  try {
+    window.dispatchEvent(
+      new CustomEvent("app:toast", {
+        detail: {
+          level: "warning",
+          message: "Market closed",
+          description: message,
+          dedupeKey: "market-closed",
+          duration: 5000,
+        },
+      }),
+    );
+  } catch {
+    console.warn("[market]", message);
+  }
 }

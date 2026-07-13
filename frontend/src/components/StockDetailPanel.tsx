@@ -95,14 +95,20 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
   return (
     <section className="detail-panel panel">
       {onBack ? (
-        <div className="detail-toolbar">
-          <button type="button" className="button ghost-button detail-back-button" onClick={onBack}>
-            Back to scan results
+        <div className="detail-toolbar detail-toolbar--back" data-testid="detail-back-toolbar">
+          <button
+            type="button"
+            className="button ghost-button detail-back-button"
+            onClick={onBack}
+            data-testid="back-to-scan-results"
+            aria-label="Back to scan results"
+          >
+            ← Back to scan results
           </button>
         </div>
       ) : null}
       <div className="detail-header">
-        <div>
+        <div className="detail-header-info">
           <p className="section-label">Selected stock</p>
           <div className="detail-title-row">
             <h2>{row.symbol}</h2>
@@ -127,11 +133,29 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
         </div>
       </div>
 
-      {onSendToPaperTrading && (row.signal === "BUY" || row.signal === "WATCH") ? (
-        <div className="detail-toolbar">
-            <button className="btn" onClick={() => onSendToPaperTrading ? onSendToPaperTrading(row, currentPrice ?? undefined) : window.alert("Send to paper trading")}>
-                Send to paper trading
-            </button>
+      {onSendToPaperTrading ? (
+        <div className="detail-actions-toolbar" data-testid="detail-actions-toolbar">
+          <button
+            type="button"
+            className="ds-btn ds-btn--buy"
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+          >
+            BUY
+          </button>
+          <button
+            type="button"
+            className="ds-btn ds-btn--sell"
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+          >
+            SELL / Trade
+          </button>
+          <button
+            type="button"
+            className="ds-btn ds-btn--secondary"
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+          >
+            Paper trade
+          </button>
         </div>
       ) : null}
 
@@ -274,20 +298,22 @@ function OverviewTab({
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3" style={{ flexWrap: "wrap" }}>
             <button
-              className="button primary-button"
-              onClick={() => {
-                if (onSendToPaperTrading) {
-                  onSendToPaperTrading(row, currentPrice ?? undefined);
-                } else {
-                  const priceText = currentPrice != null ? currentPrice.toFixed(2) : "N/A";
-                  window.alert(`Paper trade entry price: ${priceText}`);
-                }
-              }}
-              disabled={loadingDetail}
+              type="button"
+              className="ds-btn ds-btn--buy"
+              onClick={() => onSendToPaperTrading?.(row, currentPrice ?? undefined)}
+              disabled={loadingDetail || !onSendToPaperTrading}
             >
-              {loadingDetail ? "Loading…" : "Paper Trade"}
+              {loadingDetail ? "Loading…" : "BUY"}
+            </button>
+            <button
+              type="button"
+              className="ds-btn ds-btn--trade"
+              onClick={() => onSendToPaperTrading?.(row, currentPrice ?? undefined)}
+              disabled={loadingDetail || !onSendToPaperTrading}
+            >
+              Paper trade
             </button>
           </div>
         </div>

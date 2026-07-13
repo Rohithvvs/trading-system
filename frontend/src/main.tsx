@@ -5,8 +5,14 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import App from "./App";
 import { AuthProvider } from "./hooks/useAuth";
 import { ThemeProvider } from "./hooks/useTheme";
+import { DensityProvider } from "./hooks/useDensity";
+import { DeveloperModeProvider } from "./hooks/useDeveloperMode";
+import { ToastProvider } from "./design-system";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { startKeepAlive } from "./utils/keepAlive";
+import "./design-system/tokens.css";
+import "./design-system/components.css";
+import "./layout/shell.css";
 import "./styles.css";
 
 // Auth screens are rarely needed after login — lazy load them
@@ -56,27 +62,33 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <GoogleProviderLayer>
       <ThemeProvider>
-        <AuthProvider>
-          <BrowserRouter>
-            <Suspense fallback={<AuthFallback />}>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                <Route path="/auth/forgot-password" element={<ForgotPassword />} />
-                <Route path="/auth/reset-password" element={<ResetPassword />} />
-                {/* Any other route falls into App, protected by ProtectedRoute */}
-                <Route
-                  path="*"
-                  element={
-                    <ProtectedRoute>
-                      <App />
-                    </ProtectedRoute>
-                  }
-                />
-              </Routes>
-            </Suspense>
-          </BrowserRouter>
-        </AuthProvider>
+        <DensityProvider>
+          <DeveloperModeProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <BrowserRouter>
+                  <Suspense fallback={<AuthFallback />}>
+                    <Routes>
+                      <Route path="/login" element={<Login />} />
+                      <Route path="/signup" element={<Signup />} />
+                      <Route path="/auth/forgot-password" element={<ForgotPassword />} />
+                      <Route path="/auth/reset-password" element={<ResetPassword />} />
+                      {/* Authenticated app — full retail routing lives in App */}
+                      <Route
+                        path="*"
+                        element={
+                          <ProtectedRoute>
+                            <App />
+                          </ProtectedRoute>
+                        }
+                      />
+                    </Routes>
+                  </Suspense>
+                </BrowserRouter>
+              </AuthProvider>
+            </ToastProvider>
+          </DeveloperModeProvider>
+        </DensityProvider>
       </ThemeProvider>
     </GoogleProviderLayer>
   </React.StrictMode>
