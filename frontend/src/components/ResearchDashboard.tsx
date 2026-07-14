@@ -464,14 +464,14 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
 
   if (loading) {
     return (
-      <section className="subpanel" aria-busy="true">
+      <section className="subpanel" aria-busy="true" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
         <h3>AI Research</h3>
         <p className="muted-copy">Computing swing research from market data…</p>
-        <div className="app-skel" style={{ height: 180, width: "100%", borderRadius: 12, marginTop: 12 }} />
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <div className="app-skel" style={{ height: 64, flex: 1, borderRadius: 8 }} />
-          <div className="app-skel" style={{ height: 64, flex: 1, borderRadius: 8 }} />
-          <div className="app-skel" style={{ height: 64, flex: 1, borderRadius: 8 }} />
+        <div className="app-skel" style={{ height: 180, width: "100%", maxWidth: "100%", borderRadius: 12, marginTop: 12 }} />
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", width: "100%" }}>
+          <div className="app-skel" style={{ height: 64, flex: "1 1 30%", minWidth: 120, borderRadius: 8 }} />
+          <div className="app-skel" style={{ height: 64, flex: "1 1 30%", minWidth: 120, borderRadius: 8 }} />
+          <div className="app-skel" style={{ height: 64, flex: "1 1 30%", minWidth: 120, borderRadius: 8 }} />
         </div>
       </section>
     );
@@ -707,6 +707,7 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
       </Section>
 
       <Section title="Pattern Detection" tipId="patterns">
+        {/* Desktop/tablet table */}
         <div className="table-scroll">
           <table className="candidate-table">
             <thead>
@@ -729,10 +730,33 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
             </tbody>
           </table>
         </div>
+        {/* Mobile cards (hidden on desktop, shown ≤480px via CSS) */}
+        <div className="pattern-cards">
+          {(patterns as any[]).map((p) => (
+            <div key={`${p.pattern}-${p.confidence_pct}`} className="pattern-card">
+              <div className="pattern-card-header">{p.pattern}</div>
+              <div className="pattern-card-body">
+                <div className="pattern-card-row">
+                  <span>Confidence</span>
+                  <strong>{disp(p.confidence_pct)}%</strong>
+                </div>
+                <div className="pattern-card-row">
+                  <span>Target</span>
+                  <strong>{disp(p.target)}</strong>
+                </div>
+                <div className="pattern-card-row">
+                  <span>Invalidation</span>
+                  <strong>{disp(p.invalidation)}</strong>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </Section>
 
       {/* Multi TF */}
       <Section title="Multi Timeframe Analysis" tipId="multi_timeframe">
+        {/* Desktop/tablet table */}
         <div className="table-scroll">
           <table className="candidate-table">
             <thead>
@@ -763,6 +787,43 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
               })}
             </tbody>
           </table>
+        </div>
+        {/* Mobile cards (hidden on desktop, shown ≤480px via CSS) */}
+        <div className="mtf-cards">
+          {(["daily", "weekly", "monthly"] as const).map((tf) => {
+            const row = mtf[tf] || {};
+            return (
+              <div key={tf} className="mtf-card">
+                <div className="mtf-card-header">{tf}</div>
+                <div className="mtf-card-body">
+                  <div className="mtf-card-row">
+                    <span>Trend</span>
+                    <strong>{disp(row.trend)}</strong>
+                  </div>
+                  <div className="mtf-card-row">
+                    <span>Momentum</span>
+                    <strong>{disp(row.momentum)}</strong>
+                  </div>
+                  <div className="mtf-card-row">
+                    <span>Volume</span>
+                    <strong>{disp(row.volume)}</strong>
+                  </div>
+                  <div className="mtf-card-row">
+                    <span>Support</span>
+                    <strong>{disp(row.support)}</strong>
+                  </div>
+                  <div className="mtf-card-row">
+                    <span>Resistance</span>
+                    <strong>{disp(row.resistance)}</strong>
+                  </div>
+                  <div className="mtf-card-row">
+                    <span>Signal</span>
+                    <strong>{disp(row.signal)}</strong>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Section>
 

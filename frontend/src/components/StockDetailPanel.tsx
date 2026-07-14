@@ -134,11 +134,12 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
       </div>
 
       {onSendToPaperTrading ? (
-        <div className="detail-actions-toolbar" data-testid="detail-actions-toolbar">
+        <div className="detail-actions-toolbar" data-testid="detail-actions-toolbar" role="group" aria-label="Trading actions">
           <button
             type="button"
             className="ds-btn ds-btn--buy"
             onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            aria-label="Place buy trade"
           >
             BUY
           </button>
@@ -146,6 +147,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
             type="button"
             className="ds-btn ds-btn--sell"
             onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            aria-label="Place sell trade"
           >
             SELL / Trade
           </button>
@@ -153,6 +155,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
             type="button"
             className="ds-btn ds-btn--secondary"
             onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            aria-label="Open paper trade"
           >
             Paper trade
           </button>
@@ -168,6 +171,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
             aria-selected={tab === item.id}
             className={`detail-tab ${tab === item.id ? "is-active" : ""}`}
             onClick={() => setTab(item.id)}
+            aria-label={`${item.label} tab${tab === item.id ? " (active)" : ""}`}
           >
             {item.label}
           </button>
@@ -235,23 +239,23 @@ function OverviewTab({
             items={analysis?.recommendation.reasoning.risk_factors ?? ["Full analysis did not return extra risk factors for this name."]}
           />
         </div>
-        <div className="info-cards" style={{ display: "flex", gap: 12, marginTop: 12 }}>
-          <div className="metric-card" style={{ flex: 1 }}>
+        <div className="info-cards info-cards--stack">
+          <div className="metric-card">
             <span className="section-label">Company</span>
             <h4 style={{ margin: 6 }}>{symbolDetail?.company_name ?? analysis?.company_name ?? row.symbol}</h4>
             <p className="muted-copy">{symbolDetail?.company_description ?? analysis?.company_description ?? "Company description unavailable"}</p>
           </div>
-          <div className="metric-card" style={{ flex: 1 }}>
+          <div className="metric-card">
             <span className="section-label">Sector</span>
             <h4 style={{ margin: 6 }}>{symbolDetail?.sector ?? analysis?.sector ?? "-"}</h4>
             <p className="muted-copy">Primary business sector</p>
           </div>
-          <div className="metric-card" style={{ flex: 1 }}>
+          <div className="metric-card">
             <span className="section-label">Industry</span>
             <h4 style={{ margin: 6 }}>{symbolDetail?.industry ?? analysis?.industry ?? "-"}</h4>
             <p className="muted-copy">Industry classification</p>
           </div>
-          <div className="metric-card" style={{ flex: 1 }}>
+          <div className="metric-card">
             <span className="section-label">Market cap</span>
             <h4 style={{ margin: 6 }}>{formatMarketCap(symbolDetail?.market_cap ?? analysis?.market_cap ?? null)}</h4>
             <p className="muted-copy">Reported market capitalization</p>
@@ -889,48 +893,48 @@ function BacktestTab({ backtest, backtestDetail }: { backtest?: BacktestResult; 
 
   return (
     <div className="detail-stack">
-      <section className="detail-grid">
-        <div className="subpanel">
-          <h3>Backtest strength</h3>
-          <div className="score-breakdown">
-            <MetricTile label="Win rate" value={`${(dataSource.win_rate ?? backtest?.win_rate ?? 0).toFixed(1)}%`} help="Share of historical winning trades." />
-            <MetricTile label="Average return" value={`${(dataSource.total_return ?? backtest?.total_return ?? 0).toFixed(1)}%`} help="Total return in the backtest window." />
-            <MetricTile label="Max drawdown" value={`${(dataSource.max_drawdown ?? backtest?.max_drawdown ?? 0).toFixed(1)}%`} help="Worst peak-to-trough decline." />
-            <MetricTile label="Total trades" value={dataSource.trade_count ?? backtest?.trade_count ?? 0} help="Sample size of historical trades." />
-            <MetricTile label="Sharpe" value={Number(sharpe).toFixed(2)} help="Sharpe ratio (approx)." />
-            <MetricTile label="Profit factor" value={(profitFactor ?? 0).toFixed(2)} help="Profit factor of strategy." />
-          </div>
-          <p className="helper-text">
-            <abbr title="Backtest strength summarizes how healthy the historical strategy profile looks.">Backtest strength</abbr>: {dataSource.verdict ?? backtest?.verdict ?? "--"}.
-          </p>
-        </div>
-
-        <div className="subpanel chart-shell">
-          <h3>Equity curve</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <ComposedChart data={equityData}>
-              <CartesianGrid strokeDasharray="2 2" vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Bar dataKey="equity" radius={[4, 4, 0, 0]}>
-                {equityData.map((entry: any, idx: number) => (
-                  <Cell key={`cell-${idx}`} fill={barColors[idx]} />
-                ))}
-              </Bar>
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+      <section className="bt-metrics-grid">
+        <MetricTile label="Win rate" value={`${(dataSource.win_rate ?? backtest?.win_rate ?? 0).toFixed(1)}%`} help="Share of historical winning trades." />
+        <MetricTile label="Average return" value={`${(dataSource.total_return ?? backtest?.total_return ?? 0).toFixed(1)}%`} help="Total return in the backtest window." />
+        <MetricTile label="Max drawdown" value={`${(dataSource.max_drawdown ?? backtest?.max_drawdown ?? 0).toFixed(1)}%`} help="Worst peak-to-trough decline." />
+        <MetricTile label="Total trades" value={dataSource.trade_count ?? backtest?.trade_count ?? 0} help="Sample size of historical trades." />
+        <MetricTile label="Sharpe" value={Number(sharpe).toFixed(2)} help="Sharpe ratio (approx)." />
+        <MetricTile label="Profit factor" value={(profitFactor ?? 0).toFixed(2)} help="Profit factor of strategy." />
       </section>
 
-      <section className="subpanel">
-        <h3>Monthly returns</h3>
+      <p className="helper-text">
+        <abbr title="Backtest strength summarizes how healthy the historical strategy profile looks.">Backtest strength</abbr>: {dataSource.verdict ?? backtest?.verdict ?? "--"}.
+      </p>
+
+      <div className="bt-chart-panel">
+        <div className="bt-chart-panel__header">
+          <h3>Equity curve</h3>
+        </div>
+        <ResponsiveContainer width="100%" height={240}>
+          <ComposedChart data={equityData}>
+            <CartesianGrid strokeDasharray="2 2" vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} />
+            <YAxis tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey="equity" radius={[4, 4, 0, 0]}>
+              {equityData.map((entry: any, idx: number) => (
+                <Cell key={`cell-${idx}`} fill={barColors[idx]} />
+              ))}
+            </Bar>
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      <section className="bt-chart-panel">
+        <div className="bt-chart-panel__header">
+          <h3>Monthly returns</h3>
+        </div>
         {monthly.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
+          <div className="bt-metrics-grid bt-metrics-grid--monthly">
             {monthly.map((m: any) => (
-              <div key={m.month} className="p-2 rounded" style={{ background: monthlyColor(m.return), color: "var(--text)", padding: 8 }}>
+              <div key={m.month} className="bt-metric-card" style={{ background: monthlyColor(m.return), border: "none", textAlign: "center" }}>
                 <strong>{m.month}</strong>
-                <div className="muted-copy">{(m.return * 100).toFixed(1)}%</div>
+                <div className="bt-metric-card__value">{(m.return * 100).toFixed(1)}%</div>
               </div>
             ))}
           </div>
@@ -939,24 +943,24 @@ function BacktestTab({ backtest, backtestDetail }: { backtest?: BacktestResult; 
         )}
       </section>
 
-      <section className="detail-grid">
-        <div className="subpanel" style={{ borderLeft: bestTrade ? `4px solid ${upColor}` : undefined }}>
+      <section className="bt-metrics-grid bt-metrics-grid--pair">
+        <div className="bt-metric-card" style={{ borderLeft: bestTrade ? `4px solid ${upColor}` : undefined }}>
           <h3>Best trade</h3>
           {bestTrade ? (
             <div>
               <p>{formatDate(bestTrade.entry_date)} → {formatDate(bestTrade.exit_date)}</p>
-              <strong style={{ color: upColor }}>{bestTrade.pnl_percent.toFixed(2)}%</strong>
+              <strong className="bt-metric-card__value bt-metric-card__value--positive">{bestTrade.pnl_percent.toFixed(2)}%</strong>
             </div>
           ) : (
             <p className="muted-copy">No data</p>
           )}
         </div>
-        <div className="subpanel" style={{ borderLeft: worstTrade ? `4px solid ${downColor}` : undefined }}>
+        <div className="bt-metric-card" style={{ borderLeft: worstTrade ? `4px solid ${downColor}` : undefined }}>
           <h3>Worst trade</h3>
           {worstTrade ? (
             <div>
               <p>{formatDate(worstTrade.entry_date)} → {formatDate(worstTrade.exit_date)}</p>
-              <strong style={{ color: downColor }}>{worstTrade.pnl_percent.toFixed(2)}%</strong>
+              <strong className="bt-metric-card__value bt-metric-card__value--negative">{worstTrade.pnl_percent.toFixed(2)}%</strong>
             </div>
           ) : (
             <p className="muted-copy">No data</p>
@@ -1034,16 +1038,16 @@ function ChartTab({ analysis, plan }: { analysis?: StockAnalysisResult; plan?: T
   return (
     <div className="detail-stack">
       <section className="subpanel">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <button className={`button ${timeframe === "1D" ? "is-active" : ""}`} onClick={() => setTimeframe("1D")}>1D</button>
-            <button className={`button ${timeframe === "1W" ? "is-active" : ""}`} onClick={() => setTimeframe("1W")}>1W</button>
-            <button className={`button ${timeframe === "1M" ? "is-active" : ""}`} onClick={() => setTimeframe("1M")}>1M</button>
+        <div className="chart-toolbar">
+          <div className="chart-toolbar__group">
+            <button type="button" className={`button ${timeframe === "1D" ? "is-active" : ""}`} onClick={() => setTimeframe("1D")}>1D</button>
+            <button type="button" className={`button ${timeframe === "1W" ? "is-active" : ""}`} onClick={() => setTimeframe("1W")}>1W</button>
+            <button type="button" className={`button ${timeframe === "1M" ? "is-active" : ""}`} onClick={() => setTimeframe("1M")}>1M</button>
           </div>
-          <div>
-            <button className="button" onClick={zoomIn}>−</button>
-            <span style={{ margin: "0 8px" }}>{visible.length} bars</span>
-            <button className="button" onClick={zoomOut}>+</button>
+          <div className="chart-toolbar__group">
+            <button type="button" className="button" onClick={zoomIn}>−</button>
+            <span className="chart-toolbar__bars">{visible.length} bars</span>
+            <button type="button" className="button" onClick={zoomOut}>+</button>
           </div>
         </div>
         <h3 style={{ marginTop: 12 }}>Price structure</h3>

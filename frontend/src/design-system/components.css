@@ -641,7 +641,7 @@
   }
 }
 
-/* —— Inputs —— */
+/* ï¿½ï¿½ Inputs ï¿½ï¿½ */
 .ds-input {
   width: 100%;
   min-height: var(--density-control-h);
@@ -658,7 +658,7 @@
   border-color: var(--accent);
 }
 
-/* —— Stat cards / KPIs —— */
+/* ï¿½ï¿½ Stat cards / KPIs ï¿½ï¿½ */
 .ds-stat {
   background: var(--surface);
   background-image: var(--gradient-card);
@@ -666,7 +666,11 @@
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
   box-shadow: var(--shadow-sm);
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -694,6 +698,9 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
 }
 .ds-stat--compact .ds-stat__value {
   font-size: clamp(1.05rem, 1.5vw, 1.35rem);
@@ -716,7 +723,7 @@
 .ds-stat--warning .ds-stat__value { color: var(--warning); }
 .ds-stat--info .ds-stat__value { color: var(--info); }
 
-/* —— Section header —— */
+/* ï¿½ï¿½ Section header ï¿½ï¿½ */
 .ds-section-header {
   display: flex;
   align-items: flex-start;
@@ -741,7 +748,7 @@
   flex-wrap: wrap;
 }
 
-/* —— Accordion —— */
+/* ï¿½ï¿½ Accordion ï¿½ï¿½ */
 .ds-accordion {
   border-bottom: 1px solid var(--border);
 }
@@ -808,7 +815,7 @@
   animation: ds-fade-in var(--duration-fast) var(--ease-out);
 }
 
-/* —— Toast viewport polish —— */
+/* ï¿½ï¿½ Toast viewport polish ï¿½ï¿½ */
 .ds-toast-viewport {
   position: fixed;
   top: calc(var(--topbar-height) + var(--space-3));
@@ -851,7 +858,7 @@
   margin-top: 2px;
 }
 
-/* —— Glass cards —— */
+/* ï¿½ï¿½ Glass cards ï¿½ï¿½ */
 .ds-card,
 .panel {
   border-radius: clamp(12px, 1vw, 16px);

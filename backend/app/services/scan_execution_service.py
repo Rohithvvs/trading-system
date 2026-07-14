@@ -74,15 +74,43 @@ class ScanExecutionService:
                     loop.call_soon_threadsafe(progress_queue.put_nowait, update_dict)
 
             try:
-                # Replicating original behaviour
+                # Check Redis cache first
+                cache_universe = "NIFTY500" if not payload.symbols else "custom"
+                cached_result = await get_cached_scanner_result(
+                    cache_universe, payload.mode.value, payload.timeframe.swing or "1d"
+                )
+                if cached_result:
+                    logger.info("SCANNER_CACHE_HIT | universe=%s | mode=%s", cache_universe, payload.mode.value)
+                    response_data = cached_result
+                    duration_ms = 0
+                    scan_status = "COMPLETED"
+                    result = cached_result
+                    if progress_queue is not None:
+                        await progress_queue.put({
+                            "status": "progress",
+                            "stage": "Loaded from cache",
+                            "progress": 100,
+                            "current_symbol": "",
+                            "done": 0,
+                            "remaining": 0,
+                            "eta_sec": 0,
+                        })
+                        await progress_queue.put({"status": "complete", "result": result})
+                    return result
+
                 if progress_queue is not None:
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(0.5)
 
                 response = await RouterAgent(None).screener_full(payload, progress_callback=progress_callback)
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
                 response_data = response
                 scan_status = "COMPLETED"
                 result = sanitize_for_json(response.model_dump(mode="json"))
+
+                # Cache the result in Redis
+                await cache_scanner_result(
+                    cache_universe, payload.mode.value, payload.timeframe.swing or "1d", result
+                )
                 
                 async with AsyncSessionLocal() as db:
                     scan_service = LatestScanService(db)

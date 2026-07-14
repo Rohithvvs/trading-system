@@ -117,12 +117,24 @@ export async function checkBackendHealth(): Promise<{
 
 // `runFullAnalysis` removed — frontend uses `runPresetScreener` instead.
 
+export interface ScannerProgressUpdate {
+  stage: string;
+  progress: number;
+  current_symbol?: string;
+  worker_id?: number;
+  done?: number;
+  remaining?: number;
+  total_fetch?: number;
+  total_scoring?: number;
+  eta_sec?: number;
+}
+
 export async function runPresetScreener(
   mode: AnalysisMode,
   timeframe: TimeframeConfig,
   symbols: string[],
   topN: number,
-  onProgress?: (stage: string, progress: number) => void
+  onProgress?: (update: ScannerProgressUpdate) => void
 ): Promise<ScreenerResponse> {
   console.info("[scanner] runPresetScreener called", {
     mode,
@@ -178,7 +190,17 @@ export async function runPresetScreener(
         
         if (eventType === "progress") {
           if (onProgress) {
-            onProgress(data.stage, data.progress);
+            onProgress({
+              stage: data.stage || "Scanning...",
+              progress: data.progress || 0,
+              current_symbol: data.current_symbol,
+              worker_id: data.worker_id,
+              done: data.done,
+              remaining: data.remaining,
+              total_fetch: data.total_fetch,
+              total_scoring: data.total_scoring,
+              eta_sec: data.eta_sec,
+            });
           }
         } else if (eventType === "result") {
           if (data.status === "error") {

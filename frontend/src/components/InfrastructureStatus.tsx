@@ -1,59 +1,44 @@
 import { useInfrastructureHealth, type ServiceBadgeState } from "../hooks/useInfrastructureHealth";
 
+const BADGE_CONFIG: Record<ServiceBadgeState, { text: string; dotClass: string }> = {
+  active: { text: "Active", dotClass: "infra-card__dot--active" },
+  waking: { text: "Waking Up", dotClass: "infra-card__dot--waking" },
+  connecting: { text: "Connecting", dotClass: "infra-card__dot--connecting" },
+  offline: { text: "Offline", dotClass: "infra-card__dot--offline" },
+  sleeping: { text: "Sleeping", dotClass: "infra-card__dot--sleeping" },
+};
+
 export function InfrastructureStatus() {
-  const { renderStatus, databaseStatus, latencyMs, infraState, lastCheckedAt, error } = useInfrastructureHealth();
-  const title = [
-    `Infrastructure: ${infraState}`,
-    latencyMs === null ? "Latency unavailable" : `Latency: ${latencyMs}ms`,
-    lastCheckedAt ? `Last checked: ${lastCheckedAt.toLocaleTimeString()}` : null,
-    error,
-  ]
-    .filter(Boolean)
-    .join(" | ");
+  const { services, lastCheckedAt, error } = useInfrastructureHealth();
 
   return (
-    <div
-      className="flex min-w-[260px] flex-col gap-1 rounded-lg border border-slate-700/70 bg-slate-950/40 px-3 py-2 text-xs text-slate-200 shadow-sm"
-      title={title}
-      aria-label="Infrastructure health"
-    >
-      <InfrastructureRow label="Render Server" status={renderStatus} />
-      <InfrastructureRow label="Neon Database" status={databaseStatus} />
+    <div className="infra-panel" aria-label="Infrastructure health">
+      <h3 className="infra-panel__header">
+        Infrastructure
+        {lastCheckedAt && (
+          <span className="infra-panel__time">
+            · {lastCheckedAt.toLocaleTimeString()}
+          </span>
+        )}
+      </h3>
+      <div className="infra-cards">
+        {services.map((svc) => {
+          const badge = BADGE_CONFIG[svc.status] || BADGE_CONFIG.sleeping;
+          return (
+            <div key={svc.key} className="infra-card" data-status={svc.status}>
+              <div className="infra-card__row">
+                <span className={`infra-card__dot ${badge.dotClass}`} aria-hidden />
+                <span className="infra-card__label">{svc.label}</span>
+              </div>
+              <span className="infra-card__badge">
+                {badge.text}
+                {svc.meta && <span className="infra-card__meta">{svc.meta}</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {error && <p className="infra-panel__error">{error}</p>}
     </div>
   );
-}
-
-function InfrastructureRow({ label, status }: { label: string; status: ServiceBadgeState }) {
-  const badge = getBadge(status);
-
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="whitespace-nowrap font-medium text-slate-300">{label}</span>
-      <span className="inline-flex min-w-[104px] items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/80 px-2.5 py-1 font-semibold text-slate-100">
-        <span className={`h-2 w-2 rounded-full ${badge.dotClass}`} aria-hidden="true" />
-        {badge.text}
-      </span>
-    </div>
-  );
-}
-
-function getBadge(status: ServiceBadgeState) {
-  if (status === "active") {
-    return {
-      text: "Active",
-      dotClass: "bg-green-500",
-    };
-  }
-
-  if (status === "waking") {
-    return {
-      text: "Waking Up...",
-      dotClass: "bg-yellow-500 animate-pulse",
-    };
-  }
-
-  return {
-    text: "Asleep",
-    dotClass: "bg-red-500",
-  };
 }

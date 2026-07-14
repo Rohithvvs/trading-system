@@ -22,10 +22,11 @@ import type {
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { prefetchAppData } from "./utils/prefetchAppData";
-import { ChartSkeleton, PanelSkeleton } from "./components/Skeleton";
+import { ChartSkeleton, PanelSkeleton, ScannerSkeleton } from "./components/Skeleton";
 import { AppShell } from "./layout/AppShell";
 import { EmptyState, useToast } from "./design-system";
 import { ScannerProgress } from "./components/ScannerProgress";
+import { InfrastructureStatus } from "./components/InfrastructureStatus";
 import { AdminRoute } from "./components/AdminRoute";
 import FyersCallback from "./components/FyersCallback";
 
@@ -97,8 +98,15 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showAllAnalyzedStocks, setShowAllAnalyzedStocks] = useState(false);
 
-  const [progressStage, setProgressStage] = useState("Initializing...");
-  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressData, setProgressData] = useState({
+    stage: "Initializing...",
+    progress: 0,
+    current_symbol: "",
+    worker_id: undefined as number | undefined,
+    done: 0,
+    remaining: 0,
+    eta_sec: 0,
+  });
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
   const universesMapped = useMemo(
@@ -222,8 +230,15 @@ export default function App() {
   const handleRunScanner = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    setProgressStage("Connecting data feed...");
-    setProgressPercent(0);
+    setProgressData({
+      stage: "Connecting data feed...",
+      progress: 0,
+      current_symbol: "",
+      worker_id: undefined,
+      done: 0,
+      remaining: 0,
+      eta_sec: 0,
+    });
     setScanStartTime(Date.now());
 
     try {
@@ -236,9 +251,21 @@ export default function App() {
         },
         selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
         topN,
-        (stage, progress) => {
-          setProgressStage(stage);
-          setProgressPercent(progress);
+        (update) => {
+          if (typeof update === "object") {
+            setProgressData((prev) => ({
+              ...prev,
+              stage: update.stage || prev.stage,
+              progress: update.progress ?? prev.progress,
+              current_symbol: update.current_symbol ?? prev.current_symbol,
+              worker_id: update.worker_id ?? prev.worker_id,
+              done: update.done ?? prev.done,
+              remaining: update.remaining ?? prev.remaining,
+              eta_sec: update.eta_sec ?? prev.eta_sec,
+            }));
+          } else {
+            setProgressData((prev) => ({ ...prev, stage: String(update), progress: 0 }));
+          }
         },
       );
 
@@ -385,6 +412,7 @@ export default function App() {
                 {screenerResult?.scanned_symbols != null ? ` · ${screenerResult.scanned_symbols} scanned` : ""}
               </span>
             </div>
+            <InfrastructureStatus />
             <SummaryRow metrics={summaryMetrics} />
 
             {screenerResult?.data_warning ? (
@@ -417,8 +445,7 @@ export default function App() {
 
             {isLoading ? (
               <ScannerProgress
-                stage={progressStage}
-                progress={progressPercent}
+                data={progressData}
                 error={error}
                 startTime={scanStartTime}
                 onRetry={handleRunScanner}
@@ -454,13 +481,7 @@ export default function App() {
               ) : null
             ) : null}
 
-            {!screenerResult && !isLoading && !error ? (
-              <EmptyState
-                title="Ready for the next scan"
-                description="Scan the market, review favorites, and open a stock for execution-ready detail."
-                primaryAction={{ label: "Run scanner", onClick: () => void handleRunScanner(), variant: "trade" }}
-              />
-            ) : null}
+            {!screenerResult && !isLoading && !error ? <ScannerSkeleton /> : null}
 
             {screenerResult ? (
               <section className="panel footer-note">

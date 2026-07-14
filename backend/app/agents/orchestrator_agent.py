@@ -19,6 +19,7 @@ from ..schemas import (
     AnalysisRequest,
     AnalysisResponse,
     FullAnalysisResponse,
+    OHLCVPoint,
     ScreenerStageSummary,
     ScreenerRequest,
     ScreenerResponse,
@@ -66,14 +67,51 @@ class OrchestratorAgent:
         
         async def fetch_for_symbol(symbol: str):
             import time
+            from ..services.market_data_service import MarketDataService
             start = time.perf_counter()
             self.logger.info(f"Starting OHLCV fetch | symbol={symbol}")
             candles_by_mode = {}
+            md_service = MarketDataService()
             for mode in modes:
+                resolution = self._resolution_for_mode(mode, request)
+                # Prefer already-warmed DB history for daily swing (avoids re-hitting FYERS after screener).
+                if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
+                    try:
+                        df = await md_service.load_full_history(symbol, "1D")
+                        if df is not None and not df.empty and len(df) >= 220:
+                            points: list = []
+                            for ts, row in df.iterrows():
+                                dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                                if getattr(dt, "tzinfo", None) is not None:
+                                    dt = dt.replace(tzinfo=None)
+                                points.append(
+                                    OHLCVPoint(
+                                        timestamp=dt,
+                                        open=float(row["open"]),
+                                        high=float(row["high"]),
+                                        low=float(row["low"]),
+                                        close=float(row["close"]),
+                                        volume=int(row["volume"]),
+                                    )
+                                )
+                            candles_by_mode[mode] = points
+                            self.fyers_service._store_ohlcv_cache(
+                                (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
+                                request.timeframe.lookback_window,
+                                points,
+                                "CANDLE_CACHE_DB",
+                            )
+                            continue
+                    except Exception as exc:
+                        self.logger.warning(
+                            "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
+                            symbol,
+                            exc,
+                        )
                 candles_by_mode[mode] = await self.fyers_service.fetch_ohlcv(
                     symbol=symbol,
                     mode=mode,
-                    resolution=self._resolution_for_mode(mode, request),
+                    resolution=resolution,
                     lookback_window=request.timeframe.lookback_window,
                 )
             elapsed = time.perf_counter() - start
@@ -82,7 +120,14 @@ class OrchestratorAgent:
             candles_by_symbol_and_mode[symbol] = candles_by_mode
             
         async def prefetch_all():
-            await asyncio.gather(*(fetch_for_symbol(symbol) for symbol in request.symbols))
+            # Bound shortlist concurrency so agent stage does not open hundreds of DB sessions at once.
+            sem = asyncio.Semaphore(8)
+
+            async def _bounded(symbol: str):
+                async with sem:
+                    await fetch_for_symbol(symbol)
+
+            await asyncio.gather(*(_bounded(symbol) for symbol in request.symbols))
             
         try:
             loop = asyncio.get_running_loop()
@@ -111,17 +156,21 @@ class OrchestratorAgent:
             
         if progress_callback:
             progress_callback({"stage": "Running AI Pattern Recognition...", "progress": 70})
-        # Dispatch Backtest and News agents concurrently for the batch
+        # Dispatch Backtest / News / Fundamental agents with bounded concurrency.
+        # Unbounded gather over the full shortlist starves the event loop and hammer external APIs.
         async def run_remaining_agents():
-            return await asyncio.gather(*(
-                self._analyze_symbol_post_bulk(
-                    symbol, 
-                    request, 
-                    candles_by_symbol_and_mode[symbol], 
-                    bulk_technical_results
-                )
-                for symbol in request.symbols
-            ))
+            agent_sem = asyncio.Semaphore(6)
+
+            async def _one(symbol: str):
+                async with agent_sem:
+                    return await self._analyze_symbol_post_bulk(
+                        symbol,
+                        request,
+                        candles_by_symbol_and_mode[symbol],
+                        bulk_technical_results,
+                    )
+
+            return await asyncio.gather(*(_one(symbol) for symbol in request.symbols))
             
         items = await run_remaining_agents()
             
@@ -274,6 +323,7 @@ class OrchestratorAgent:
             source_universe,
             lookback_window=request.timeframe.lookback_window,
             stage_name=stage_name,
+            progress_callback=progress_callback,
         )
         data_valid_symbols = [
             item.symbol

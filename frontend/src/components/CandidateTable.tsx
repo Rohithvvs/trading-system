@@ -29,7 +29,7 @@ export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbo
   }
 
   return (
-    <section className="panel table-panel" style={{ overflow: "visible" }}>
+    <section className="panel table-panel">
       <div className="panel-header">
         <div>
           <p className="section-label">Favorites</p>
@@ -40,6 +40,7 @@ export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbo
         </p>
       </div>
 
+      {/* Desktop/tablet table */}
       <div className="table-scroll table-scroll--sticky">
         <table className="candidate-table candidate-table--pro" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <thead>
@@ -68,7 +69,177 @@ export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbo
           </tbody>
         </table>
       </div>
+
+      {/* Mobile cards (shown ≤600px) */}
+      <div className="candidate-cards">
+        {rows.map((row) => (
+          <CandidateCard
+            key={row.symbol}
+            row={row}
+            livePrice={liveTicks?.[row.symbol]}
+            isSelected={selectedSymbol === row.symbol}
+            onSelect={onSelect}
+            onBuy={onBuy}
+          />
+        ))}
+      </div>
     </section>
+  );
+});
+
+const CandidateCard = memo(({
+  row,
+  livePrice,
+  isSelected,
+  onSelect,
+  onBuy,
+}: {
+  row: CandidateRow;
+  livePrice?: number;
+  isSelected: boolean;
+  onSelect: (symbol: string) => void;
+  onBuy?: (row: CandidateRow) => void;
+}) => {
+  const distanceToEntry = useMemo(() => {
+    if (!livePrice || !row.entryHigh) return null;
+    return (((livePrice - row.entryHigh) / row.entryHigh) * 100).toFixed(2);
+  }, [livePrice, row.entryHigh]);
+
+  const dynamicRiskReward = useMemo(() => {
+    if (!livePrice || !row.stopLoss || !row.target1 || livePrice <= row.stopLoss) return null;
+    return ((row.target1 - livePrice) / (livePrice - row.stopLoss)).toFixed(2);
+  }, [livePrice, row.stopLoss, row.target1]);
+
+  const backtestData = row.analysisItem?.backtests?.[0];
+  const equityCurve: BacktestEquityPoint[] = backtestData?.equity_curve || [];
+  const regime = row.newsSentiment === "Bullish" || row.newsSentiment === "Bearish" ? "CATALYST" : "STANDARD";
+
+  return (
+    <article
+      className={`candidate-card ${isSelected ? "is-selected" : ""}`}
+      onClick={() => onSelect(row.symbol)}
+      tabIndex={0}
+      role="button"
+      aria-label={`${row.symbol} - ${row.signal} - Score ${row.score.toFixed(1)}`}
+    >
+      {/* Top row: Rank + Symbol + Signal */}
+      <div className="candidate-card__top">
+        <div className="candidate-card__symbol-area">
+          <span className="candidate-card__rank">#{row.rank ?? "--"}</span>
+          <div className="candidate-card__symbol-meta">
+            <div className="candidate-card__symbol" title={row.symbol}>{row.symbol}</div>
+            <div className="candidate-card__volume">{row.volume} Vol</div>
+          </div>
+        </div>
+        <div className="candidate-card__signal">
+          <SignalBadge value={row.signal} />
+        </div>
+      </div>
+
+      {/* Score bar */}
+      <div className="candidate-card__score-row">
+        <div className="candidate-card__score-bar">
+          <div
+            className="candidate-card__score-fill"
+            style={{
+              width: `${Math.min(row.score, 100)}%`,
+              background: "var(--accent)",
+            }}
+          />
+        </div>
+        <div className="candidate-card__score-label">
+          <span>Score <strong>{row.score.toFixed(1)}</strong></span>
+          <span>Conf <strong>{row.confidence === null ? "--" : `${Math.round(row.confidence * 100)}%`}</strong></span>
+        </div>
+      </div>
+
+      {/* Info grid */}
+      <div className="candidate-card__info-grid">
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">Entry</span>
+          <span className="candidate-card__info-value">
+            {livePrice ? (
+              <span>
+                {formatNumber(livePrice)}
+                <span style={{ fontSize: "0.85em", marginLeft: "3px", color: livePrice > (row.entryHigh ?? Infinity) ? "var(--negative)" : "var(--positive)" }}>
+                  ({distanceToEntry}%)
+                </span>
+              </span>
+            ) : (
+              formatZone(row.entryLow, row.entryHigh)
+            )}
+          </span>
+        </div>
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">SL / TP</span>
+          <span className="candidate-card__info-value">{formatNumber(row.stopLoss)} / {formatNumber(row.target1)}</span>
+        </div>
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">R:R</span>
+          <span className="candidate-card__info-value" style={{ color: "var(--accent)" }}>
+            {dynamicRiskReward !== null ? dynamicRiskReward : formatNumber(row.riskReward)}x
+          </span>
+        </div>
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">Regime</span>
+          <span className="candidate-card__info-value">
+            <span style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              padding: "2px 6px",
+              borderRadius: "4px",
+              backgroundColor: regime === "CATALYST" ? "var(--positive)" : "var(--surface-2)",
+              color: regime === "CATALYST" ? "#fff" : "var(--text-muted)",
+            }}>
+              {regime}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Equity curve */}
+      <div className="candidate-card__equity">
+        {equityCurve.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={equityCurve}>
+              <defs>
+                <linearGradient id={`colorEq${row.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--positive)" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="var(--positive)" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <YAxis domain={['dataMin', 'dataMax']} hide />
+              <Area type="monotone" dataKey="equity" stroke="var(--positive)" fillOpacity={1} fill={`url(#colorEq${row.symbol})`} />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>No chart data</span>
+        )}
+      </div>
+
+      {/* Trend tags */}
+      <div className="candidate-card__trend">
+        <span className="candidate-card__trend-item">{row.trend}</span>
+        <span className="candidate-card__trend-item">{row.momentum}</span>
+      </div>
+
+      {/* BUY button */}
+      <div className="candidate-card__actions">
+        <button
+          type="button"
+          className="ds-btn ds-btn--buy"
+          onClick={(event) => {
+            event.stopPropagation();
+            onBuy?.(row);
+          }}
+          disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
+          title={!checkCanPlaceBuyOrder().allowed ? "Market closed — BUY disabled" : "BUY on Paper Desk"}
+          aria-label={`Buy ${row.symbol}`}
+        >
+          BUY
+        </button>
+      </div>
+    </article>
   );
 });
 

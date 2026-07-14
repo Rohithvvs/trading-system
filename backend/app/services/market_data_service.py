@@ -51,20 +51,25 @@ class MarketDataService:
         elif timeframe == '15m' and staleness_minutes <= 30: is_fresh = True
         elif timeframe == '1D' and staleness_minutes <= 2880: is_fresh = True
             
+        is_complete = count >= expected_count
+        # Expensive gap/duplicate scans only when history is complete enough to be usable.
+        # Incomplete caches are already invalid for indicators — skip full-table reads.
         gap_count = 0
-        async with AsyncSessionLocal() as db:
-            dup_stmt = select(HistoricalCandle.timestamp).where(
-                HistoricalCandle.symbol == symbol, HistoricalCandle.resolution == timeframe
-            ).group_by(HistoricalCandle.timestamp).having(func.count(HistoricalCandle.timestamp) > 1)
-            duplicates = (await db.execute(dup_stmt)).fetchall()
-            
-            if duplicates:
-                logger.error("corrupted_cache_duplicates", extra={"symbol": symbol, "resolution": timeframe})
-                return CacheHealthContext(
-                    symbol=symbol, timeframe=timeframe, cached_rows=count, required_rows=expected_count,
-                    continuity_gap_count=len(duplicates), cache_state=CacheState.CORRUPTED, is_valid_for_indicators=False
-                )
-                
+        if is_complete:
+            async with AsyncSessionLocal() as db:
+                dup_stmt = select(HistoricalCandle.timestamp).where(
+                    HistoricalCandle.symbol == symbol, HistoricalCandle.resolution == timeframe
+                ).group_by(HistoricalCandle.timestamp).having(func.count(HistoricalCandle.timestamp) > 1)
+                duplicates = (await db.execute(dup_stmt)).fetchall()
+
+                if duplicates:
+                    logger.error("corrupted_cache_duplicates", extra={"symbol": symbol, "resolution": timeframe})
+                    return CacheHealthContext(
+                        symbol=symbol, timeframe=timeframe, cached_rows=count, required_rows=expected_count,
+                        continuity_gap_count=len(duplicates), cache_state=CacheState.CORRUPTED, is_valid_for_indicators=False
+                    )
+
+            # Sample-based gap check: only inspect index spacing, still one load, but only for complete caches.
             df = await self.load_full_history(symbol, timeframe)
             if df is not None and not df.empty:
                 df = df.sort_index()
@@ -74,9 +79,7 @@ class MarketDataService:
                     gap_count = len(gaps)
                     if gap_count > 0:
                         logger.error("corrupted_candle_ranges", extra={"symbol": symbol, "timeframe": timeframe, "gap_count": gap_count})
-                        
-        is_complete = count >= expected_count
-        
+
         if gap_count > 0:
             state = CacheState.CORRUPTED
             is_complete = False
@@ -300,3 +303,235 @@ class MarketDataService:
             if "volume" in df.columns:
                 df["volume"] = df["volume"].astype(int)
         return df
+
+    @staticmethod
+    def symbol_lookup_variants(symbol: str) -> list[str]:
+        """All plausible stored forms for a universe symbol (handles NSE: / -EQ drift)."""
+        from ..utils.symbol import canonical_symbol
+
+        raw = (symbol or "").strip()
+        if not raw:
+            return []
+        can = canonical_symbol(raw)
+        variants = [
+            raw,
+            raw.upper(),
+            can,
+            f"{can}-EQ",
+            f"NSE:{can}-EQ",
+            f"NSE:{can}",
+        ]
+        # Preserve order, drop empties/dupes
+        seen: set[str] = set()
+        out: list[str] = []
+        for v in variants:
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out
+
+    async def get_candle_meta_batch(
+        self,
+        symbols: list[str],
+        timeframe: str,
+    ) -> dict[str, tuple[int, datetime | None]]:
+        """
+        Return {universe_symbol: (row_count, latest_timestamp)} for a universe.
+
+        Resolves symbol-format drift (RELIANCE vs RELIANCE-EQ vs NSE:RELIANCE-EQ) so a warm
+        cache is not treated as a miss and forced through FYERS.
+        """
+        if not symbols:
+            return {}
+
+        meta: dict[str, tuple[int, datetime | None]] = {
+            symbol: (0, None) for symbol in symbols
+        }
+        # Map every DB variant -> original universe symbol(s)
+        variant_to_universe: dict[str, list[str]] = {}
+        all_variants: list[str] = []
+        for symbol in symbols:
+            for v in self.symbol_lookup_variants(symbol):
+                variant_to_universe.setdefault(v, []).append(symbol)
+                all_variants.append(v)
+        # unique variants for the query
+        unique_variants = list(dict.fromkeys(all_variants))
+
+        chunk_size = 300
+        db_meta: dict[str, tuple[int, datetime | None]] = {}
+        for i in range(0, len(unique_variants), chunk_size):
+            chunk = unique_variants[i : i + chunk_size]
+            async with AsyncSessionLocal() as db:
+                stmt = (
+                    select(
+                        HistoricalCandle.symbol,
+                        func.count(HistoricalCandle.timestamp),
+                        func.max(HistoricalCandle.timestamp),
+                    )
+                    .where(
+                        HistoricalCandle.symbol.in_(chunk),
+                        HistoricalCandle.resolution == timeframe,
+                    )
+                    .group_by(HistoricalCandle.symbol)
+                )
+                rows = (await db.execute(stmt)).all()
+            for symbol, count, latest in rows:
+                db_meta[symbol] = (int(count or 0), latest)
+
+        # Prefer the variant with the richest history for each universe symbol
+        for db_symbol, (count, latest) in db_meta.items():
+            for universe_symbol in variant_to_universe.get(db_symbol, []):
+                prev_count, _ = meta[universe_symbol]
+                if count > prev_count:
+                    meta[universe_symbol] = (count, latest)
+        return meta
+
+    async def resolve_stored_symbol_map(
+        self,
+        symbols: list[str],
+        timeframe: str,
+    ) -> dict[str, str]:
+        """
+        Map universe symbol -> best matching stored HistoricalCandle.symbol (if any).
+        Used so bulk loads hit the same rows the meta query found.
+        """
+        if not symbols:
+            return {}
+        variant_to_universe: dict[str, list[str]] = {}
+        unique_variants: list[str] = []
+        for symbol in symbols:
+            for v in self.symbol_lookup_variants(symbol):
+                variant_to_universe.setdefault(v, []).append(symbol)
+                if v not in variant_to_universe or True:
+                    unique_variants.append(v)
+        unique_variants = list(dict.fromkeys(unique_variants))
+
+        best: dict[str, tuple[str, int]] = {}  # universe -> (db_symbol, count)
+        chunk_size = 300
+        for i in range(0, len(unique_variants), chunk_size):
+            chunk = unique_variants[i : i + chunk_size]
+            async with AsyncSessionLocal() as db:
+                stmt = (
+                    select(
+                        HistoricalCandle.symbol,
+                        func.count(HistoricalCandle.timestamp),
+                    )
+                    .where(
+                        HistoricalCandle.symbol.in_(chunk),
+                        HistoricalCandle.resolution == timeframe,
+                    )
+                    .group_by(HistoricalCandle.symbol)
+                )
+                rows = (await db.execute(stmt)).all()
+            for db_symbol, count in rows:
+                for universe_symbol in variant_to_universe.get(db_symbol, []):
+                    prev = best.get(universe_symbol)
+                    if prev is None or int(count or 0) > prev[1]:
+                        best[universe_symbol] = (db_symbol, int(count or 0))
+        return {u: db_sym for u, (db_sym, _) in best.items()}
+
+    async def load_histories_batch(
+        self,
+        symbols: list[str],
+        timeframe: str,
+        stored_symbol_map: dict[str, str] | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """
+        Load full daily histories for many symbols with chunked IN queries.
+        Avoids per-symbol session open/close during large scans.
+
+        If stored_symbol_map is provided, loads by DB symbol and returns frames keyed
+        by the original universe symbol.
+        """
+        if not symbols:
+            return {}
+
+        stored_symbol_map = stored_symbol_map or {s: s for s in symbols}
+        # universe -> db symbol (only those that map)
+        universe_to_db = {u: stored_symbol_map.get(u, u) for u in symbols}
+        db_to_universe: dict[str, list[str]] = {}
+        for u, db_s in universe_to_db.items():
+            db_to_universe.setdefault(db_s, []).append(u)
+
+        db_symbols = list(db_to_universe.keys())
+        frames: dict[str, pd.DataFrame] = {symbol: pd.DataFrame() for symbol in symbols}
+        chunk_size = 80
+        for i in range(0, len(db_symbols), chunk_size):
+            chunk = db_symbols[i : i + chunk_size]
+            query = (
+                select(
+                    HistoricalCandle.symbol,
+                    HistoricalCandle.timestamp.label("date"),
+                    HistoricalCandle.open,
+                    HistoricalCandle.high,
+                    HistoricalCandle.low,
+                    HistoricalCandle.close,
+                    HistoricalCandle.volume,
+                )
+                .where(
+                    HistoricalCandle.symbol.in_(chunk),
+                    HistoricalCandle.resolution == timeframe,
+                )
+                .order_by(HistoricalCandle.symbol.asc(), HistoricalCandle.timestamp.asc())
+            )
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(query)
+                rows = result.all()
+
+            by_db: dict[str, list[dict]] = {symbol: [] for symbol in chunk}
+            for row in rows:
+                by_db[row.symbol].append(
+                    {
+                        "date": row.date,
+                        "open": row.open,
+                        "high": row.high,
+                        "low": row.low,
+                        "close": row.close,
+                        "volume": row.volume,
+                    }
+                )
+
+            for db_symbol, symbol_rows in by_db.items():
+                if not symbol_rows:
+                    continue
+                df = pd.DataFrame(symbol_rows)
+                df.set_index("date", inplace=True)
+                df.sort_index(inplace=True)
+                for col in ("open", "high", "low", "close"):
+                    df[col] = df[col].astype(float)
+                if "volume" in df.columns:
+                    df["volume"] = df["volume"].astype(int)
+                for universe_symbol in db_to_universe.get(db_symbol, [db_symbol]):
+                    frames[universe_symbol] = df
+        return frames
+
+    async def upsert_candles_multi(
+        self,
+        updates: list[tuple[str, str, pd.DataFrame]],
+    ) -> int:
+        """
+        Upsert candle frames for many symbols. Returns number of symbols written.
+        Uses the existing per-symbol upsert path (chunked, retry-safe).
+        """
+        written = 0
+        for symbol, timeframe, df in updates:
+            if df is None or df.empty:
+                continue
+            await self.upsert_candles(symbol, timeframe, df)
+            written += 1
+        return written
+
+    @staticmethod
+    def is_daily_cache_fresh_enough(
+        count: int,
+        latest: datetime | None,
+        required_history: int,
+        max_staleness_minutes: float = 2880.0,
+    ) -> bool:
+        """True when DB history is complete enough for swing indicators and not stale (>2d for 1D)."""
+        if count < required_history or latest is None:
+            return False
+        latest_no_tz = latest.replace(tzinfo=None) if getattr(latest, "tzinfo", None) else latest
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        staleness_minutes = (now - latest_no_tz).total_seconds() / 60.0
+        return staleness_minutes <= max_staleness_minutes

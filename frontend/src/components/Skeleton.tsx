@@ -1,8 +1,3 @@
-/**
- * Professional skeleton loaders — replace bare "Loading..." text.
- * Uses existing CSS shimmer (.profile-skel / .app-skel).
- */
-
 import type { CSSProperties, ReactNode } from "react";
 
 type SkelProps = {
@@ -16,7 +11,7 @@ type SkelProps = {
 export function Skeleton({ height = 16, width = "100%", className = "", style, rounded = 8 }: SkelProps) {
   return (
     <div
-      className={`app-skel ${className}`}
+      className={`skeleton ${className}`}
       style={{
         height,
         width,
@@ -28,11 +23,25 @@ export function Skeleton({ height = 16, width = "100%", className = "", style, r
   );
 }
 
+export function TextSkeleton({ lines = 3, short = false }: { lines?: number; short?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className={`skeleton ${short && i === lines - 1 ? "skeleton--text-short" : "skeleton--text"}`} />
+      ))}
+    </div>
+  );
+}
+
 export function MetricCardSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="app-skel-metrics" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", width: "100%" }}>
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="metric-card app-skel" style={{ minWidth: 140, minHeight: 72, flex: "1 1 140px" }} />
+        <div
+          key={i}
+          className="skeleton skeleton--card"
+          style={{ minWidth: 140, height: 80, flex: "1 1 140px" }}
+        />
       ))}
     </div>
   );
@@ -40,70 +49,67 @@ export function MetricCardSkeleton({ count = 4 }: { count?: number }) {
 
 export function TableSkeleton({ rows = 5, cols = 5 }: { rows?: number; cols?: number }) {
   return (
-    <div className="table-scroll" aria-busy="true" aria-label="Loading table">
-      <table className="candidate-table">
-        <thead>
-          <tr>
-            {Array.from({ length: cols }).map((_, i) => (
-              <th key={i}>
-                <Skeleton height={12} width="70%" />
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: rows }).map((_, r) => (
-            <tr key={r}>
-              {Array.from({ length: cols }).map((_, c) => (
-                <td key={c}>
-                  <Skeleton height={14} width={c === 0 ? "60%" : "80%"} />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {Array.from({ length: rows }).map((_, r) => (
+        <div key={r} className="skeleton skeleton--row" style={r === 0 ? { opacity: 0.5, height: 36 } : undefined} />
+      ))}
     </div>
   );
 }
 
 export function ChartSkeleton({ height = 220 }: { height?: number }) {
-  return <div className="app-skel chart-skel" style={{ height, width: "100%", borderRadius: 12 }} aria-hidden />;
+  return <div className="skeleton skeleton--chart" style={{ height }} aria-hidden />;
 }
 
 export function PanelSkeleton({ title, children }: { title?: string; children?: ReactNode }) {
   return (
-    <section className="panel" aria-busy="true">
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }} aria-busy="true">
       {title ? (
-        <div className="panel-header" style={{ marginBottom: 12 }}>
-          <div>
-            <Skeleton height={10} width={80} style={{ marginBottom: 8 }} />
-            <Skeleton height={20} width={160} />
-          </div>
+        <div>
+          <div className="skeleton skeleton--heading" />
         </div>
       ) : null}
       {children ?? (
         <>
           <MetricCardSkeleton count={3} />
-          <div style={{ marginTop: 16 }}>
-            <TableSkeleton rows={4} cols={4} />
-          </div>
+          <ChartSkeleton height={100} />
+          <TableSkeleton rows={4} cols={4} />
         </>
       )}
-    </section>
+    </div>
   );
 }
 
-export function AvatarSkeleton({ size = 48 }: { size?: number }) {
-  return <Skeleton height={size} width={size} rounded="50%" className="avatar-skel" />;
+export function CardSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <div className="skeleton-grid">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="skeleton skeleton--card" style={{ height: 140 }} />
+      ))}
+    </div>
+  );
 }
 
 export function ListSkeleton({ items = 4 }: { items?: number }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {Array.from({ length: items }).map((_, i) => (
-        <Skeleton key={i} height={48} rounded={10} />
+        <div key={i} className="skeleton" style={{ height: 48, borderRadius: 8 }} />
       ))}
+    </div>
+  );
+}
+
+export function ScannerSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
+      <div className="skeleton skeleton--row" style={{ height: 48 }} />
+      <div style={{ display: "flex", gap: 10 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="skeleton" style={{ height: 72, width: 150, borderRadius: 12, flex: "1 1 150px" }} />
+        ))}
+      </div>
+      <TableSkeleton rows={5} cols={6} />
     </div>
   );
 }

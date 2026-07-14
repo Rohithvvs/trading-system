@@ -1608,7 +1608,7 @@ function OrderTicketCard({
         </div>
       </div>
       {previewOpen ? (
-        <div className="panel" style={{ position: 'fixed', left: '50%', top: '20%', transform: 'translateX(-50%)', zIndex: 60, width: 520 }}>
+        <div className="panel" style={{ position: 'fixed', left: '50%', top: '20%', transform: 'translateX(-50%)', zIndex: 60, width: "95%", maxWidth: 520 }}>
           <div className="panel-header">
             <div>
               <p className="section-label">Order preview</p>

@@ -232,6 +232,17 @@ export function AppShell({ children, topActions, title }: Props) {
         />
       ) : null}
 
+      {/* Floating scan button — mobile only */}
+      <button
+        type="button"
+        className="floating-scan-btn"
+        aria-label="Run scanner"
+        title="Run scanner"
+        onClick={() => navigate("/scanner")}
+      >
+        ⚡
+      </button>
+
       {/* Mobile bottom navigation */}
       <nav className="app-bottom-nav" aria-label="Primary">
         {RETAIL_NAV.slice(0, 5).map((item) => {

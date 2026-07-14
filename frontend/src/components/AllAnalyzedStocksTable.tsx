@@ -45,6 +45,9 @@ export const AllAnalyzedStocksTable = memo(function AllAnalyzedStocksTable({ sto
     if (s.conditions?.data_source_failed || s.conditions?.data_quality_failed) dataIssueCount++;
   }
 
+  const passedStocks = stocks.filter((s) => s.matched);
+  const failedStocks = stocks.filter((s) => !s.matched);
+
   return (
     <section className="panel table-panel">
       <div className="panel-header">
@@ -64,6 +67,7 @@ export const AllAnalyzedStocksTable = memo(function AllAnalyzedStocksTable({ sto
         </div>
       ) : null}
 
+      {/* Desktop table */}
       <div className="table-scroll">
         <table className="candidate-table candidate-table--analyzed">
           <thead>
@@ -85,7 +89,7 @@ export const AllAnalyzedStocksTable = memo(function AllAnalyzedStocksTable({ sto
             </tr>
           </thead>
           <tbody>
-            {matched.map((stock) => (
+            {passedStocks.map((stock) => (
               <tr key={stock.symbol} className="row-passed">
                 <td className="symbol-cell">
                   <strong>{stock.symbol}</strong>
@@ -105,7 +109,7 @@ export const AllAnalyzedStocksTable = memo(function AllAnalyzedStocksTable({ sto
                 </td>
               </tr>
             ))}
-            {rejected.map((stock) => {
+            {failedStocks.map((stock) => {
               const reasons = getRejectionReasons(stock.conditions, stock.matched);
               const isDataIssue = stock.conditions.data_source_failed || stock.conditions.data_quality_failed;
               return (
@@ -141,6 +145,57 @@ export const AllAnalyzedStocksTable = memo(function AllAnalyzedStocksTable({ sto
         </table>
       </div>
 
+      {/* Mobile cards — no horizontal table scroll */}
+      <div className="analyzed-cards">
+        {[...passedStocks, ...failedStocks].map((stock) => {
+          const reasons = getRejectionReasons(stock.conditions, stock.matched);
+          const isDataIssue = stock.conditions.data_source_failed || stock.conditions.data_quality_failed;
+          return (
+            <article
+              key={stock.symbol}
+              className={`analyzed-card ${stock.matched ? "row-passed" : `row-rejected ${isDataIssue ? "row-data-issue" : ""}`}`}
+            >
+              <div className="analyzed-card__top">
+                <div className="analyzed-card__symbol">{stock.symbol}</div>
+                {stock.matched ? (
+                  <span className="badge badge-success">Passed</span>
+                ) : (
+                  <span className={`badge ${isDataIssue ? "badge-warning" : "badge-danger"}`}>
+                    {isDataIssue ? "Warning" : "Failed"}
+                  </span>
+                )}
+              </div>
+              <div className="analyzed-card__grid">
+                <div>
+                  <span>Close</span>
+                  <strong>{stock.close > 0 ? stock.close.toFixed(2) : "N/A"}</strong>
+                </div>
+                <div>
+                  <span>Score</span>
+                  <strong>{stock.screener_score.toFixed(1)}</strong>
+                </div>
+                <div>
+                  <span>Signal</span>
+                  <strong>{stock.technical_signal || "—"}</strong>
+                </div>
+                <div>
+                  <span>Volume</span>
+                  <strong>{stock.volume > 0 ? `${(stock.volume / 1000000).toFixed(1)}M` : "N/A"}</strong>
+                </div>
+                <div>
+                  <span>EMA-20</span>
+                  <strong>{stock.ema_20 > 0 ? stock.ema_20.toFixed(2) : "N/A"}</strong>
+                </div>
+                <div>
+                  <span>SMA-50</span>
+                  <strong>{stock.sma_50 > 0 ? stock.sma_50.toFixed(2) : "N/A"}</strong>
+                </div>
+              </div>
+              <div className="analyzed-card__reason">{reasons.join(" · ")}</div>
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 });

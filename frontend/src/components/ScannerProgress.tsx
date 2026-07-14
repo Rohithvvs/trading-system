@@ -1,88 +1,114 @@
 import { useEffect, useState } from "react";
 
-interface ScannerProgressProps {
+interface ScannerProgressData {
   stage: string;
   progress: number;
+  current_symbol?: string;
+  worker_id?: number;
+  done?: number;
+  remaining?: number;
+  total_fetch?: number;
+  total_scoring?: number;
+  eta_sec?: number;
+}
+
+interface ScannerProgressProps {
+  data: ScannerProgressData;
   error: string | null;
   onRetry?: () => void;
   startTime: number | null;
 }
 
-export function ScannerProgress({ stage, progress, error, onRetry, startTime }: ScannerProgressProps) {
+function formatEta(seconds: number | undefined): string {
+  if (seconds == null || seconds <= 0) return "--";
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
+
+export function ScannerProgress({ data, error, onRetry, startTime }: ScannerProgressProps) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (!startTime || error || progress >= 100) {
-      return;
-    }
-    
+    if (!startTime || error || data.progress >= 100) return;
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
-    
     return () => clearInterval(interval);
-  }, [startTime, error, progress]);
+  }, [startTime, error, data.progress]);
 
   if (error) {
     return (
-      <div style={{
-        background: "#fee2e2",
-        border: "1px solid #f87171",
-        borderRadius: "8px",
-        padding: "16px",
-        color: "#991b1b",
-        fontWeight: 600,
-        fontSize: "14px",
-        margin: "16px 0",
-        display: "flex",
-        flexDirection: "column",
-        gap: "12px",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span>🔴</span>
+      <div className="scanner-progress scanner-progress--error" role="alert">
+        <div className="scanner-progress__error-content">
+          <span className="scanner-progress__error-icon" aria-hidden>🔴</span>
           <span>{error}</span>
         </div>
         {onRetry && (
-          <div>
-            <button type="button" className="button primary-button" onClick={onRetry}>
-              Retry Scan
-            </button>
-          </div>
+          <button type="button" className="ds-btn ds-btn--primary" onClick={onRetry}>
+            Retry Scan
+          </button>
         )}
       </div>
     );
   }
 
+  const pct = Math.min(data.progress, 100);
+  const total = data.total_fetch || data.total_scoring || 0;
+  const completed = data.done || 0;
+  const remaining = data.remaining ?? 0;
+
   return (
-    <div className="agent-tracker-overlay">
-      <div className="agent-tracker-card" style={{ maxWidth: "500px", margin: "0 auto", padding: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "16px" }}>
-          <h2><span className="pulsing-dot"></span> Multi-Agent Scanner Active</h2>
-          <span style={{ fontSize: "14px", color: "var(--color-text-dim)" }}>
-            Elapsed Time: {elapsed}s
+    <div className="scanner-progress">
+      <div className="scanner-progress__header">
+        <div className="scanner-progress__title">
+          <span className="scanner-progress__dot" aria-hidden />
+          Scanner Active
+        </div>
+        <div className="scanner-progress__timing">
+          <span className="scanner-progress__elapsed">{formatElapsed(elapsed)} elapsed</span>
+          {data.eta_sec != null && data.eta_sec > 0 && (
+            <span className="scanner-progress__eta">ETA {formatEta(data.eta_sec)}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="scanner-progress__stage">{data.stage}</div>
+
+      <div className="scanner-progress__bar-track">
+        <div
+          className="scanner-progress__bar-fill"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <div className="scanner-progress__stats">
+        {total > 0 && (
+          <span className="scanner-progress__stat">
+            {completed} / {total}
           </span>
-        </div>
-        
-        <p className="agent-tracker-subtitle" style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px" }}>
-          {stage}
-        </p>
-        
-        <div style={{ width: "100%", height: "8px", background: "var(--color-border)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" }}>
-          <div 
-            style={{ 
-              width: `${progress}%`, 
-              height: "100%", 
-              background: "var(--color-primary)", 
-              transition: "width 0.3s ease-out" 
-            }} 
-          />
-        </div>
-        
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>
-            {progress}%
+        )}
+        {data.current_symbol && (
+          <span className="scanner-progress__stat">
+            Current: <strong>{data.current_symbol}</strong>
           </span>
-        </div>
+        )}
+        {data.worker_id != null && (
+          <span className="scanner-progress__stat">
+            Worker #{data.worker_id}
+          </span>
+        )}
+        <span className="scanner-progress__stat">
+          {pct.toFixed(0)}%
+        </span>
       </div>
     </div>
   );
