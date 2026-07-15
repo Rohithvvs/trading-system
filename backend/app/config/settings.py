@@ -106,11 +106,6 @@ class Settings(BaseSettings):
     smtp_from: str = Field(default="", alias="SMTP_FROM")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
-    # Scanner / FYERS throughput. Override via MAX_CONCURRENT_REQUESTS in .env
-    max_concurrent_requests: int = Field(default=25, alias="MAX_CONCURRENT_REQUESTS")
-    scanner_fetch_timeout_sec: float = Field(default=10.0, alias="SCANNER_FETCH_TIMEOUT_SEC")
-    scanner_max_retries: int = Field(default=3, alias="SCANNER_MAX_RETRIES")
-
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
         env_file_encoding='utf-8',
@@ -123,6 +118,21 @@ class Settings(BaseSettings):
         if v:
             return normalize_database_url(v)
         return "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
+
+    @field_validator("feat008_execution_model", mode="before")
+    @classmethod
+    def _normalize_exec_model(cls, v: str | None) -> str:
+        if v is None or not str(v).strip():
+            return "REALISTIC"
+        cleaned = str(v).strip().upper()
+        if cleaned in {"REALISTIC", "LEGACY"}:
+            return cleaned
+        import logging
+        logging.getLogger("app.config").warning(
+            "Unknown execution_model %r – normalising to REALISTIC.  Valid: %s",
+            v, ["REALISTIC", "LEGACY"],
+        )
+        return "REALISTIC"
 
     @cached_property
     def cors_origins(self) -> list[str]:

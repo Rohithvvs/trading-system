@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
@@ -22,6 +22,23 @@ class AnalysisHistory(Base):
     reasoning: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
 
+    # SR-003 Sector RS Overlay Audit Columns
+    mapped_sector: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sector_rs_20: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sector_close_vs_ema20: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    sector_filter_triggered: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    original_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    challenger_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reason_codes: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # SR-004 Market Permission Engine Audit Columns
+    market_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    market_trend_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    market_breadth_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    market_volatility_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    market_new_entry_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    market_risk_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     stock = relationship("WatchedStock", back_populates="analyses")
 
 
@@ -40,6 +57,17 @@ class BacktestHistory(Base):
     trade_count: Mapped[int] = mapped_column(Integer)
     verdict: Mapped[str] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+    gross_total_return: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_cagr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_max_drawdown: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_win_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_profit_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_sharpe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_scenario: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    total_transaction_costs: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_slippage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    position_sizing_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     stock = relationship("WatchedStock", back_populates="backtests")
 

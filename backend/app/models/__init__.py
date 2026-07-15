@@ -20,9 +20,17 @@ from .market_data import HistoricalCandle
 from . import market_data
 from . import system_log
 from . import infrastructure
+from . import research  # ensure tables are registered with Base.metadata
 from .live_trading import LiveAccount, LivePosition, LiveOrder, BrokerExecutionLog, OrderExecutionEvent
 from .auth import User, UserSession, Device, AuditLog, OTP
-from .user_profile import UserProfile
+from .research import (
+    ResearchSession,
+    ResearchIdea,
+    ResearchCritique,
+    ResearchSynthesis,
+    ResearchDecision,
+    ResearchRolloutState,
+)
 __all__ = [
     "AnalysisHistory",
     "BacktestHistory",
@@ -54,5 +62,10 @@ __all__ = [
     "Device",
     "AuditLog",
     "OTP",
-    "UserProfile",
+    "ResearchSession",
+    "ResearchIdea",
+    "ResearchCritique",
+    "ResearchSynthesis",
+    "ResearchDecision",
+    "ResearchRolloutState",
 ]

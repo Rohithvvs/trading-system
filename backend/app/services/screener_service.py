@@ -922,8 +922,6 @@ class ScreenerService:
         return bool(
             latest_close > sma_50
             and sma_50 > sma_200
-            and bool(indicators.get("hard_filters_pass", False))
-            and technical.score >= 48
             and avg_volume > 100000
         )
 

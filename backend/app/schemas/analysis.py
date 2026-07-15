@@ -20,7 +20,7 @@ class TimeframeConfig(BaseModel):
 
 class AnalysisRequest(BaseModel):
     symbols: list[str] = Field(min_length=1, max_length=25)
-    mode: AnalysisMode = AnalysisMode.both
+    mode: AnalysisMode = AnalysisMode.swing
     timeframe: TimeframeConfig = Field(default_factory=TimeframeConfig)
 
     @field_validator("symbols")
@@ -93,7 +93,7 @@ class BacktestResult(BaseModel):
     mode: AnalysisMode
     strategy_name: str
     total_return: float
-    cagr: float
+    cagr: float | None = None
     max_drawdown: float
     win_rate: float
     profit_factor: float
@@ -106,6 +106,33 @@ class BacktestResult(BaseModel):
     sharpe_ratio: float = 0.0
     best_trade: dict | None = None
     worst_trade: dict | None = None
+    # Realism Foundation metrics
+    gross_total_return: float | None = None
+    gross_cagr: float | None = None
+    gross_max_drawdown: float | None = None
+    gross_win_rate: float | None = None
+    gross_profit_factor: float | None = None
+    gross_sharpe_ratio: float | None = None
+    cost_scenario: str | None = None
+    total_transaction_costs: float | None = None
+    total_slippage: float | None = None
+    position_sizing_pct: float | None = None
+    cagr_warning: str | None = None
+    # FEAT-008 — Realistic Trade Execution Model metadata
+    feat008_enabled: bool | None = None
+    feat008_execution_model: str | None = None
+    feat008_slippage_bps: float | None = None
+    feat008_brokerage_bps: float | None = None
+    feat008_statutory_bps: float | None = None
+    feat008_total_cost_bps_per_side: float | None = None
+    feat008_trades_simulated: int | None = None
+    feat008_trades_skipped: int | None = None
+    feat008_win_rate: float | None = None
+    feat008_profit_factor: float | None = None
+    feat008_legacy_win_rate: float | None = None
+    feat008_legacy_profit_factor: float | None = None
+    feat008_score_used: str | None = None
+    feat008_explanation: str | None = None
 
 
 class RecommendationReasoning(BaseModel):
@@ -141,6 +168,53 @@ class FinalRecommendation(BaseModel):
     reasoning: RecommendationReasoning
     trade_plans: list[TradePlan]
     summary: str
+    # FEAT-004 — Market Regime Overlay (optional logging/metadata fields)
+    # Defaults to None; populated when FEAT-004 runs. Contains the full
+    # feat004 log payload (regime, benchmark trend inputs, score adjustment,
+    # abstained reason, sector metadata, explanation, etc.).
+    feat004: dict | None = None
+    # FEAT-007 — Sector Relative Strength Overlay (optional logging fields)
+    # All default to None; populated only when FEAT-007 is wired and enabled.
+    feat007_enabled: bool | None = None
+    feat007_stage: str | None = None
+    sector_regime_state: str | None = None
+    sector_rs_value: float | None = None
+    sector_index_symbol: str | None = None
+    sector_roc20: float | None = None
+    benchmark_roc20: float | None = None
+    feat007_score_adjustment: float | None = None
+    feat007_pre_adjustment_score: float | None = None
+    feat007_post_adjustment_score: float | None = None
+    feat007_watch_downgrade_applied: bool | None = None
+    feat007_abstained_reason: str | None = None
+    feat007_explanation: str | None = None
+
+
+class SectorOverlayResult(BaseModel):
+    mapped_sector: str | None = None
+    sector_close: float | None = None
+    sector_ema20: float | None = None
+    sector_roc20: float | None = None
+    nifty50_roc20: float | None = None
+    sector_rs_20: float | None = None
+    sector_filter_status: str | None = None  # UNMAPPED, INSUFFICIENT_HISTORY, STRENGTH, WEAK
+    feat007_abstained_reason: str | None = None
+    downgrade_triggered: bool = False
+    downgrade_reason: str | None = None
+    original_action: str | None = None
+    challenger_action: str | None = None
+
+
+class MarketRegimeResult(BaseModel):
+    market_state: str  # FAVORABLE, CAUTIOUS, HIGHRISK, DEFENSIVE
+    trend_state: str   # BULLISH, BEARISH, UNKNOWN
+    breadth_state: str # HEALTHY, MIXED, WEAK, UNKNOWN
+    volatility_state: str # NORMAL, ELEVATED, HIGH, EXTREME, UNKNOWN
+    data_quality_flags: dict[str, bool] = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+    new_entry_allowed: bool
+    risk_multiplier: float
+    manual_review_flag: bool
 
 
 class StockAnalysisResult(BaseModel):
@@ -154,6 +228,9 @@ class StockAnalysisResult(BaseModel):
     fundamental: FundamentalAnalysisResult | None = None
     backtests: list[BacktestResult]
     recommendation: FinalRecommendation
+    challenger_recommendation: FinalRecommendation | None = None
+    sector_overlay: SectorOverlayResult | None = None
+    market_regime: MarketRegimeResult | None = None
     disclaimer: str
     data_source: str = "unknown"
     data_quality: dict[str, str | int | bool | float] = Field(default_factory=dict)

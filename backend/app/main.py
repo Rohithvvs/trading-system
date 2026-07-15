@@ -775,10 +775,14 @@ async def log_http_requests(request: Request, call_next):
 
 
 from .routes import scheduler as scheduler_router
+from .routers.walk_forward import router as walk_forward_router
+from .routers.event_calendar import router as event_calendar_router
 
 app.include_router(api_router)
 app.include_router(fyers_router)
 app.include_router(scheduler_router.router)
+app.include_router(walk_forward_router)
+app.include_router(event_calendar_router)
 
 
 async def nightly_candle_sync():
