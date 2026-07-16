@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, timezone, date
 
 from sqlalchemy import select
 
@@ -13,9 +13,13 @@ from ..utils import get_logger
 
 
 class AnalyticsService:
-    async def __init__(self) -> None:
+    def __init__(self) -> None:
         self.logger = get_logger("app.analytics")
         self.fyers = FyersService()
+
+    async def initialize(self) -> None:
+        """Async initialization if needed in the future."""
+        pass
 
     async def track_strategy_drift(self, db: AsyncSession) -> None:
         """
@@ -23,7 +27,7 @@ class AnalyticsService:
         and calculates the realized alpha to track strategy performance and drift.
         """
         self.logger.info("Starting Strategy Drift & Performance Tracker...")
-        now = datetime.utcnow().date()
+        now = datetime.now(timezone.utc).date()
         
         target_days = [5, 10, 20]
 

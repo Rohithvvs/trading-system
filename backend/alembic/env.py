@@ -35,6 +35,7 @@ from app.models import workstation
 from app.models import market_data
 from app.models import system_log
 from app.models import infrastructure
+from app.models import research
 
 def _prepare_asyncpg_url(raw_database_url: str) -> tuple[str, dict[str, object]]:
     parsed = urlsplit(raw_database_url)

@@ -7,6 +7,8 @@ from .recommendation_service import RecommendationService
 from .screener_service import ScreenerService
 from .sentiment_service import SentimentService
 from .technical_analysis_service import TechnicalAnalysisService
+from .sector_rs_service import SectorRelativeStrengthService
+from .market_permission_service import MarketPermissionService
 from . import token_service
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     "ScreenerService",
     "SentimentService",
     "TechnicalAnalysisService",
+    "SectorRelativeStrengthService",
+    "MarketPermissionService",
     "token_service",
 ]

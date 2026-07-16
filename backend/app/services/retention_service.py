@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ class RetentionService:
         self.db = db
 
     async def cleanup(self, *, logs_days: int = 30, events_days: int = 365, candles_days: int = 1825, replay_days: int = 90, snapshots_days: int = 30) -> dict[str, int]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         targets = [
             ("logs", delete(SystemLog).where(SystemLog.timestamp < now - timedelta(days=logs_days))),
             ("events", delete(ExecutionEvent).where(ExecutionEvent.created_at < now - timedelta(days=events_days))),

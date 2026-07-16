@@ -231,8 +231,42 @@ async def reset_password(request_data: ResetPasswordRequest, db: AsyncSession = 
     return await confirm_password_reset(db, request_data.token, request_data.password)
 
 from ..core.deps import get_current_active_user
+from ..schemas.user_profile import UserProfileResponse, UserProfileUpdate, UserProfilePatch
+from ..services.user_profile_service import get_or_create_profile, profile_to_dict, update_profile
 
 @router.get('/me', response_model=UserResponse)
 async def get_me(current_user = Depends(get_current_active_user)):
     return current_user
+
+
+@router.get("/profile", response_model=UserProfileResponse)
+async def get_profile(
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the authenticated user's profile (DB-backed, device-independent)."""
+    profile = await get_or_create_profile(db, current_user)
+    return profile_to_dict(profile, current_user)
+
+
+@router.put("/profile", response_model=UserProfileResponse)
+async def put_profile(
+    body: UserProfileUpdate,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace/update profile fields for the authenticated user."""
+    profile = await update_profile(db, current_user, body, partial=False)
+    return profile_to_dict(profile, current_user)
+
+
+@router.patch("/profile", response_model=UserProfileResponse)
+async def patch_profile(
+    body: UserProfilePatch,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Partial profile update; preferences are deep-merged."""
+    profile = await update_profile(db, current_user, body, partial=True)
+    return profile_to_dict(profile, current_user)
 

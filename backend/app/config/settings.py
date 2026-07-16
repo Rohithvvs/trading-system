@@ -106,6 +106,53 @@ class Settings(BaseSettings):
     smtp_from: str = Field(default="", alias="SMTP_FROM")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
+    # FEAT-008 realistic trade execution control plane
+    # Master switch; when False, orchestrator forces LEGACY path.
+    feat008_enabled: bool = Field(default=True, alias="FEAT008_ENABLED")
+    # REALISTIC | LEGACY — fill model for primary metrics
+    feat008_execution_model: str = Field(default="REALISTIC", alias="FEAT008_EXECUTION_MODEL")
+    # Whether composite score uses realistic (True) or legacy (False) metrics
+    feat008_composite_uses_realistic: bool = Field(
+        default=True, alias="FEAT008_COMPOSITE_USES_REALISTIC"
+    )
+    # Skip trades that lack a next bar for realistic entry (default True)
+    feat008_skip_on_missing_next_bar: bool = Field(
+        default=True, alias="FEAT008_SKIP_ON_MISSING_NEXT_BAR"
+    )
+
+    # FEAT-004: Market regime overlay (disabled by default)
+    feat004_enabled: bool = False
+    feat004_stage: str = "SHADOW"
+    feat004_score_delta_fav: float = 2.0
+    feat004_score_delta_neu: float = 0.0
+    feat004_score_delta_cau: float = -3.0
+    feat004_score_delta_def: float = -5.0
+    feat004_score_delta_abs: float = 0.0
+    feat004_buy_downgrade_threshold_cau: float = 74.0
+    feat004_buy_downgrade_threshold_def: float = 77.0
+    feat004_buy_threshold: float = 72.0
+    feat004_favorable_cap_below_buy: bool = True
+    feat004_sector_mapping_enabled: bool = True
+    feat004_sector_min_candles: int = 50
+    feat004_benchmark_symbols: str = "NIFTY500"
+    feat004_min_benchmark_candles: int = 220
+    feat004_staleness_limit_days: int = 1
+
+    # FEAT-007: Sector relative strength overlay (disabled by default)
+    feat007_enabled: bool = False
+    feat007_stage: str = "SHADOW"
+    feat007_score_delta_strength: float = 1.5
+    feat007_score_delta_weak: float = -3.0
+    feat007_buy_downgrade_threshold: float = 74.0
+    feat007_buy_threshold: float = 72.0
+    feat007_strength_cap_enabled: bool = True
+
+    # FEAT-008: Execution model
+    feat008_enabled: bool = True
+    feat008_execution_model: str = "REALISTIC"
+    feat008_composite_uses_realistic: bool = True
+    feat008_skip_on_missing_next_bar: bool = True
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
         env_file_encoding='utf-8',
@@ -118,6 +165,21 @@ class Settings(BaseSettings):
         if v:
             return normalize_database_url(v)
         return "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
+
+    @field_validator("feat008_execution_model", mode="before")
+    @classmethod
+    def _normalize_exec_model(cls, v: str | None) -> str:
+        if v is None or not str(v).strip():
+            return "REALISTIC"
+        cleaned = str(v).strip().upper()
+        if cleaned in {"REALISTIC", "LEGACY"}:
+            return cleaned
+        import logging
+        logging.getLogger("app.config").warning(
+            "Unknown execution_model %r – normalising to REALISTIC.  Valid: %s",
+            v, ["REALISTIC", "LEGACY"],
+        )
+        return "REALISTIC"
 
     @cached_property
     def cors_origins(self) -> list[str]:

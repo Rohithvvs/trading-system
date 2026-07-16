@@ -2,7 +2,7 @@ import logging
 import logging.handlers
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Use TEST_ARTIFACT_DIR (set by tests) when present so test runs write logs
 # into the per-run artifacts folder. Otherwise fall back to backend/logs.
@@ -15,7 +15,7 @@ else:
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Run id (timestamp) appended to per-run log files. Tests may set RUN_ID.
-RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+RUN_ID = os.environ.get("RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 
 def _named(fname: str) -> Path:
     base = Path(fname).stem

@@ -79,7 +79,7 @@ async def test_concurrent_duplicate_order_prevention():
                     ema_20 = None
                     supertrend = None
                     source = "FYERS_QUOTE"
-                    fetched_at = datetime.utcnow()
+                    fetched_at = datetime.now(timezone.utc)
                 mock_price.return_value = DummyPrice()
                 
                 payload = PaperOrderCreateRequest(
@@ -145,7 +145,7 @@ async def test_order_rollback_on_failure():
                 ema_20 = None
                 supertrend = None
                 source = "FYERS_QUOTE"
-                fetched_at = datetime.utcnow()
+                fetched_at = datetime.now(timezone.utc)
             mock_price.return_value = DummyPrice()
             
             with patch.object(service.db, "commit", side_effect=Exception("Simulated DB Crash!")):
@@ -188,7 +188,7 @@ async def test_risk_management_limits():
                 ema_20 = None
                 supertrend = None
                 source = "FYERS_QUOTE"
-                fetched_at = datetime.utcnow()
+                fetched_at = datetime.now(timezone.utc)
             mock_price.return_value = DummyPrice()
             
             with patch("app.services.paper_trading_service.trading_logger") as mock_logger:

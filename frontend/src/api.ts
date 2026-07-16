@@ -22,6 +22,7 @@ import {
   mapNetworkError,
   toUserFacingApiMessage,
 } from "./utils/apiErrors";
+import { cachedFetch, CACHE_KEYS, invalidateCache, setCached } from "./utils/appCache";
 
 export { toUserFacingApiMessage, ApiClientError } from "./utils/apiErrors";
 
@@ -30,6 +31,16 @@ const DEFAULT_JSON_HEADERS = {
   Accept: "application/json",
 } as const;
 
+const IS_DEV = typeof window !== "undefined" && (window as any).__VITE_DEV__;
+
+function apiLog(...args: unknown[]) {
+  if (IS_DEV) console.info(...args);
+}
+
+function apiWarn(...args: unknown[]) {
+  if (IS_DEV) console.warn(...args);
+}
+
 async function fetchWithDiagnostics(
   path: string,
   init: RequestInit | undefined,
@@ -37,11 +48,7 @@ async function fetchWithDiagnostics(
 ): Promise<Response> {
   const url = apiUrl(path);
   const startedAt = performance.now();
-  const payloadPreview = typeof init?.body === "string" ? init.body : init?.body ? "[non-string body]" : "[no body]";
-  console.info(`[api] ${label} -> ${url}`, {
-    method: init?.method ?? "GET",
-    payload: payloadPreview,
-  });
+  apiLog(`[api] ${label} -> ${url}`);
 
   try {
     const fetchInit: RequestInit = {
@@ -54,7 +61,7 @@ async function fetchWithDiagnostics(
     };
     const response = await fetch(url, fetchInit);
     const elapsedMs = Math.round(performance.now() - startedAt);
-    console.info(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
+    apiLog(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
 
     // Global handling for gateway / cold-start style failures
     if ([502, 503, 504, 521, 522, 523, 524].includes(response.status)) {
@@ -64,10 +71,10 @@ async function fetchWithDiagnostics(
   } catch (error) {
     const elapsedMs = Math.round(performance.now() - startedAt);
     if (error instanceof ApiClientError) {
-      console.warn(`[api] ${label} client error at ${url} (${elapsedMs}ms)`, error);
+      apiWarn(`[api] ${label} client error at ${url} (${elapsedMs}ms)`, error);
       throw error;
     }
-    console.warn(`[api] ${label} network error at ${url} (${elapsedMs}ms)`, error);
+    apiWarn(`[api] ${label} network error at ${url} (${elapsedMs}ms)`, error);
     throw mapNetworkError(error, url, label);
   }
 }
@@ -116,12 +123,24 @@ export async function checkBackendHealth(): Promise<{
 
 // `runFullAnalysis` removed — frontend uses `runPresetScreener` instead.
 
+export interface ScannerProgressUpdate {
+  stage: string;
+  progress: number;
+  current_symbol?: string;
+  worker_id?: number;
+  done?: number;
+  remaining?: number;
+  total_fetch?: number;
+  total_scoring?: number;
+  eta_sec?: number;
+}
+
 export async function runPresetScreener(
   mode: AnalysisMode,
   timeframe: TimeframeConfig,
   symbols: string[],
   topN: number,
-  onProgress?: (stage: string, progress: number) => void
+  onProgress?: (update: ScannerProgressUpdate) => void
 ): Promise<ScreenerResponse> {
   console.info("[scanner] runPresetScreener called", {
     mode,
@@ -142,6 +161,15 @@ export async function runPresetScreener(
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || "Failed to run screener");
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const body = await response.json();
+    if (body?.status === "scan_in_progress") {
+      throw Object.assign(new Error("SCAN_IN_PROGRESS"), { scanInProgress: true });
+    }
+    throw new Error("Unexpected scanner response format");
   }
 
   if (!response.body) {
@@ -177,7 +205,17 @@ export async function runPresetScreener(
         
         if (eventType === "progress") {
           if (onProgress) {
-            onProgress(data.stage, data.progress);
+            onProgress({
+              stage: data.stage || "Scanning...",
+              progress: data.progress || 0,
+              current_symbol: data.current_symbol,
+              worker_id: data.worker_id,
+              done: data.done,
+              remaining: data.remaining,
+              total_fetch: data.total_fetch,
+              total_scoring: data.total_scoring,
+              eta_sec: data.eta_sec,
+            });
           }
         } else if (eventType === "result") {
           if (data.status === "error") {
@@ -213,7 +251,7 @@ export async function runPresetScreener(
   return payload;
 }
 
-export async function fetchPaperTradingDashboard(selectedSymbol?: string): Promise<PaperTradingDashboardResponse> {
+async function _fetchPaperTradingDashboardRaw(selectedSymbol?: string): Promise<PaperTradingDashboardResponse> {
   const params = selectedSymbol ? `?selected_symbol=${encodeURIComponent(selectedSymbol)}` : "";
   const response = await fetchWithDiagnostics(`/paper-trading/dashboard${params}`, undefined, "Paper dashboard");
   if (!response.ok) {
@@ -223,22 +261,47 @@ export async function fetchPaperTradingDashboard(selectedSymbol?: string): Promi
   return response.json() as Promise<PaperTradingDashboardResponse>;
 }
 
-export async function fetchPaperAccountSummary(): Promise<any> {
-  const response = await fetchWithDiagnostics(`/paper-trading/account/summary`, undefined, "Paper account summary");
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Failed to load account summary");
-  }
-  return response.json();
+export async function fetchPaperTradingDashboard(
+  selectedSymbol?: string,
+  opts?: { force?: boolean },
+): Promise<PaperTradingDashboardResponse> {
+  const key = selectedSymbol
+    ? CACHE_KEYS.paperDashboardSymbol(selectedSymbol)
+    : CACHE_KEYS.paperDashboard;
+  return cachedFetch(key, () => _fetchPaperTradingDashboardRaw(selectedSymbol), {
+    force: opts?.force,
+    swr: !opts?.force,
+    softTimeoutMs: 3000,
+  });
+}
+
+export async function fetchPaperAccountSummary(opts?: { force?: boolean }): Promise<any> {
+  return cachedFetch(
+    CACHE_KEYS.paperAccount,
+    async () => {
+      const response = await fetchWithDiagnostics(`/paper-trading/account/summary`, undefined, "Paper account summary");
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to load account summary");
+      }
+      return response.json();
+    },
+    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3000 },
+  );
 }
 
 export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: string; reason: string; current_ist?: string; next_open_ist?: string | null }> {
-  const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
-  if (!response.ok) {
-    // Non-fatal, client will fall back to local time checks
-    throw new Error("Market status unavailable");
-  }
-  return response.json();
+  return cachedFetch(
+    CACHE_KEYS.marketStatus,
+    async () => {
+      const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
+      if (!response.ok) {
+        throw new Error("Market status unavailable");
+      }
+      return response.json();
+    },
+    { swr: true, ttlMs: 5 * 60 * 1000, softTimeoutMs: 2500 },
+  );
 }
 
 export async function fetchPaperQuote(symbol: string): Promise<PaperQuoteResponse> {
@@ -309,15 +372,27 @@ export async function stopMarketEngine(): Promise<MarketEngineStatus> {
 }
 
 export async function fetchMarketEngineStatus(): Promise<MarketEngineStatus> {
-  const response = await fetchWithDiagnostics("/paper-trading/engine/status", undefined, "Market engine status");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load market engine status");
-  return response.json() as Promise<MarketEngineStatus>;
+  return cachedFetch(
+    CACHE_KEYS.marketEngineStatus,
+    async () => {
+      const response = await fetchWithDiagnostics("/paper-trading/engine/status", undefined, "Market engine status");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load market engine status");
+      return response.json() as Promise<MarketEngineStatus>;
+    },
+    { swr: true, ttlMs: 15 * 1000, softTimeoutMs: 2500 },
+  );
 }
 
 export async function fetchPaperTradingEngineStatus(): Promise<import('./types').MarketEngineHealth> {
-  const response = await fetchWithDiagnostics("/paper-trading/engine-status", undefined, "Paper engine status");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load paper engine status");
-  return response.json() as Promise<import('./types').MarketEngineHealth>;
+  return cachedFetch(
+    CACHE_KEYS.marketEngineHealth,
+    async () => {
+      const response = await fetchWithDiagnostics("/paper-trading/engine-status", undefined, "Paper engine status");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load paper engine status");
+      return response.json() as Promise<import('./types').MarketEngineHealth>;
+    },
+    { swr: true, ttlMs: 15 * 1000, softTimeoutMs: 2500 },
+  );
 }
 
 export async function cancelPaperOrder(orderId: number): Promise<PaperOrderActionResponse> {
@@ -378,7 +453,12 @@ export async function prefillPaperTrade(payload: RecommendationPrefillRequest): 
 export async function fetchSymbolDetail(symbol: string): Promise<SymbolDetail> {
   const response = await fetchWithDiagnostics(`/analysis/symbol/${encodeURIComponent(symbol)}/detail`, undefined, `Symbol detail ${symbol}`);
   if (!response.ok) {
-    const message = await response.text();
+    const raw = await response.text();
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      message = parsed?.detail?.message || parsed?.detail || parsed?.message || raw;
+    } catch { /* use raw text */ }
     throw new Error(message || "Failed to fetch symbol detail");
   }
   const raw = await response.json();
@@ -422,6 +502,7 @@ function normalizeSymbolDetail(raw: any): any {
     backtest_extras,
     news_extras,
     ohlcv: pick("ohlcv", ["candles", "ohlc"]) ?? null,
+    research: pick("research", ["Research", "swing_research"]) ?? null,
   };
 }
 
@@ -452,30 +533,42 @@ export async function deletePaperOrder(orderId: number): Promise<PaperOrderActio
 }
 
 export async function loadLatestScan(): Promise<ScreenerResponse | null> {
-  const response = await fetchWithDiagnostics("/analysis/scan/latest", undefined, "Load latest scan");
-  if (!response.ok) {
-    return null;
-  }
-  const data = await response.json() as ({ available?: boolean } & ScreenerResponse);
-  if (!data.available) {
-    return null;
-  }
-  return data as ScreenerResponse;
+  return cachedFetch(
+    CACHE_KEYS.latestScan,
+    async () => {
+      const response = await fetchWithDiagnostics("/analysis/scan/latest", undefined, "Load latest scan");
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json() as ({ available?: boolean } & ScreenerResponse);
+      if (!data.available) {
+        return null;
+      }
+      return data as ScreenerResponse;
+    },
+    { swr: true, softTimeoutMs: 3000 },
+  );
 }
 
 export async function getLatestScan(): Promise<any> {
-  const response = await fetchWithDiagnostics("/scanner/latest", {
-    method: "GET",
-    headers: {
-      "Accept": "application/json",
+  return cachedFetch(
+    `${CACHE_KEYS.latestScan}:scanner`,
+    async () => {
+      const response = await fetchWithDiagnostics("/scanner/latest", {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+        },
+      }, "Get latest scan");
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch latest scan");
+      }
+
+      return await response.json();
     },
-  }, "Get latest scan");
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch latest scan");
-  }
-
-  return await response.json();
+    { swr: true, softTimeoutMs: 3000 },
+  );
 }
 
 
@@ -487,13 +580,102 @@ export async function loadTodayCandidates(): Promise<any[]> {
   return response.json() as Promise<any[]>;
 }
 
-export async function fetchAnalytics(): Promise<any> {
-  const response = await fetchWithDiagnostics(`/paper-trading/analytics`, undefined, "Paper analytics");
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Failed to load analytics");
-  }
-  return response.json();
+export async function fetchAnalytics(opts?: { force?: boolean; period?: string }): Promise<any> {
+  const period = opts?.period || "all";
+  const cacheKey = `${CACHE_KEYS.paperAnalytics}:${period}`;
+  return cachedFetch(
+    cacheKey,
+    async () => {
+      const qs = new URLSearchParams({ period });
+      const response = await fetchWithDiagnostics(
+        `/paper-trading/analytics?${qs.toString()}`,
+        undefined,
+        "Paper analytics",
+      );
+      if (!response.ok) {
+        const raw = await response.text();
+        let message = raw;
+        try {
+          const parsed = JSON.parse(raw);
+          message = parsed?.detail?.message || parsed?.detail || parsed?.message || raw;
+        } catch { /* use raw text */ }
+        throw new Error(typeof message === "string" ? message : "Failed to load analytics");
+      }
+      return response.json();
+    },
+    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 8000, ttlMs: 2 * 60 * 1000 },
+  );
+}
+
+export type DailyAnalyticsPeriod = "today" | "yesterday" | "week" | "month" | "custom";
+
+export async function fetchDailyAnalytics(opts?: {
+  period?: DailyAnalyticsPeriod;
+  start_date?: string;
+  end_date?: string;
+  include_ai?: boolean;
+  force?: boolean;
+}): Promise<any> {
+  const period = opts?.period ?? "today";
+  const params = new URLSearchParams({ period, include_ai: String(opts?.include_ai ?? true) });
+  if (opts?.start_date) params.set("start_date", opts.start_date);
+  if (opts?.end_date) params.set("end_date", opts.end_date);
+  const cacheKey = CACHE_KEYS.paperDailyAnalytics(
+    `${period}:${opts?.start_date || ""}:${opts?.end_date || ""}`,
+  );
+  return cachedFetch(
+    cacheKey,
+    async () => {
+      const response = await fetchWithDiagnostics(
+        `/paper-trading/daily-analytics?${params.toString()}`,
+        undefined,
+        "Daily analytics",
+      );
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to load daily analytics");
+      }
+      return response.json();
+    },
+    { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3500, ttlMs: 3 * 60 * 1000 },
+  );
+}
+
+export async function fetchDailyJournal(journalDate?: string): Promise<any> {
+  const q = journalDate ? `?journal_date=${encodeURIComponent(journalDate)}` : "";
+  return cachedFetch(
+    CACHE_KEYS.paperDailyJournal(journalDate || "today"),
+    async () => {
+      const response = await fetchWithDiagnostics(`/paper-trading/daily-journal${q}`, undefined, "Daily journal");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load journal");
+      return response.json();
+    },
+    { swr: true, ttlMs: 2 * 60 * 1000 },
+  );
+}
+
+export async function saveDailyJournal(payload: {
+  journal_date?: string;
+  observations?: string;
+  mistakes?: string;
+  lessons?: string;
+  tomorrow_plan?: string;
+}): Promise<any> {
+  const response = await fetchWithDiagnostics(
+    `/paper-trading/daily-journal`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Save daily journal",
+  );
+  if (!response.ok) throw new Error(await response.text() || "Failed to save journal");
+  const data = await response.json();
+  // Bust journal + daily analytics cache for this user scope
+  invalidateCache("paper_daily_journal");
+  invalidateCache("paper_daily_analytics");
+  return data;
 }
 
 export async function updatePaperAccountCapital(amount: number): Promise<any> {
@@ -612,13 +794,19 @@ export async function markAllNotificationsRead(): Promise<{ marked: number }> {
   return response.json();
 }
 
-export async function fetchAlerts(): Promise<{ id: number; symbol: string; condition: string; target_price: number; status: string; created_at: string; triggered_at?: string | null; triggered_price?: number | null }[]> {
-  const response = await fetchWithDiagnostics(`/paper-trading/alerts`, undefined, "Fetch alerts");
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Failed to fetch alerts");
-  }
-  return response.json();
+export async function fetchAlerts(opts?: { force?: boolean }): Promise<{ id: number; symbol: string; condition: string; target_price: number; status: string; created_at: string; triggered_at?: string | null; triggered_price?: number | null }[]> {
+  return cachedFetch(
+    CACHE_KEYS.paperAlerts,
+    async () => {
+      const response = await fetchWithDiagnostics(`/paper-trading/alerts`, undefined, "Fetch alerts");
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to fetch alerts");
+      }
+      return response.json();
+    },
+    { force: opts?.force, swr: !opts?.force },
+  );
 }
 
 export async function createAlert(payload: { symbol: string; condition: string; price: number }) {
@@ -661,44 +849,248 @@ export async function saveAccessToken(access_token: string) {
     } catch {
       errorMessage = await response.text() || errorMessage;
     }
-    throw new Error(errorMessage);
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Failed to validate access token");
+  }
+  // Force refresh of token caches after manual reconnect
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export type BrokerTokenPayload = {
+  broker: string;
+  access_token: string;
+  api_key?: string;
+  api_secret?: string;
+  token_expiry?: string | null;
+  notes?: string;
+  validate?: boolean;
+};
+
+export async function fetchBrokerToken(broker = "FYERS") {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens?broker=${encodeURIComponent(broker)}`,
+    undefined,
+    "Broker token",
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load broker token");
   }
   return response.json();
 }
 
-export async function getTokenStatus() {
-  const response = await fetchWithDiagnostics('/api/token/status', undefined, 'Token status');
+export async function saveBrokerToken(payload: BrokerTokenPayload) {
+  // Never console.log payload.access_token / api_secret
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Save broker token",
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to save broker token";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Failed to save broker token");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export async function updateBrokerToken(payload: Partial<BrokerTokenPayload> & { broker?: string }) {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Update broker token",
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to update broker token";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Failed to update broker token");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export async function deleteBrokerToken(broker = "FYERS") {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens?broker=${encodeURIComponent(broker)}`,
+    { method: "DELETE" },
+    "Delete broker token",
+  );
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || 'Failed to get token status');
+    throw new Error(message || "Failed to delete broker token");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  invalidateCache(CACHE_KEYS.fyersTokenHistory);
+  return response.json();
+}
+
+export async function validateBrokerToken(broker = "FYERS") {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens/validate?broker=${encodeURIComponent(broker)}`,
+    { method: "POST" },
+    "Validate broker token",
+  );
+  if (!response.ok) {
+    let errorMessage = "Token validation failed";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Token validation failed");
+  }
+  invalidateCache(CACHE_KEYS.fyersToken);
+  return response.json();
+}
+
+export async function testBrokerConnection(payload?: BrokerTokenPayload) {
+  const response = await fetchWithDiagnostics(
+    `/api/broker-tokens/test-connection`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        payload || { broker: "FYERS", access_token: "", validate: true },
+      ),
+    },
+    "Test broker connection",
+  );
+  if (!response.ok) {
+    let errorMessage = "Connection test failed";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = (await response.text()) || errorMessage;
+    }
+    throw new Error(typeof errorMessage === "string" ? errorMessage : "Connection test failed");
   }
   return response.json();
 }
+
+export async function getTokenStatus(opts?: { force?: boolean }) {
+  return cachedFetch(
+    CACHE_KEYS.fyersToken,
+    async () => {
+      const response = await fetchWithDiagnostics('/api/token/status', undefined, 'Token status');
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to get token status');
+      }
+      return response.json();
+    },
+    // Token status is DB-only on backend (no FYERS call) — cache 8 min; force on reconnect
+    { force: opts?.force, swr: !opts?.force, ttlMs: 8 * 60 * 1000, softTimeoutMs: 3000 },
+  );
+}
 export async function getTokenHistory(limit = 50) {
-  const response = await fetchWithDiagnostics(`/api/token/history?limit=${encodeURIComponent(String(limit))}`, undefined, 'Token history');
+  return cachedFetch(
+    CACHE_KEYS.fyersTokenHistory,
+    async () => {
+      const response = await fetchWithDiagnostics(`/api/token/history?limit=${encodeURIComponent(String(limit))}`, undefined, 'Token history');
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to get token history');
+      }
+      return response.json();
+    },
+    { swr: true, ttlMs: 8 * 60 * 1000 },
+  );
+}
+
+export async function getFyersAuthUrl(): Promise<{ oauth_available: boolean; auth_url: string | null; callback_url: string | null; message?: string }> {
+  const response = await fetchWithDiagnostics('/fyers/auth/url', undefined, 'FYERS auth URL');
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      message = parsed?.detail || parsed?.message || raw;
+    } catch { /* use raw text */ }
+    throw new Error(message || 'Failed to get FYERS auth URL');
+  }
+  return response.json();
+}
+
+export async function exchangeFyersAuthCode(authCode: string): Promise<{ status: string; message: string; expires_at?: string }> {
+  const response = await fetchWithDiagnostics('/fyers/auth/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ auth_code: authCode }),
+  }, 'FYERS auth exchange');
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || 'Failed to get token history');
+    throw new Error(message || 'Failed to exchange FYERS auth code');
   }
   return response.json();
 }
 
 export async function fetchUniverses(): Promise<{ name: string; symbols: string[]; count: number }[]> {
-  const response = await fetchWithDiagnostics("/workstation/universes", undefined, "Universes");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load universes");
+  return cachedFetch(
+    CACHE_KEYS.universes,
+    async () => {
+      const response = await fetchWithDiagnostics("/workstation/universes", undefined, "Universes");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load universes");
+      return response.json();
+    },
+    { swr: true, ttlMs: 30 * 60 * 1000 },
+  );
+}
+
+export async function fetchBatchLight(symbols: string[]): Promise<{ symbols: { symbol: string; ltp: number | null; change_pct: number | null; company_name: string | null }[] }> {
+  const response = await fetchWithDiagnostics("/analysis/symbol/batch-light", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols }),
+  }, "Batch light");
+  if (!response.ok) return { symbols: [] };
   return response.json();
 }
 
 export async function fetchMarketOverview(): Promise<any> {
-  const response = await fetchWithDiagnostics("/workstation/market-overview", undefined, "Market overview");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load market overview");
-  return response.json();
+  return cachedFetch(
+    CACHE_KEYS.marketOverview,
+    async () => {
+      const response = await fetchWithDiagnostics("/workstation/market-overview", undefined, "Market overview");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load market overview");
+      return response.json();
+    },
+    { swr: true, ttlMs: 2 * 60 * 1000, softTimeoutMs: 3000 },
+  );
 }
 
 export async function fetchSavedScans(): Promise<any[]> {
-  const response = await fetchWithDiagnostics("/workstation/saved-scans", undefined, "Saved scans");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load saved scans");
-  return response.json();
+  return cachedFetch(
+    CACHE_KEYS.savedScans,
+    async () => {
+      const response = await fetchWithDiagnostics("/workstation/saved-scans", undefined, "Saved scans");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load saved scans");
+      return response.json();
+    },
+    { swr: true },
+  );
 }
 
 export async function saveScannerPreset(payload: any): Promise<any> {
@@ -730,9 +1122,15 @@ export async function compareScan(scanId: number): Promise<any> {
 }
 
 export async function fetchWorkstationAlerts(): Promise<any[]> {
-  const response = await fetchWithDiagnostics("/workstation/alerts", undefined, "Workstation alerts");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load alerts");
-  return response.json();
+  return cachedFetch(
+    CACHE_KEYS.workstationAlerts,
+    async () => {
+      const response = await fetchWithDiagnostics("/workstation/alerts", undefined, "Workstation alerts");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load alerts");
+      return response.json();
+    },
+    { swr: true },
+  );
 }
 
 export async function createWorkstationAlert(payload: any): Promise<any> {
@@ -752,9 +1150,15 @@ export async function deleteWorkstationAlert(alertId: number): Promise<any> {
 }
 
 export async function fetchRiskSettings(): Promise<any> {
-  const response = await fetchWithDiagnostics("/workstation/risk-settings", undefined, "Risk settings");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load risk settings");
-  return response.json();
+  return cachedFetch(
+    CACHE_KEYS.riskSettings,
+    async () => {
+      const response = await fetchWithDiagnostics("/workstation/risk-settings", undefined, "Risk settings");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load risk settings");
+      return response.json();
+    },
+    { swr: true, ttlMs: 10 * 60 * 1000 },
+  );
 }
 
 export async function updateRiskSettings(payload: any): Promise<any> {
@@ -768,9 +1172,20 @@ export async function updateRiskSettings(payload: any): Promise<any> {
 }
 
 export async function fetchApiHealth(): Promise<any> {
-  const response = await fetchWithDiagnostics("/workstation/api-health", undefined, "API health");
-  if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
-  return response.json();
+  return cachedFetch(
+    CACHE_KEYS.apiHealth,
+    async () => {
+      const response = await fetchWithDiagnostics("/workstation/api-health", undefined, "API health");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load API health");
+      return response.json();
+    },
+    { swr: true, ttlMs: 2 * 60 * 1000, softTimeoutMs: 3000 },
+  );
+}
+
+/** Invalidate paper-trading related caches after mutations. */
+export function invalidatePaperCaches(): void {
+  invalidateCache("paper_");
 }
 function formatAuthErrorDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail;
@@ -855,6 +1270,57 @@ export async function authMe(): Promise<any> {
   const response = await fetchWithDiagnostics("/auth/me", undefined, "Auth me");
   if (!response.ok) throw new Error("Not authenticated");
   return response.json();
+}
+
+/** Authenticated user profile (DB-backed — syncs across browsers/devices). */
+export async function fetchUserProfile(opts?: { force?: boolean }): Promise<any> {
+  return cachedFetch(
+    "user_profile",
+    async () => {
+      const response = await fetchWithDiagnostics("/auth/profile", undefined, "User profile");
+      if (!response.ok) throw new Error(await response.text() || "Failed to load profile");
+      return response.json();
+    },
+    { force: opts?.force, swr: true, ttlMs: 60_000 },
+  );
+}
+
+export async function updateUserProfile(payload: Record<string, unknown>): Promise<any> {
+  const response = await fetchWithDiagnostics(
+    "/auth/profile",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Update user profile",
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Failed to update profile");
+  }
+  const data = await response.json();
+  setCached("user_profile", data);
+  return data;
+}
+
+export async function patchUserProfile(payload: Record<string, unknown>): Promise<any> {
+  const response = await fetchWithDiagnostics(
+    "/auth/profile",
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Patch user profile",
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Failed to update profile");
+  }
+  const data = await response.json();
+  setCached("user_profile", data);
+  return data;
 }
 
 export async function authLogout(): Promise<void> {

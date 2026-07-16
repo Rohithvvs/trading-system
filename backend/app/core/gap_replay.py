@@ -369,14 +369,14 @@ async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
             finally:
                 try:
                     existing_replay.checkpoint_symbol = symbol
-                    existing_replay.updated_at = datetime.utcnow()
+                    existing_replay.updated_at = datetime.now(timezone.utc)
                     await db.flush()
                 except Exception:
                     pass
 
     try:
         existing_replay.status = "COMPLETED"
-        existing_replay.completed_at = datetime.utcnow()
+        existing_replay.completed_at = datetime.now(timezone.utc)
         await db.commit()
         logger.info("[GAP_REPLAY] Committed. Filled=%s Exited=%s Warnings=%s", len(summary["orders_filled"]), len(summary["positions_exited"]), len(summary["warnings"]))
     except Exception as e:

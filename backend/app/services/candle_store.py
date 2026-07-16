@@ -89,6 +89,8 @@ async def load_candles(symbol: str, from_date: str | datetime | None = None, res
         if from_date:
             if isinstance(from_date, str):
                 from_date = datetime.fromisoformat(from_date)
+                if from_date.tzinfo is None:
+                    from_date = from_date.replace(tzinfo=timezone.utc)
             res = await db.execute(
                 text("SELECT date, open, high, low, close, volume FROM market_data.candles WHERE symbol = :s AND resolution = :r AND date >= :fd ORDER BY date ASC"),
                 {"s": symbol, "r": resolution, "fd": from_date}

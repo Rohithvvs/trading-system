@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from ..models.market_data import HistoricalCandle, LatestScanResult
 
 class PersistenceService:
-    async def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
     async def save_latest_scan_results(self, scan_results: List[Dict[str, Any]]) -> None:

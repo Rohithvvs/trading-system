@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
 import threading
+import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time as dt_time
 from decimal import Decimal
 from math import isfinite
 
@@ -15,7 +17,17 @@ from ta.trend import EMAIndicator
 _account_creation_lock = threading.Lock()
 
 from ..config import settings
-from ..models.paper_trading import ExecutionEvent, PaperOrder, PaperPosition, PaperTradeHistory, PaperTradingAccount, PaperNotification, PaperTransaction, PaperAlert
+from ..models.paper_trading import (
+    DEFAULT_PAPER_STARTING_BALANCE,
+    ExecutionEvent,
+    PaperOrder,
+    PaperPosition,
+    PaperTradeHistory,
+    PaperTradingAccount,
+    PaperNotification,
+    PaperTransaction,
+    PaperAlert,
+)
 from ..schemas import AnalysisMode, OHLCVPoint
 from ..schemas.paper_trading import (
     PaperAccountSummary,
@@ -38,6 +50,11 @@ from ..core.log_manager import trading_logger
 from ..utils.money import as_float, dec, q_pnl, q_price, q_qty
 from ..observability.metrics import DUPLICATE_EXECUTIONS, ORDER_EXECUTIONS
 
+# In-memory PriceSnapshot cache with TTL (avoids redundant FYERS calls across requests within short window)
+_price_snapshot_cache: dict[str, tuple[PriceSnapshot, float]] = {}
+_price_snapshot_cache_lock = threading.Lock()
+_PRICE_CACHE_TTL_SEC = 3.0  # 3-second TTL — fresh enough for paper trading
+
 
 
 @dataclass(slots=True)
@@ -52,10 +69,19 @@ class PriceSnapshot:
 
 
 class PaperTradingService:
-    def __init__(self, db: Session) -> None:
+    """
+    Paper trading operations are always scoped to a single authenticated user.
+
+    - Pass ``user_id`` for HTTP API paths (required for account get/create).
+    - Engine/background paths may omit ``user_id`` and must use account_id from
+      the order/position being processed (never a global shared account).
+    """
+
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self.db = db
         self.logger = get_logger("app.paper_trading")
         self.fyers_service = FyersService()
+        self.user_id: uuid.UUID | None = uuid.UUID(str(user_id)) if user_id else None
 
     def get_dashboard(self, selected_symbol: str | None = None) -> PaperTradingDashboardResponse:
         account = self._get_or_create_account()
@@ -68,7 +94,7 @@ class PaperTradingService:
         price_cache = self._load_price_cache(symbols)
         for position in positions:
             snapshot = price_cache.get(position.symbol)
-            if snapshot:
+            if snapshot and snapshot.current_price > 0:
                 position.current_price = snapshot.current_price
 
         summary = self._build_account_summary(account, positions, orders, trades, price_cache)
@@ -92,7 +118,7 @@ class PaperTradingService:
         price_cache = self._load_price_cache({item.symbol for item in positions})
         for position in positions:
             snapshot = price_cache.get(position.symbol)
-            if snapshot:
+            if snapshot and snapshot.current_price > 0:
                 position.current_price = snapshot.current_price
         self.db.commit()
         # Re-fetch positions after commit to avoid stale object errors
@@ -132,7 +158,7 @@ class PaperTradingService:
         account = self._get_or_create_account()
         account.starting_balance = payload.starting_balance
         account.cash_balance = payload.starting_balance
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self.db.execute(delete(PaperPosition).where(PaperPosition.account_id == account.id))
         self.db.execute(delete(PaperOrder).where(PaperOrder.account_id == account.id))
         self.db.execute(delete(PaperTradeHistory).where(PaperTradeHistory.account_id == account.id))
@@ -237,7 +263,7 @@ class PaperTradingService:
             )
         except Exception:
             pass
-        order.last_evaluated_at = datetime.utcnow()
+        order.last_evaluated_at = datetime.now(timezone.utc)
         order.last_seen_ltp = price.current_price
         # Try to fill the order (this will update order.status, create/update position, and adjust account in the same session)
         filled_order, position, trade, message = self._try_fill_order(account, order, price.current_price)
@@ -250,7 +276,7 @@ class PaperTradingService:
                     position.lifecycle_state = "OPEN_POSITION"
                 tx = PaperTransaction(
                     account_id=int(account.id),
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     symbol=filled_order.symbol,
                     action="BUY",
                     qty=int(filled_order.qty),
@@ -314,7 +340,7 @@ class PaperTradingService:
             raise ValueError("Only pending orders can be cancelled.")
         order.status = "CANCELLED"
         order.lifecycle_state = "CANCELLED"
-        order.cancelled_at = datetime.utcnow()
+        order.cancelled_at = datetime.now(timezone.utc)
         self.db.commit()
         return PaperOrderActionResponse(
             account=self.get_dashboard(selected_symbol=order.symbol).account,
@@ -383,7 +409,7 @@ class PaperTradingService:
         position.target = payload.target
         if payload.notes is not None:
             position.notes = payload.notes
-        position.updated_at = datetime.utcnow()
+        position.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         return PaperOrderActionResponse(
             account=self.get_dashboard(selected_symbol=position.symbol).account,
@@ -448,27 +474,86 @@ class PaperTradingService:
             updated_at=datetime.now(timezone.utc),
         )
 
-    def _get_or_create_account(self, for_update: bool = False) -> PaperTradingAccount:
-        query = select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc())
-        if for_update:
+    def get_account_by_id(self, account_id: int, for_update: bool = False) -> PaperTradingAccount:
+        """Load a specific paper account (engine/system use). Does not create."""
+        query = select(PaperTradingAccount).where(PaperTradingAccount.id == account_id)
+        if for_update and self.db.bind and self.db.bind.dialect.name == "postgresql":
             query = query.with_for_update()
-            
+        account = self.db.scalar(query)
+        if not account:
+            raise ValueError(f"Paper account {account_id} not found.")
+        return account
+
+    def _get_or_create_account(self, for_update: bool = False) -> PaperTradingAccount:
+        """
+        Get or create the paper account for ``self.user_id`` only.
+        Never returns another user's account. Never creates a global shared account.
+
+        When ``user_id`` is omitted (legacy unit tests / engine helpers), load an
+        existing seeded account if exactly one is present — do NOT create a shared
+        multi-user account without ownership.
+        """
+        if self.user_id is None:
+            query = select(PaperTradingAccount).order_by(PaperTradingAccount.id.asc())
+            if for_update and self.db.bind and self.db.bind.dialect.name == "postgresql":
+                query = query.with_for_update()
+            account = self.db.scalar(query)
+            if account:
+                # Legacy test path — log loudly so production miswiring is visible
+                self.logger.warning(
+                    "PAPER_ACCOUNT_LEGACY_UNSCOPED | account_id=%s | "
+                    "service constructed without user_id (test/engine only)",
+                    account.id,
+                )
+                return account
+            raise ValueError(
+                "PaperTradingService requires user_id for user-scoped account operations. "
+                "Background/engine paths must load accounts via get_account_by_id()."
+            )
+
+        user_id = self.user_id
+        query = select(PaperTradingAccount).where(PaperTradingAccount.user_id == user_id)
+        if for_update and self.db.bind and self.db.bind.dialect.name == "postgresql":
+            query = query.with_for_update()
+
         with _account_creation_lock:
-            # We must query ONLY inside the lock to prevent Python/SQLite deadlocks.
             account = self.db.scalar(query)
             if account:
                 return account
-                
+
             account = PaperTradingAccount(
+                user_id=user_id,
                 name="Primary Paper Account",
-                starting_balance=1000000.0,
-                cash_balance=1000000.0,
-                max_risk_per_trade=0.02,
+                starting_balance=DEFAULT_PAPER_STARTING_BALANCE,
+                cash_balance=DEFAULT_PAPER_STARTING_BALANCE,
+                max_risk_per_trade=Decimal("0.02"),
             )
             self.db.add(account)
-            self.db.commit()
+            try:
+                self.db.commit()
+            except IntegrityError:
+                # Concurrent first request — race on unique user_id
+                self.db.rollback()
+                account = self.db.scalar(
+                    select(PaperTradingAccount).where(PaperTradingAccount.user_id == user_id)
+                )
+                if account:
+                    return account
+                raise
             self.db.refresh(account)
+            self.logger.info(
+                "PAPER_ACCOUNT_CREATED | user_id=%s | account_id=%s | starting_balance=%s",
+                user_id,
+                account.id,
+                account.starting_balance,
+            )
             return account
+
+    @staticmethod
+    def ensure_paper_account_for_user(db: Session, user_id: uuid.UUID | str) -> PaperTradingAccount:
+        """Idempotent helper used at registration — creates ₹10L account if missing."""
+        svc = PaperTradingService(db, user_id=user_id)
+        return svc._get_or_create_account()
 
     def _validate_symbol(self, symbol: str) -> None:
         if symbol.strip().upper() not in settings.nifty500_symbols:
@@ -590,7 +675,7 @@ class PaperTradingService:
                 return order, None, None, "Order rejected: insufficient available cash."
             order.status = "FILLED"
             order.lifecycle_state = "ENTRY_FILLED"
-            order.filled_at = datetime.utcnow()
+            order.filled_at = datetime.now(timezone.utc)
             order.filled_price = fill_price
             # Deduct funds and create/update OPEN position
             account.cash_balance = q_pnl(dec(account.cash_balance) - estimated_cost)
@@ -608,7 +693,7 @@ class PaperTradingService:
                 position.current_price = fill_price
                 position.stop_loss = order.stop_loss
                 position.target = order.target
-                position.updated_at = datetime.utcnow()
+                position.updated_at = datetime.now(timezone.utc)
             else:
                 position = PaperPosition(
                     account_id=account.id,
@@ -638,7 +723,7 @@ class PaperTradingService:
                     )
                 except Exception:
                     pass
-            account.updated_at = datetime.utcnow()
+            account.updated_at = datetime.now(timezone.utc)
             self._record_execution_event(
                 "ENTRY_FILLED",
                 order.symbol,
@@ -681,7 +766,7 @@ class PaperTradingService:
 
         order.status = "FILLED"
         order.lifecycle_state = "EXIT_FILLED"
-        order.filled_at = datetime.utcnow()
+        order.filled_at = datetime.now(timezone.utc)
         order.filled_price = fill_price
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price * order_qty))
         pnl = q_pnl((fill_price - dec(position.avg_entry_price)) * order_qty)
@@ -699,7 +784,7 @@ class PaperTradingService:
             source_score=position.source_score,
             source_confidence=position.source_confidence,
             opened_at=position.created_at,
-            closed_at=datetime.utcnow(),
+            closed_at=datetime.now(timezone.utc),
             exit_reason="MANUAL",
             exit_source="MANUAL",
         )
@@ -710,7 +795,7 @@ class PaperTradingService:
         try:
             tx = PaperTransaction(
                 account_id=int(account.id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=position.symbol,
                 action="SELL",
                 qty=int(order.qty),
@@ -728,7 +813,7 @@ class PaperTradingService:
         else:
             position.qty = q_qty(dec(position.qty) - order_qty)
             position.current_price = fill_price
-            position.updated_at = datetime.utcnow()
+            position.updated_at = datetime.now(timezone.utc)
             updated_position = position
         try:
             trading_logger.info(
@@ -743,7 +828,7 @@ class PaperTradingService:
             )
         except Exception:
             pass
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self._record_execution_event(
             "EXIT_FILLED",
             order.symbol,
@@ -887,31 +972,48 @@ class PaperTradingService:
         self.db.commit()
 
     def get_active_alerts(self) -> list[PaperAlert]:
-        account = self._get_or_create_account()
-        items = list(self.db.scalars(select(PaperAlert).where(PaperAlert.account_id == account.id, PaperAlert.status == "ACTIVE")))
-        return items
+        """
+        User-scoped: only this user's alerts.
+        System-scoped (no user_id): all active alerts across accounts for the monitor loop.
+        """
+        if self.user_id is not None:
+            account = self._get_or_create_account()
+            return list(
+                self.db.scalars(
+                    select(PaperAlert).where(
+                        PaperAlert.account_id == account.id,
+                        PaperAlert.status == "ACTIVE",
+                    )
+                )
+            )
+        return list(
+            self.db.scalars(select(PaperAlert).where(PaperAlert.status == "ACTIVE"))
+        )
 
     def trigger_alert(self, alert_id: int, triggered_price: float) -> None:
-        account = self._get_or_create_account()
-        alert = self.db.scalar(select(PaperAlert).where(PaperAlert.id == alert_id, PaperAlert.account_id == account.id))
+        """Trigger by alert id. System path uses the alert's own account_id (multi-user safe)."""
+        alert = self.db.scalar(select(PaperAlert).where(PaperAlert.id == alert_id, PaperAlert.status == "ACTIVE"))
         if not alert:
             return
+        if self.user_id is not None:
+            account = self._get_or_create_account()
+            if alert.account_id != account.id:
+                return
         alert.status = "TRIGGERED"
-        alert.triggered_at = datetime.utcnow()
+        alert.triggered_at = datetime.now(timezone.utc)
         alert.triggered_price = float(triggered_price)
         self.db.commit()
         try:
             msg = f"Price alert: {alert.symbol} {alert.condition} ₹{round(triggered_price,2)}"
-            self.add_notification(account.id, msg, level="success")
+            self.add_notification(int(alert.account_id), msg, level="success")
         except Exception as e:
             print(f"ERROR adding notification for triggered alert: {e}")
             self.logger.exception("Failed to add notification for triggered alert")
 
     def auto_exit(self, position_id: int, fill_price: float, reason: str = "MANUAL", source: str = "MANUAL") -> PaperOrderActionResponse:
-        account = self._get_or_create_account(for_update=True)
+        # Load position first — never use a global/shared account for exits
         query = select(PaperPosition).where(
             PaperPosition.id == position_id,
-            PaperPosition.account_id == account.id,
             PaperPosition.status == "OPEN",
         )
         if self.db.bind and self.db.bind.dialect.name == "postgresql":
@@ -919,6 +1021,16 @@ class PaperTradingService:
         position = self.db.scalar(query)
         if not position:
             raise ValueError("Position not found.")
+
+        # User-scoped path: reject cross-user exits
+        if self.user_id is not None:
+            user_account = self._get_or_create_account(for_update=True)
+            if position.account_id != user_account.id:
+                raise ValueError("Position not found.")
+            account = user_account
+        else:
+            account = self.get_account_by_id(position.account_id, for_update=True)
+
         dedupe_key = f"exit-filled:{position.id}:{reason}"
         if self.db.scalar(select(ExecutionEvent).where(ExecutionEvent.dedupe_key == dedupe_key)):
             raise ValueError("Position exit has already been processed.")
@@ -940,7 +1052,7 @@ class PaperTradingService:
             lifecycle_state="EXIT_FILLED",
             notes=f"Auto exit: {reason} (Source: {source})",
             filled_price=fill_price_dec,
-            filled_at=datetime.utcnow(),
+            filled_at=datetime.now(timezone.utc),
         )
         self.db.add(order)
         self.db.flush()
@@ -960,7 +1072,7 @@ class PaperTradingService:
             source_score=position.source_score,
             source_confidence=position.source_confidence,
             opened_at=position.created_at,
-            closed_at=datetime.utcnow(),
+            closed_at=datetime.now(timezone.utc),
             exit_reason=reason,
             exit_source=source,
         )
@@ -970,7 +1082,7 @@ class PaperTradingService:
 
         # Credit account and remove position
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self._record_execution_event(
             "EXIT_FILLED",
             position.symbol,
@@ -988,10 +1100,10 @@ class PaperTradingService:
         # Create a notification
         try:
             if reason == "TARGET_HIT":
-                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Target Hit ✅"
+                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Target Hit"
                 level = "success"
             elif reason == "STOPLOSS_HIT":
-                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Stop Loss Hit 🔴"
+                msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — Stop Loss Hit"
                 level = "error"
             else:
                 msg = f"{position.symbol} sold at ₹{round(fill_price,2)} — {reason}"
@@ -1013,7 +1125,7 @@ class PaperTradingService:
         try:
             tx = PaperTransaction(
                 account_id=int(account.id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=position.symbol,
                 action="AUTO_EXIT",
                 qty=int(position.qty),
@@ -1083,27 +1195,64 @@ class PaperTradingService:
         for order in pending_orders:
             price = price_cache.get(order.symbol)
             if price:
-                order.last_evaluated_at = datetime.utcnow()
+                order.last_evaluated_at = datetime.now(timezone.utc)
                 order.last_seen_ltp = price.current_price
                 self._try_fill_order(account, order, price.current_price)
 
     def _load_price_cache(self, symbols: set[str]) -> dict[str, PriceSnapshot]:
         cache: dict[str, PriceSnapshot] = {}
-        for symbol in sorted(symbols):
-            normalized = symbol.strip().upper()
-            if not normalized:
-                continue
-            try:
-                cache[normalized] = self._price_snapshot(normalized)
-            except Exception:
-                self.logger.exception("Failed to load price snapshot for symbol=%s", normalized)
+        if not symbols:
+            return cache
+        normalized = {s.strip().upper() for s in symbols if s.strip()}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(normalized), 10)) as pool:
+            fut_map = {pool.submit(self._price_snapshot, sym): sym for sym in normalized}
+            for future in concurrent.futures.as_completed(fut_map):
+                sym = fut_map[future]
+                try:
+                    cache[sym] = future.result()
+                except Exception:
+                    self.logger.exception("Failed to load price snapshot for symbol=%s", sym)
         return cache
 
     def _price_snapshot(self, symbol: str) -> PriceSnapshot:
+        import time as _time
+        now = _time.monotonic()
+        with _price_snapshot_cache_lock:
+            cached = _price_snapshot_cache.get(symbol)
+            if cached and (now - cached[1]) < _PRICE_CACHE_TTL_SEC:
+                return cached[0]
+
         from .fyers_service import _run_sync
         candles = _run_sync(self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90))
         if not candles:
             self.logger.warning("No OHLCV candles available for price snapshot | symbol=%s", symbol)
+            try:
+                import yfinance as yf
+                clean = symbol.replace("NSE:", "").replace("-EQ", "").strip()
+                yf_sym = f"{clean}.NS"
+                df = yf.download(yf_sym, period="6mo", interval="1d", progress=False)
+                if df is not None and not df.empty:
+                    candles = []
+                    for index, row in df.iterrows():
+                        dt = index
+                        if hasattr(dt, "to_pydatetime"):
+                            dt = dt.to_pydatetime()
+                        if dt.tzinfo is not None:
+                            dt = dt.replace(tzinfo=None)
+                        open_val = float(row["Open"]) if isinstance(row["Open"], (int, float)) else float(row["Open"].iloc[0])
+                        high_val = float(row["High"]) if isinstance(row["High"], (int, float)) else float(row["High"].iloc[0])
+                        low_val = float(row["Low"]) if isinstance(row["Low"], (int, float)) else float(row["Low"].iloc[0])
+                        close_val = float(row["Close"]) if isinstance(row["Close"], (int, float)) else float(row["Close"].iloc[0])
+                        vol_val = int(row["Volume"]) if isinstance(row["Volume"], (int, float)) else int(row["Volume"].iloc[0])
+                        candles.append(OHLCVPoint(
+                            timestamp=dt, open=open_val, high=high_val,
+                            low=low_val, close=close_val, volume=vol_val,
+                        ))
+                    self.logger.info("YFINANCE_CANDLES_FALLBACK | symbol=%s | candles=%s", symbol, len(candles))
+                else:
+                    self.logger.warning("YFINANCE_CANDLES_EMPTY | symbol=%s", symbol)
+            except Exception as yf_err:
+                self.logger.warning("YFINANCE_CANDLES_FALLBACK_FAILED | symbol=%s | error=%s", symbol, str(yf_err)[:120])
 
         low_level_price = None
         if candles:
@@ -1112,7 +1261,7 @@ class PaperTradingService:
         import asyncio; from ..db.session import main_event_loop
         try:
             future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(symbol), main_event_loop)
-            ltp = future.result(timeout=2)
+            ltp = future.result(timeout=5)
         except Exception as e:
             self.logger.exception(f'Error fetching ltp: {e}')
             ltp = None
@@ -1129,7 +1278,7 @@ class PaperTradingService:
             else:
                 current_price = 0.0
                 source = "NO_DATA"
-        if current_price <= 0 and settings.app_env == "test":
+        if current_price is not None and current_price <= 0 and settings.app_env == "test":
             current_price = 150.0
             source = "TEST_MOCK"
         elif current_price is None:
@@ -1137,27 +1286,46 @@ class PaperTradingService:
 
         if current_price <= 0 and source != "TEST_MOCK":
             self.logger.warning("PRICE_SNAPSHOT_FAILURE | No current price available for symbol %s; using 0.0 default", symbol)
+            # Last resort: try yfinance LTP directly
+            if settings.app_env != "test":
+                try:
+                    import yfinance as yf
+                    clean = symbol.replace("NSE:", "").replace("-EQ", "").strip()
+                    yf_sym = f"{clean}.NS"
+                    ticker = yf.Ticker(yf_sym)
+                    data = ticker.history(period="5d")
+                    if not data.empty:
+                        current_price = round(float(data["Close"].iloc[-1]), 2)
+                        source = "YFINANCE_LTP"
+                        self.logger.info("PRICE_SNAPSHOT_YFINANCE_LTP | symbol=%s | ltp=%s", symbol, current_price)
+                except Exception:
+                    pass
         else:
             self.logger.info("PRICE_SNAPSHOT_SUCCESS | symbol=%s | ltp=%s | source=%s", symbol, current_price, source)
 
-        frame = pd.DataFrame(
-            {
-                "high": [item.high for item in candles],
-                "low": [item.low for item in candles],
-                "close": [item.close for item in candles],
-            }
-        )
+        frame = pd.DataFrame()
+        if candles:
+            frame = pd.DataFrame(
+                {
+                    "high": [item.high for item in candles],
+                    "low": [item.low for item in candles],
+                    "close": [item.close for item in candles],
+                }
+            )
         ema_20 = float(EMAIndicator(close=frame["close"], window=20).ema_indicator().iloc[-1]) if len(frame) >= 20 else None
-        supertrend = self._approx_supertrend(frame)
-        return PriceSnapshot(
+        supertrend = self._approx_supertrend(frame) if not frame.empty else None
+        result = PriceSnapshot(
             symbol=symbol,
             current_price=current_price,
-            candles=candles[-60:],
+            candles=candles[-60:] if candles else [],
             ema_20=ema_20,
             supertrend=supertrend,
             source=source,
             fetched_at=datetime.now(timezone.utc),
         )
+        with _price_snapshot_cache_lock:
+            _price_snapshot_cache[symbol] = (result, _time.monotonic())
+        return result
 
     def _approx_supertrend(self, frame: pd.DataFrame) -> float | None:
         if len(frame) < 10:
@@ -1187,17 +1355,29 @@ class PaperTradingService:
         invested = Decimal("0")
         unrealized = Decimal("0")
         for position in positions:
-            current_price = dec(price_cache.get(position.symbol).current_price if position.symbol in price_cache else position.current_price)
+            cached = price_cache.get(position.symbol)
+            raw_price = cached.current_price if (cached and cached.current_price > 0) else position.current_price
+            current_price = dec(raw_price if raw_price > 0 else position.avg_entry_price)
             invested += dec(position.avg_entry_price) * dec(position.qty)
             unrealized += (current_price - dec(position.avg_entry_price)) * dec(position.qty)
         reserved_cash = Decimal("0")
         for order in orders:
             if order.status == "PENDING" and order.side == "BUY" and order.order_type in ["LIMIT", "GTT"]:
-                order_price = order.order_price or price_cache.get(order.symbol, self._price_snapshot(order.symbol)).current_price
-                reserved_cash += dec(order_price) * dec(order.qty)
+                cached = price_cache.get(order.symbol)
+                snap_price = cached.current_price if cached else None
+                if order.order_price and order.order_price > 0:
+                    order_price = dec(order.order_price)
+                elif snap_price and snap_price > 0:
+                    order_price = dec(snap_price)
+                else:
+                    order_price = dec(position.avg_entry_price) if positions else dec("100")
+                reserved_cash += order_price * dec(order.qty)
         position_value = sum(
             (
-                dec(price_cache.get(item.symbol).current_price if item.symbol in price_cache else item.current_price) * dec(item.qty)
+                dec(
+                    (price_cache.get(item.symbol).current_price if item.symbol in price_cache and price_cache[item.symbol].current_price > 0 else item.current_price)
+                    if price_cache.get(item.symbol) else item.current_price
+                ) * dec(item.qty)
                 for item in positions
             ),
             Decimal("0"),
@@ -1225,6 +1405,11 @@ class PaperTradingService:
         current_price = dec(position.current_price)
         avg_entry = dec(position.avg_entry_price)
         qty = dec(position.qty)
+        # If current_price is 0 or invalid, use snapshot price or avg_entry (break-even fallback)
+        if current_price <= 0 and snapshot and snapshot.current_price > 0:
+            current_price = dec(snapshot.current_price)
+        elif current_price <= 0:
+            current_price = avg_entry
         unrealized = q_pnl((current_price - avg_entry) * qty)
         unrealized_pct = q_pnl(((current_price - avg_entry) / avg_entry) * Decimal("100")) if avg_entry else Decimal("0.00")
         risk_reward = None
@@ -1342,65 +1527,215 @@ class PaperTradingService:
             is_price_stale=(snapshot.source != "FYERS_QUOTE"),
         )
 
-    def get_analytics(self) -> dict:
+    @staticmethod
+    def _aware_dt(dt: datetime | None) -> datetime | None:
+        """Normalize naive/aware datetimes so analytics never raises on subtract."""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
+    def _analytics_period_bounds(period: str) -> tuple[datetime | None, datetime | None, str]:
+        """Return (start_utc, end_utc, label). None start means all-time."""
+        from zoneinfo import ZoneInfo
+
+        IST = ZoneInfo("Asia/Kolkata")
+        now_ist = datetime.now(IST)
+        today = now_ist.date()
+        end = now_ist.astimezone(timezone.utc) + timedelta(seconds=1)
+
+        def day_start(d):
+            return datetime.combine(d, dt_time.min, tzinfo=IST).astimezone(timezone.utc)
+
+        p = (period or "all").lower().strip()
+        if p in ("today",):
+            return day_start(today), end, "Today"
+        if p in ("week", "this_week"):
+            start = today - timedelta(days=today.weekday())
+            return day_start(start), end, "This Week"
+        if p in ("month", "this_month"):
+            start = today.replace(day=1)
+            return day_start(start), end, "This Month"
+        if p in ("last_month",):
+            first_this = today.replace(day=1)
+            last_prev = first_this - timedelta(days=1)
+            start = last_prev.replace(day=1)
+            return day_start(start), day_start(first_this), "Last Month"
+        if p in ("last_3_months", "3m"):
+            return day_start(today - timedelta(days=90)), end, "Last 3 Months"
+        if p in ("last_6_months", "6m"):
+            return day_start(today - timedelta(days=180)), end, "Last 6 Months"
+        if p in ("last_year", "year", "1y"):
+            return day_start(today - timedelta(days=365)), end, "Last Year"
+        # all time
+        return None, end, "All Time"
+
+    def get_analytics(self, period: str = "all") -> dict:
+        """Full paper-trading analytics dashboard payload.
+
+        Always returns JSON-safe floats (never Decimal). Empty-history accounts
+        get zeroed defaults so the UI can render charts without erroring.
+        """
+        import math
+        from collections import defaultdict
+
         account = self._get_or_create_account()
-        trades = self._trade_models(account.id)
+        all_trades = self._trade_models(account.id)
+        start_utc, end_utc, range_label = self._analytics_period_bounds(period)
+
+        def in_range(t: PaperTradeHistory) -> bool:
+            closed = self._aware_dt(t.closed_at)
+            if closed is None:
+                return False
+            if start_utc and closed < start_utc:
+                return False
+            if end_utc and closed >= end_utc:
+                return False
+            return True
+
+        trades = [t for t in all_trades if in_range(t)]
+        positions = self._position_models(account.id)
+        open_positions = [p for p in positions if (p.status or "").upper() == "OPEN"]
+        orders = self._order_models(account.id)
+
+        def fnum(v) -> float:
+            try:
+                return as_float(v)
+            except Exception:
+                try:
+                    return float(v or 0)
+                except Exception:
+                    return 0.0
 
         total_trades = len(trades)
-        wins = [t for t in trades if t.pnl > 0]
-        losses = [t for t in trades if t.pnl < 0]
-        sum_wins = round(sum(t.pnl for t in wins), 2) if wins else 0.0
-        sum_losses = round(sum(t.pnl for t in losses), 2) if losses else 0.0
+        wins = [t for t in trades if fnum(t.pnl) > 0]
+        losses = [t for t in trades if fnum(t.pnl) < 0]
+        sum_wins = round(sum(fnum(t.pnl) for t in wins), 2)
+        sum_losses = round(sum(fnum(t.pnl) for t in losses), 2)  # negative or zero
+        gross_loss_abs = abs(sum_losses)
 
-        profit_factor = None
-        if abs(sum_losses) > 1e-9:
-            profit_factor = round((sum_wins / abs(sum_losses)) if sum_losses != 0 else None, 2)
+        profit_factor: float | None = None
+        if gross_loss_abs > 1e-9:
+            profit_factor = round(sum_wins / gross_loss_abs, 2)
+        elif sum_wins > 0:
+            profit_factor = 99.0
 
-        average_profit = round((sum_wins / len(wins)), 2) if wins else None
-        average_loss = round((sum_losses / len(losses)), 2) if losses else None
+        average_profit = round(sum_wins / len(wins), 2) if wins else None
+        average_loss = round(sum_losses / len(losses), 2) if losses else None
+        avg_rr = None
+        if average_profit is not None and average_loss is not None and abs(average_loss) > 1e-9:
+            avg_rr = round(abs(average_profit / average_loss), 2)
 
-        best_trade = max(trades, key=lambda t: t.pnl) if trades else None
-        worst_trade = min(trades, key=lambda t: t.pnl) if trades else None
+        best_trade = max(trades, key=lambda t: fnum(t.pnl)) if trades else None
+        worst_trade = min(trades, key=lambda t: fnum(t.pnl)) if trades else None
 
-        # daily pnl aggregation by closed date (ISO date)
+        # Today's realized (IST calendar day) from all history, not just filtered set
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")
+        today_ist = datetime.now(IST).date()
+        todays_pnl = 0.0
+        for t in all_trades:
+            closed = self._aware_dt(t.closed_at)
+            if closed and closed.astimezone(IST).date() == today_ist:
+                todays_pnl += fnum(t.pnl)
+        todays_pnl = round(todays_pnl, 2)
+
+        # Unrealized / portfolio from open positions
+        unrealized = round(sum(fnum(p.unrealized_pnl) for p in open_positions), 2)
+        invested = round(
+            sum(fnum(p.avg_entry_price) * fnum(p.qty) for p in open_positions), 2
+        )
+        cash = round(fnum(account.cash_balance), 2)
+        starting = round(fnum(account.starting_balance), 2) or 1_000_000.0
+        realized_all = round(sum(fnum(t.pnl) for t in all_trades), 2)
+        realized_period = round(sum(fnum(t.pnl) for t in trades), 2)
+        portfolio_value = round(cash + invested + unrealized, 2)
+        total_pnl = round(realized_period + unrealized, 2)
+        roi_pct = round(((portfolio_value - starting) / starting) * 100, 2) if starting else 0.0
+
+        # Daily + monthly + equity curve
         daily_map: dict[str, float] = {}
+        monthly_map: dict[str, float] = {}
         for t in trades:
-            try:
-                key = t.closed_at.date().isoformat()
-            except Exception as e:
-                print(f"ERROR parsing closed_at for trade id {getattr(t,'id',None)}: {e}")
-                key = str(t.closed_at)[:10]
-            daily_map[key] = daily_map.get(key, 0.0) + float(t.pnl)
+            closed = self._aware_dt(t.closed_at)
+            if closed is None:
+                continue
+            local = closed.astimezone(IST)
+            dkey = local.date().isoformat()
+            mkey = local.strftime("%Y-%m")
+            pnl = fnum(t.pnl)
+            daily_map[dkey] = daily_map.get(dkey, 0.0) + pnl
+            monthly_map[mkey] = monthly_map.get(mkey, 0.0) + pnl
 
         sorted_dates = sorted(daily_map.keys())
-        daily_pnl = [
-            {"date": d, "pnl": round(daily_map[d], 2)} for d in sorted_dates
-        ]
+        daily_pnl = [{"date": d, "pnl": round(daily_map[d], 2)} for d in sorted_dates]
+        monthly_pnl = [{"date": m, "pnl": round(monthly_map[m], 2)} for m in sorted(monthly_map.keys())]
+
         cumulative_pnl = []
+        equity_curve = []
+        capital_growth = []
         running = 0.0
-        peak_equity = float(account.starting_balance)
+        peak_equity = starting
         max_drawdown = 0.0
+        daily_returns: list[float] = []
+        prev_equity = starting
         for d in sorted_dates:
             running += daily_map[d]
-            equity = float(account.starting_balance) + running
+            equity = starting + running
             peak_equity = max(peak_equity, equity)
-            max_drawdown = max(max_drawdown, peak_equity - equity)
+            dd = peak_equity - equity
+            max_drawdown = max(max_drawdown, dd)
             cumulative_pnl.append({"date": d, "pnl": round(running, 2)})
+            equity_curve.append({"date": d, "equity": round(equity, 2)})
+            capital_growth.append({"date": d, "value": round(equity, 2)})
+            if prev_equity:
+                daily_returns.append((equity - prev_equity) / prev_equity)
+            prev_equity = equity
+
+        max_drawdown_pct = round((max_drawdown / peak_equity) * 100, 2) if peak_equity else 0.0
+
+        # Optional Sharpe (daily returns, risk-free ~0)
+        sharpe_ratio = None
+        if len(daily_returns) >= 2:
+            mean_r = sum(daily_returns) / len(daily_returns)
+            var = sum((r - mean_r) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+            std = math.sqrt(var) if var > 0 else 0.0
+            if std > 1e-12:
+                sharpe_ratio = round((mean_r / std) * math.sqrt(252), 2)
 
         wins_count = len(wins)
         losses_count = len(losses)
+        win_rate_pct = round((wins_count / total_trades * 100), 2) if total_trades else 0.0
 
-        # holding periods per symbol
+        # Holding / symbol stats (timezone-safe)
         symbol_stats: dict[str, dict] = {}
+        hold_mins_all: list[float] = []
+        entry_prices: list[float] = []
+        exit_prices: list[float] = []
+        returns_pct: list[float] = []
         for t in trades:
             s = t.symbol
             if s not in symbol_stats:
-                symbol_stats[s] = {"durations": [], "count": 0, "wins": 0}
-            dur_min = (t.closed_at - t.opened_at).total_seconds() / 60
+                symbol_stats[s] = {"durations": [], "count": 0, "wins": 0, "pnl": 0.0}
+            opened = self._aware_dt(t.opened_at)
+            closed = self._aware_dt(t.closed_at)
+            dur_min = 0.0
+            if opened and closed:
+                try:
+                    dur_min = (closed - opened).total_seconds() / 60.0
+                except Exception:
+                    dur_min = 0.0
             symbol_stats[s]["durations"].append(dur_min)
             symbol_stats[s]["count"] += 1
-            if t.pnl > 0:
+            symbol_stats[s]["pnl"] += fnum(t.pnl)
+            if fnum(t.pnl) > 0:
                 symbol_stats[s]["wins"] += 1
+            hold_mins_all.append(dur_min)
+            entry_prices.append(fnum(t.entry_price))
+            exit_prices.append(fnum(t.exit_price))
+            returns_pct.append(fnum(t.pnl_percent))
 
         holding_periods = []
         for s, data in symbol_stats.items():
@@ -1411,13 +1746,45 @@ class PaperTradingService:
                 "avg_holding_minutes": round(avg_h, 2),
                 "total_trades": data["count"],
                 "win_rate_pct": round(win_rate, 2),
+                "total_pnl": round(data["pnl"], 2),
             })
+        holding_periods.sort(key=lambda r: r["total_pnl"], reverse=True)
 
-        win_rate_pct = round((wins_count / total_trades * 100), 2) if total_trades else 0.0
+        most_profitable_symbol = holding_periods[0]["symbol"] if holding_periods and holding_periods[0]["total_pnl"] > 0 else None
+        most_losing_symbol = None
+        if holding_periods:
+            worst_sym = min(holding_periods, key=lambda r: r["total_pnl"])
+            if worst_sym["total_pnl"] < 0:
+                most_losing_symbol = worst_sym["symbol"]
+
+        # Streaks
+        chronological = sorted(
+            trades,
+            key=lambda t: self._aware_dt(t.closed_at) or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        longest_win_streak = 0
+        longest_loss_streak = 0
+        cur_win = 0
+        cur_loss = 0
+        for trade in chronological:
+            pnl = fnum(trade.pnl)
+            if pnl > 0:
+                cur_win += 1
+                cur_loss = 0
+            elif pnl < 0:
+                cur_loss += 1
+                cur_win = 0
+            else:
+                cur_win = 0
+                cur_loss = 0
+            longest_win_streak = max(longest_win_streak, cur_win)
+            longest_loss_streak = max(longest_loss_streak, cur_loss)
+
         streak_type = "none"
         streak_count = 0
-        for trade in sorted(trades, key=lambda t: t.closed_at, reverse=True):
-            trade_type = "win" if trade.pnl > 0 else "loss" if trade.pnl < 0 else "flat"
+        for trade in reversed(chronological):
+            pnl = fnum(trade.pnl)
+            trade_type = "win" if pnl > 0 else "loss" if pnl < 0 else "flat"
             if streak_type == "none":
                 streak_type = trade_type
                 streak_count = 1
@@ -1426,27 +1793,144 @@ class PaperTradingService:
             else:
                 break
 
-        result = {
-            "total_trades": total_trades,
-            "win_rate_pct": win_rate_pct,
-            "profit_factor": profit_factor,
-            "average_profit": average_profit,
-            "average_loss": average_loss,
-            "best_trade_symbol": best_trade.symbol if best_trade else None,
-            "best_trade_amount": round(best_trade.pnl, 2) if best_trade else None,
-            "worst_trade_symbol": worst_trade.symbol if worst_trade else None,
-            "worst_trade_amount": round(worst_trade.pnl, 2) if worst_trade else None,
-            "daily_pnl": daily_pnl,
-            "cumulative_pnl": cumulative_pnl,
-            "wins": wins_count,
-            "losses": losses_count,
-            "holding_periods": holding_periods,
-            "max_drawdown": round(max_drawdown, 2),
-            "max_drawdown_pct": round((max_drawdown / peak_equity) * 100, 2) if peak_equity else 0.0,
-            "current_streak_type": streak_type,
-            "current_streak_count": streak_count,
+        # Order performance metrics (in range by created_at)
+        def order_in_range(o: PaperOrder) -> bool:
+            created = self._aware_dt(o.created_at)
+            if created is None:
+                return True if start_utc is None else False
+            if start_utc and created < start_utc:
+                return False
+            if end_utc and created >= end_utc:
+                return False
+            return True
+
+        orders_f = [o for o in orders if order_in_range(o)]
+        total_orders = len(orders_f)
+        executed_orders = len([o for o in orders_f if (o.status or "").upper() == "FILLED"])
+        cancelled_orders = len([o for o in orders_f if (o.status or "").upper() == "CANCELLED"])
+        pending_orders = len([o for o in orders_f if (o.status or "").upper() == "PENDING"])
+        buy_orders = len([o for o in orders_f if (o.side or "").upper() == "BUY"])
+        sell_orders = len([o for o in orders_f if (o.side or "").upper() == "SELL"])
+        intraday_trades = len([o for o in orders_f if (o.product_type or "").upper() == "MIS"])
+        delivery_trades = len([o for o in orders_f if (o.product_type or "").upper() in ("CNC", "DELIVERY", "")])
+
+        # Sector performance (lightweight map)
+        _SECTOR = {
+            "HDFCBANK": "Banking", "ICICIBANK": "Banking", "SBIN": "Banking", "KOTAKBANK": "Banking",
+            "AXISBANK": "Banking", "TCS": "IT", "INFY": "IT", "WIPRO": "IT", "HCLTECH": "IT",
+            "TECHM": "IT", "MARUTI": "Auto", "TATAMOTORS": "Auto", "M&M": "Auto",
+            "RELIANCE": "Energy", "ONGC": "Energy", "NTPC": "Energy", "POWERGRID": "Energy",
+            "BAJFINANCE": "Finance", "BAJAJFINSV": "Finance", "SUNPHARMA": "Pharma",
+            "DRREDDY": "Pharma", "CIPLA": "Pharma", "HINDUNILVR": "FMCG", "ITC": "FMCG",
         }
 
+        def sector_for(sym: str) -> str:
+            s = (sym or "").upper().replace("NSE:", "").replace("-EQ", "").strip()
+            return _SECTOR.get(s, "Others")
+
+        sector_map: dict[str, float] = defaultdict(float)
+        for t in trades:
+            sector_map[sector_for(t.symbol)] += fnum(t.pnl)
+        sector_performance = [
+            {"sector": k, "pnl": round(v, 2)} for k, v in sorted(sector_map.items(), key=lambda x: -x[1])
+        ]
+
+        # Trade frequency (by date)
+        freq_map: dict[str, int] = defaultdict(int)
+        for t in trades:
+            closed = self._aware_dt(t.closed_at)
+            if closed:
+                freq_map[closed.astimezone(IST).date().isoformat()] += 1
+        trade_frequency = [{"date": d, "count": freq_map[d]} for d in sorted(freq_map.keys())]
+
+        # Portfolio allocation (open positions)
+        allocation = []
+        for p in open_positions:
+            val = fnum(p.avg_entry_price) * fnum(p.qty)
+            allocation.append({
+                "symbol": p.symbol,
+                "value": round(val, 2),
+                "pct": round((val / invested * 100), 2) if invested else 0.0,
+            })
+        if cash > 0:
+            total_alloc = invested + cash
+            allocation.append({
+                "symbol": "CASH",
+                "value": cash,
+                "pct": round((cash / total_alloc * 100), 2) if total_alloc else 0.0,
+            })
+
+        avg_hold = round(sum(hold_mins_all) / len(hold_mins_all), 2) if hold_mins_all else 0.0
+        avg_entry = round(sum(entry_prices) / len(entry_prices), 2) if entry_prices else None
+        avg_exit = round(sum(exit_prices) / len(exit_prices), 2) if exit_prices else None
+        avg_return_pct = round(sum(returns_pct) / len(returns_pct), 2) if returns_pct else 0.0
+
+        result = {
+            "period": period or "all",
+            "range_label": range_label,
+            # Overview cards
+            "total_trades": total_trades,
+            "winning_trades": wins_count,
+            "losing_trades": losses_count,
+            "wins": wins_count,
+            "losses": losses_count,
+            "win_rate_pct": win_rate_pct,
+            "total_pnl": total_pnl,
+            "todays_pnl": todays_pnl,
+            "unrealized_pnl": unrealized,
+            "realized_pnl": realized_period,
+            "realized_pnl_all_time": realized_all,
+            "portfolio_value": portfolio_value,
+            "available_cash": cash,
+            "capital_utilized": invested,
+            "roi_pct": roi_pct,
+            "average_profit": average_profit,
+            "average_loss": average_loss,
+            "profit_factor": profit_factor,
+            "average_risk_reward": avg_rr,
+            "largest_profit": round(fnum(best_trade.pnl), 2) if best_trade else None,
+            "largest_loss": round(fnum(worst_trade.pnl), 2) if worst_trade else None,
+            "max_drawdown": round(max_drawdown, 2),
+            "max_drawdown_pct": max_drawdown_pct,
+            "sharpe_ratio": sharpe_ratio,
+            "open_positions_count": len(open_positions),
+            # Trade analytics
+            "average_holding_minutes": avg_hold,
+            "average_holding_period": avg_hold,
+            "average_entry_price": avg_entry,
+            "average_exit_price": avg_exit,
+            "best_trade_symbol": best_trade.symbol if best_trade else None,
+            "best_trade_amount": round(fnum(best_trade.pnl), 2) if best_trade else None,
+            "worst_trade_symbol": worst_trade.symbol if worst_trade else None,
+            "worst_trade_amount": round(fnum(worst_trade.pnl), 2) if worst_trade else None,
+            "most_profitable_symbol": most_profitable_symbol,
+            "most_losing_symbol": most_losing_symbol,
+            "longest_winning_streak": longest_win_streak,
+            "longest_losing_streak": longest_loss_streak,
+            "average_return_pct": avg_return_pct,
+            "current_streak_type": streak_type,
+            "current_streak_count": streak_count,
+            # Performance / orders
+            "total_orders": total_orders,
+            "executed_orders": executed_orders,
+            "cancelled_orders": cancelled_orders,
+            "pending_orders": pending_orders,
+            "buy_orders": buy_orders,
+            "sell_orders": sell_orders,
+            "intraday_trades": intraday_trades,
+            "delivery_trades": delivery_trades,
+            # Series for charts
+            "daily_pnl": daily_pnl,
+            "monthly_pnl": monthly_pnl,
+            "cumulative_pnl": cumulative_pnl,
+            "equity_curve": equity_curve,
+            "capital_growth": capital_growth,
+            "sector_performance": sector_performance,
+            "trade_frequency": trade_frequency,
+            "portfolio_allocation": allocation,
+            "holding_periods": holding_periods,
+            "starting_balance": starting,
+        }
         return result
 
     def update_starting_capital(self, amount: float) -> PaperTradingDashboardResponse:
@@ -1459,7 +1943,7 @@ class PaperTradingService:
         account.starting_balance = float(amount)
         # Adjust cash balance by the delta so the user's relative balance is preserved
         account.cash_balance = float(account.cash_balance) + delta
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.logger.info("Updated starting capital | account_id=%s | amount=%s", account.id, amount)
         return self.get_dashboard()

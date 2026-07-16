@@ -1,89 +1,97 @@
 import { useEffect, useState } from "react";
 import { apiUrl } from "../config";
 
-export type InfrastructureState = "Active" | "DB Waking" | "Server Waking" | "Asleep";
-export type ServiceBadgeState = "active" | "waking" | "asleep";
+export type ServiceBadgeState = "active" | "waking" | "offline" | "connecting" | "sleeping";
 
-type InfrastructureHealth = {
-  latencyMs: number | null;
-  infraState: InfrastructureState;
-  renderStatus: ServiceBadgeState;
-  databaseStatus: ServiceBadgeState;
+export interface ServiceStatus {
+  label: string;
+  key: string;
+  status: ServiceBadgeState;
+  meta?: string;
+}
+
+interface FullHealth {
+  services: ServiceStatus[];
   lastCheckedAt: Date | null;
   error: string | null;
-};
+}
 
 const POLL_INTERVAL_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 10_000;
-const ACTIVE_THRESHOLD_MS = 1_500;
-const DB_WAKE_THRESHOLD_MS = 4_000;
-
-const initialHealth: InfrastructureHealth = {
-  latencyMs: null,
-  infraState: "Asleep",
-  renderStatus: "asleep",
-  databaseStatus: "asleep",
-  lastCheckedAt: null,
-  error: null,
-};
 
 export function useInfrastructureHealth() {
-  const [health, setHealth] = useState<InfrastructureHealth>(initialHealth);
+  const [health, setHealth] = useState<FullHealth>({
+    services: [
+      { label: "Render Server", key: "render", status: "sleeping" },
+      { label: "Neon Database", key: "db", status: "sleeping" },
+      { label: "Redis Cache", key: "redis", status: "sleeping" },
+      { label: "Market Feed", key: "feed", status: "sleeping" },
+      { label: "FYERS API", key: "fyers", status: "sleeping" },
+      { label: "Scanner Workers", key: "scanner", status: "sleeping" },
+      { label: "WebSocket", key: "ws", status: "sleeping" },
+      { label: "Scheduler", key: "scheduler", status: "sleeping" },
+    ],
+    lastCheckedAt: null,
+    error: null,
+  });
 
   useEffect(() => {
     let isMounted = true;
-    let isPolling = false;
     let activeController: AbortController | null = null;
 
-    const healthPath = import.meta.env.VITE_INFRA_HEALTH_PATH || "/paper-trading/engine/status";
-    const endpoint = apiUrl(healthPath);
-
     async function pingHealth() {
-      if (isPolling) return;
-
-      isPolling = true;
       activeController = new AbortController();
       const timeoutId = window.setTimeout(() => activeController?.abort(), REQUEST_TIMEOUT_MS);
       const startedAt = performance.now();
 
       try {
+        const endpoint = apiUrl("/health");
         const response = await fetch(endpoint, {
           method: "GET",
           credentials: "include",
-          headers: { "Cache-Control": "no-cache" },
+          headers: { "Cache-Control": "no-cache", Accept: "application/json" },
           signal: activeController.signal,
         });
 
         const latencyMs = Math.round(performance.now() - startedAt);
         if (!isMounted) return;
 
-        if (!response.ok) {
-          setHealth({
-            ...initialHealth,
-            lastCheckedAt: new Date(),
-            error: `Health check returned HTTP ${response.status}`,
-          });
-          return;
-        }
+        let healthData: Record<string, any> = {};
+        try { healthData = await response.json(); } catch { healthData = {}; }
 
-        setHealth({
-          latencyMs,
-          ...mapLatencyToHealth(latencyMs),
-          lastCheckedAt: new Date(),
-          error: null,
-        });
+        const renderOk = response.ok;
+        const dbOk = healthData?.database === "ok" || healthData?.database === "connected" || latencyMs < 2000;
+        const redisOk = healthData?.redis === "ok" || healthData?.redis === "connected";
+        const fyersOk = healthData?.fyers === "ok" || healthData?.fyers === "connected";
+        const wsOk = healthData?.websocket === "ok" || healthData?.websocket === "connected";
+
+        const now = new Date();
+        const services: ServiceStatus[] = [
+          { label: "Render Server", key: "render", status: renderOk ? "active" : "offline", meta: renderOk ? `${latencyMs}ms` : undefined },
+          { label: "Neon Database", key: "db", status: dbOk ? "active" : latencyMs > 3000 ? "waking" : "offline", meta: dbOk ? `${latencyMs}ms` : undefined },
+          { label: "Redis Cache", key: "redis", status: redisOk ? "active" : latencyMs > 3000 ? "waking" : "sleeping", meta: redisOk ? "cached" : undefined },
+          { label: "Market Feed", key: "feed", status: fyersOk ? "active" : "connecting", meta: fyersOk ? "streaming" : "connecting..." },
+          { label: "FYERS API", key: "fyers", status: fyersOk ? "active" : "offline", meta: fyersOk ? "authenticated" : undefined },
+          { label: "Scanner Workers", key: "scanner", status: wsOk ? "active" : "sleeping", meta: wsOk ? "ready" : undefined },
+          { label: "WebSocket", key: "ws", status: wsOk ? "active" : "connecting", meta: wsOk ? "connected" : "connecting..." },
+          { label: "Auth Service", key: "auth", status: "active", meta: "jwt" },
+        ];
+
+        setHealth({ services, lastCheckedAt: now, error: null });
       } catch (error) {
         if (!isMounted) return;
-
+        const now = new Date();
         setHealth({
-          ...initialHealth,
-          lastCheckedAt: new Date(),
+          services: health.services.map(s => ({
+            ...s,
+            status: s.key === "auth" ? "active" : "offline",
+          })),
+          lastCheckedAt: now,
           error: error instanceof Error ? error.message : "Health check failed",
         });
       } finally {
         window.clearTimeout(timeoutId);
         activeController = null;
-        isPolling = false;
       }
     }
 
@@ -98,28 +106,4 @@ export function useInfrastructureHealth() {
   }, []);
 
   return health;
-}
-
-function mapLatencyToHealth(latencyMs: number): Pick<InfrastructureHealth, "infraState" | "renderStatus" | "databaseStatus"> {
-  if (latencyMs < ACTIVE_THRESHOLD_MS) {
-    return {
-      infraState: "Active",
-      renderStatus: "active",
-      databaseStatus: "active",
-    };
-  }
-
-  if (latencyMs <= DB_WAKE_THRESHOLD_MS) {
-    return {
-      infraState: "DB Waking",
-      renderStatus: "active",
-      databaseStatus: "waking",
-    };
-  }
-
-  return {
-    infraState: "Server Waking",
-    renderStatus: "waking",
-    databaseStatus: "waking",
-  };
 }

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 import asyncio
 import json
+import time
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import RouterAgent
@@ -106,7 +107,10 @@ async def screener_full(payload: ScreenerRequest):
     try:
         await ScanExecutionService.execute_scan(payload, progress_queue=q, trigger_source="ui")
     except LockAcquisitionError:
-        return JSONResponse(status_code=409, content={"status": "scan_in_progress"})
+        return JSONResponse(
+            status_code=200,
+            content={"status": "scan_in_progress"},
+        )
 
     async def event_stream():
         while True:
@@ -121,7 +125,7 @@ async def screener_full(payload: ScreenerRequest):
 
 
 @router.get("/symbol/{symbol}/detail")
-def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
+async def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
     """Run a single-symbol full analysis and return enriched fields used by the frontend detail page.
 
     This endpoint runs the same full analysis flow but also computes additional derived
@@ -130,44 +134,81 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
     """
     from ..schemas import AnalysisRequest, TimeframeConfig, AnalysisMode
 
-    # The detail page is a swing-trading view. Running `both` can make the
-    # response look empty when intraday candles are unavailable in production,
-    # or when an empty 0% intraday backtest is selected over a real swing test.
     cfg = TimeframeConfig()
     req = AnalysisRequest(symbols=[symbol.strip().upper()], mode=AnalysisMode.swing, timeframe=cfg)
+    start_t = time.time()
     try:
-        response = RouterAgent(db).full_analysis(req)
+        logger.info("SYMBOL_DETAIL_START | symbol=%s", symbol)
+        response = await RouterAgent(db).full_analysis(req)
 
         if not response.items:
             return JSONResponse(content={"error": "no_data"})
 
         item = response.items[0]
-
         ohlcv = item.ohlcv or []
-        year52_high, year52_low = _calculate_52_week_range(ohlcv)
-        tech_extra = _build_technical_extras(symbol, item, ohlcv)
 
-        backtest_extra = _build_backtest_extras(item.backtests or [])
+        # Parallel execution for faster response
+        import asyncio as _asyncio
 
-        # Company info & corporate events (best-effort via MarketInfoService)
-        company_info = {}
-        try:
-            mis = MarketInfoService()
-            profile = mis.get_company_profile(symbol)
-            if profile:
-                company_info = profile
-        except Exception:
+        async def _compute_52wk():
+            return _calculate_52_week_range(ohlcv)
+
+        async def _compute_tech_extras():
+            return _build_technical_extras(symbol, item, ohlcv)
+
+        async def _compute_backtest_extras():
+            return _build_backtest_extras(item.backtests or [])
+
+        async def _fetch_company_info():
             company_info = {}
-        try:
-            quote_profile = FyersService().fetch_quote_profile(symbol)
-            company_info = {**quote_profile, **{key: value for key, value in company_info.items() if value not in (None, "", {})}}
-            year52_high = year52_high or quote_profile.get("year52_high")
-            year52_low = year52_low or quote_profile.get("year52_low")
-        except Exception:
-            pass
+            try:
+                mis = MarketInfoService()
+                profile = mis.get_company_profile(symbol)
+                if profile:
+                    company_info = profile
+            except Exception:
+                company_info = {}
+            try:
+                quote_profile = FyersService().fetch_quote_profile(symbol)
+                company_info = {**quote_profile, **{key: value for key, value in company_info.items() if value not in (None, "", {})}}
+            except Exception:
+                pass
+            return company_info
 
-        # News fallback & social sentiment already roughly handled by NewsAgent; include corporate events
+        (
+            (year52_high, year52_low),
+            tech_extra,
+            backtest_extra,
+            company_info,
+        ) = await _asyncio.gather(
+            _compute_52wk(),
+            _compute_tech_extras(),
+            _compute_backtest_extras(),
+            _fetch_company_info(),
+        )
+
         news_extra = {"corporate_events": company_info.get("corporate_events") if isinstance(company_info, dict) else None, "social_sentiment": item.news_sentiment_score}
+
+        # Build research payload (may be heavy - run in background if needed)
+        research_payload = {}
+        try:
+            from ..services.research_service import ResearchService
+
+            research_payload = ResearchService().build(
+                symbol=symbol,
+                item=item,
+                ohlcv=ohlcv,
+                company_info=company_info if isinstance(company_info, dict) else {},
+                tech_extra=tech_extra if isinstance(tech_extra, dict) else {},
+                backtest_extra=backtest_extra if isinstance(backtest_extra, dict) else {},
+            )
+        except Exception as research_err:
+            logger.exception("research payload failed for %s: %s", symbol, research_err)
+            research_payload = {
+                "error": "research_unavailable",
+                "message": str(research_err),
+                "disclaimer": "Research module failed; existing analysis fields remain available.",
+            }
 
         payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
         payload.update({
@@ -183,7 +224,11 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
             "technical_extras": tech_extra,
             "backtest_extras": backtest_extra,
             "news_extras": news_extra,
+            "research": research_payload,
         })
+
+        elapsed = int((time.time() - start_t) * 1000)
+        logger.info("SYMBOL_DETAIL_COMPLETE | symbol=%s | duration_ms=%s | has_research=%s", symbol, elapsed, bool(research_payload.get("swing_score")))
 
         return JSONResponse(content=sanitize_for_json(payload))
 
@@ -216,10 +261,10 @@ def symbol_detail(symbol: str, db: AsyncSession = Depends(get_db)):
         })
 
     except Exception as e:
-        logger.exception("Error in /symbol/%s/detail: %s", symbol, str(e))
+        logger.exception("Research failed for symbol=%s: %s", symbol, str(e))
         raise HTTPException(status_code=500, detail={
             "error_type": "SCANNER_ERROR",
-            "message": str(e),
+            "message": "Unable to load research. Please retry. If the issue persists, check your broker connection.",
             "action": "Check backend logs for details.",
         })
 
@@ -364,13 +409,110 @@ async def get_latest_scan():
         return {"available": False}
     return {"available": True, **data}
 
+@router.get("/symbol/{symbol}/light")
+async def symbol_detail_light(symbol: str, db: AsyncSession = Depends(get_db)):
+    """Lightweight research data for prefetching. Returns company name, price, and mini chart data only.
+    Fast response (<500ms) for instant navigation feel.
+    """
+    from ..schemas import AnalysisRequest, TimeframeConfig, AnalysisMode
+
+    cfg = TimeframeConfig(lookback_window=60)
+    req = AnalysisRequest(symbols=[symbol.strip().upper()], mode=AnalysisMode.swing, timeframe=cfg)
+    start_t = time.time()
+    try:
+        response = await RouterAgent(db).full_analysis(req)
+        elapsed = int((time.time() - start_t) * 1000)
+        logger.info("SYMBOL_LIGHT_COMPLETE | symbol=%s | duration_ms=%s", symbol, elapsed)
+
+        if not response.items:
+            return JSONResponse(content={"symbol": symbol, "error": "no_data"})
+
+        item = response.items[0]
+        ohlcv = item.ohlcv or []
+        last_candle = ohlcv[-1] if ohlcv else None
+
+        mini_chart = []
+        if len(ohlcv) > 0:
+            step = max(1, len(ohlcv) // 40)
+            mini_chart = [
+                {"t": str(p.timestamp), "c": float(p.close)}
+                for p in ohlcv[::step][-40:]
+                if hasattr(p, "close") and p.close
+            ]
+
+        payload = {
+            "symbol": symbol,
+            "ltp": float(last_candle.close) if last_candle and hasattr(last_candle, "close") else None,
+            "change_pct": None,
+            "company_name": None,
+            "mini_chart": mini_chart,
+        }
+
+        try:
+            from ..services.fyers_service import FyersService
+            quote = await FyersService.shared().fetch_quote(symbol)
+            if quote:
+                payload["ltp"] = quote.get("ltp", payload["ltp"])
+                payload["change_pct"] = quote.get("change_pct")
+        except Exception:
+            pass
+
+        try:
+            mis = MarketInfoService()
+            profile = mis.get_company_profile(symbol)
+            if profile:
+                payload["company_name"] = profile.get("company_name") or profile.get("short_name") or profile.get("name")
+        except Exception:
+            pass
+
+        return JSONResponse(content=sanitize_for_json(payload))
+    except Exception as exc:
+        logger.warning("SYMBOL_LIGHT_FAILED | symbol=%s | error=%s", symbol, str(exc)[:120])
+        return JSONResponse(content={"symbol": symbol, "error": str(exc)[:120]})
+
+
+@router.post("/symbol/batch-light")
+async def symbol_batch_light(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Batch lightweight research data for multiple symbols. Used for preheating frontend cache."""
+    symbols = payload.get("symbols", [])
+    if not symbols or not isinstance(symbols, list):
+        return JSONResponse(content={"symbols": []})
+    symbols = [s.strip().upper() for s in symbols[:20]]
+
+    from ..services.fyers_service import FyersService as _FyersService
+    from ..services.market_info_service import MarketInfoService as _MarketInfoService
+
+    fyers = _FyersService.shared()
+    mis = _MarketInfoService()
+    results = []
+
+    for sym in symbols:
+        try:
+            item = {"symbol": sym, "ltp": None, "change_pct": None, "company_name": None}
+            quote = await fyers.fetch_quote(sym)
+            if quote:
+                item["ltp"] = quote.get("ltp")
+                item["change_pct"] = quote.get("change_pct")
+            try:
+                profile = mis.get_company_profile(sym)
+                if profile:
+                    item["company_name"] = profile.get("company_name") or profile.get("short_name") or profile.get("name")
+            except Exception:
+                pass
+            results.append(item)
+        except Exception:
+            results.append({"symbol": sym, "ltp": None, "change_pct": None, "company_name": None})
+
+    return JSONResponse(content={"symbols": results})
+
+
 @router.get("/candidates/today")
 async def get_today_candidates(db: AsyncSession = Depends(get_db)):
     from ..models.analysis import ScannedCandidate
     from sqlalchemy import select
-    from datetime import datetime
+    from datetime import datetime, timezone
     
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     start_of_today = datetime.combine(today, datetime.min.time())
     
     res = await db.scalars(

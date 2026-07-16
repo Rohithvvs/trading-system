@@ -26,7 +26,6 @@ from ..schemas.paper_trading import (
     NotificationMarkReadRequest,
     AlertCreateRequest,
     AlertItem,
-    AnalyticsResponse,
     PaperAccountCapitalUpdateRequest,
     TransactionPageResponse,
     MarketEngineStatusResponse,
@@ -36,13 +35,22 @@ from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
 from ..utils import sanitize_for_json
 from ..config import settings
+from ..core.deps import get_current_user_id_sync
+import uuid
 
 
 router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
 
 
-def get_service(db: Session = Depends(get_sync_db)) -> PaperTradingService:
-    return PaperTradingService(db)
+def get_service(
+    user_id: uuid.UUID = Depends(get_current_user_id_sync),
+    db: Session = Depends(get_sync_db),
+) -> PaperTradingService:
+    """
+    Always scope paper trading to the authenticated user from the session cookie.
+    Never accept user_id from request body/query.
+    """
+    return PaperTradingService(db, user_id=user_id)
 
 
 @router.get("/dashboard", response_model=PaperTradingDashboardResponse)
@@ -114,11 +122,11 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
         from ..services.trading_hours_service import trading_hours
         status_info = trading_hours.get_market_status()
         if status_info["status"] == "OPEN":
-            market_status = "OPEN 🟢"
+            market_status = "OPEN"
         elif status_info["status"] == "PRE_OPEN":
-            market_status = "PRE-OPEN 🟡"
+            market_status = "PRE-OPEN"
         else:
-            market_status = "CLOSED 🔴"
+            market_status = "CLOSED"
     except Exception:
         # Fallback to previous simple logic
         now_time = now_ist.time()
@@ -128,11 +136,11 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
         open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
 
         if pre_open_start <= now_time < pre_open_end:
-            market_status = "PRE-OPEN 🟡"
+            market_status = "PRE-OPEN"
         elif open_start <= now_time < open_end:
-            market_status = "OPEN 🟢"
+            market_status = "OPEN"
         else:
-            market_status = "CLOSED 🔴"
+            market_status = "CLOSED"
 
     payload = {
         "total_capital": total_capital,
@@ -182,7 +190,7 @@ def place_order(
     try:
         key = payload.idempotency_key or idempotency_key or x_idempotency_key
         if not key and settings.app_env == "test":
-            key = f"test:{payload.symbol}:{payload.side}:{payload.type}:{payload.qty}:{datetime.datetime.utcnow().timestamp()}"
+            key = f"test:{payload.symbol}:{payload.side}:{payload.type}:{payload.qty}:{datetime.datetime.now(timezone.utc).timestamp()}"
         if not key:
             logger.warning("ORDER_IDEMPOTENCY_MISSING | symbol=%s", payload.symbol)
             raise HTTPException(status_code=400, detail="Idempotency-Key header or idempotency_key body field is required.")
@@ -351,10 +359,9 @@ def modify_order(
     order_id: int, 
     payload: PaperOrderUpdateRequest, 
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.modify_order(order_id, payload, idempotency_key=x_idempotency_key)
+        response = service.modify_order(order_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -373,10 +380,9 @@ def delete_order(order_id: int, service: PaperTradingService = Depends(get_servi
 def cancel_order(
     order_id: int, 
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.cancel_order(order_id, idempotency_key=x_idempotency_key)
+        response = service.cancel_order(order_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -386,10 +392,9 @@ def cancel_order(
 def close_position(
     position_id: int, 
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.close_position(position_id, idempotency_key=x_idempotency_key)
+        response = service.close_position(position_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -400,10 +405,9 @@ def update_position(
     position_id: int,
     payload: PaperPositionUpdateRequest,
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.update_position(position_id, payload, idempotency_key=x_idempotency_key)
+        response = service.update_position(position_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -556,30 +560,133 @@ def delete_alert(alert_id: int, service: PaperTradingService = Depends(get_servi
     return JSONResponse(content=sanitize_for_json({"deleted": alert_id}))
 
 
-@router.get("/analytics", response_model=AnalyticsResponse)
-def get_analytics(service: PaperTradingService = Depends(get_service)):
+@router.get("/analytics")
+def get_analytics(
+    period: str = Query(
+        default="all",
+        description="today|week|month|last_month|last_3_months|last_6_months|last_year|all",
+    ),
+    service: PaperTradingService = Depends(get_service),
+):
+    """Paper trading analytics. Calculated from closed trades; returns empty defaults when no trades exist."""
+    logger = logging.getLogger("app.http.paper_trading")
     try:
-        data = service.get_analytics()
+        data = service.get_analytics(period=period)
     except ValueError as exc:
+        logger.exception("Analytics ValueError: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Analytics unexpected error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"error_type": "ANALYTICS_ERROR", "message": "Failed to compute paper trading analytics."},
+        ) from exc
+
+    # Always sanitize — Numeric/Decimal columns must never reach JSONResponse.
+    from ..utils import collect_decimal_paths, assert_json_serializable, find_non_jsonable
+
+    decimal_paths = collect_decimal_paths(data, "analytics")
+    if decimal_paths:
+        logger.info(
+            "ANALYTICS_DECIMAL_PATHS | count=%s | paths=%s",
+            len(decimal_paths),
+            decimal_paths[:50],
+        )
+
+    try:
+        safe = assert_json_serializable(sanitize_for_json(data), root_name="analytics")
+    except TypeError as exc:
+        remaining = find_non_jsonable(sanitize_for_json(data), "analytics")
+        for path in remaining:
+            logger.error("ANALYTICS_JSON_UNSUPPORTED | path=%s", path)
+        logger.exception("ANALYTICS_JSON_SERIALIZE_FAILED | error=%s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_type": "JSON_SERIALIZE_ERROR",
+                "message": "Analytics data could not be serialized.",
+                "paths": remaining,
+            },
+        ) from exc
+
+    return JSONResponse(content=safe)
+
+
+@router.get("/daily-analytics")
+def get_daily_analytics(
+    period: str = Query(default="today"),
+    start_date: str | None = Query(default=None, description="YYYY-MM-DD for custom"),
+    end_date: str | None = Query(default=None, description="YYYY-MM-DD for custom"),
+    include_ai: bool = Query(default=True),
+    service: PaperTradingService = Depends(get_service),
+):
+    """
+    User-scoped Daily Analytics dashboard payload.
+    Always filtered by authenticated user's paper account.
+    """
+    from ..services.daily_analytics_service import DailyAnalyticsService
+    from ..utils import assert_json_serializable
+
+    das = DailyAnalyticsService(service.db, user_id=service.user_id)
+    try:
+        data = das.build(period=period, start_date=start_date, end_date=end_date, include_ai=include_ai)
+        safe = assert_json_serializable(sanitize_for_json(data), root_name="daily_analytics")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logging.getLogger("app.http.paper_trading").exception("Daily analytics failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build daily analytics") from exc
+    return JSONResponse(content=safe)
+
+
+@router.get("/daily-journal")
+def get_daily_journal(
+    journal_date: str | None = Query(default=None, description="YYYY-MM-DD IST"),
+    service: PaperTradingService = Depends(get_service),
+):
+    from ..services.daily_analytics_service import DailyAnalyticsService
+    das = DailyAnalyticsService(service.db, user_id=service.user_id)
+    account = service._get_or_create_account()
+    data = das._get_journal(account.id, journal_date or "")
+    return JSONResponse(content=sanitize_for_json(data))
+
+
+@router.put("/daily-journal")
+def put_daily_journal(
+    payload: dict,
+    service: PaperTradingService = Depends(get_service),
+):
+    """Auto-save journal fields for the authenticated user's paper account only."""
+    from ..services.daily_analytics_service import DailyAnalyticsService
+    das = DailyAnalyticsService(service.db, user_id=service.user_id)
+    try:
+        data = das.save_journal(
+            journal_date=payload.get("journal_date"),
+            observations=payload.get("observations"),
+            mistakes=payload.get("mistakes"),
+            lessons=payload.get("lessons"),
+            tomorrow_plan=payload.get("tomorrow_plan"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(data))
 
 @router.get("/engine-status")
 async def get_engine_status(service: PaperTradingService = Depends(get_service)):
     logger = logging.getLogger("app.http")
-    logger.info("ENGINE_STATUS_REQUESTED | timestamp=%s", datetime.datetime.utcnow().isoformat())
+    logger.info("ENGINE_STATUS_REQUESTED | timestamp=%s", datetime.datetime.now(timezone.utc).isoformat())
     start_time = time.time()
     try:
         status = await service.get_engine_status()
         duration_ms = int((time.time() - start_time) * 1000)
         logger.info(
             "ENGINE_STATUS_RESPONSE | timestamp=%s | response_duration_ms=%s | open_positions=%s | tracked_symbols=%s",
-            datetime.datetime.utcnow().isoformat(),
+            datetime.datetime.now(timezone.utc).isoformat(),
             duration_ms,
             status.get("open_positions", 0),
             status.get("tracked_symbols", 0)
         )
         return JSONResponse(content=sanitize_for_json(status))
     except Exception as e:
-        logger.error("ENGINE_STATUS_FAILED | timestamp=%s | error=%s", datetime.datetime.utcnow().isoformat(), str(e))
+        logger.error("ENGINE_STATUS_FAILED | timestamp=%s | error=%s", datetime.datetime.now(timezone.utc).isoformat(), str(e))
         raise HTTPException(status_code=500, detail="Internal Server Error") from e

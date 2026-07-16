@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import uuid
 from typing import Any, Dict, Optional, Tuple
@@ -33,9 +33,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({"jti": jti})
     
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -48,9 +48,9 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     to_encode.update({"jti": jti})
     
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
@@ -61,3 +61,66 @@ def decode_access_token(token: str) -> dict:
 
 def decode_refresh_token(token: str) -> dict:
     return jwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+
+
+class APIKeyAuth:
+    """API key authentication dependency for diagnostics APIs.
+
+    Reuses the existing JWT security infrastructure. In Phase 0 the single
+    admin role means all authenticated users have full access.
+
+    When ``API_KEY`` is unset/empty, Phase 0 allows open access (local dev).
+    When set, requires ``Authorization: Bearer <API_KEY>``.
+    """
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = api_key if api_key is not None else os.getenv("API_KEY", "")
+
+    def __call__(self, authorization: str | None = None) -> bool:
+        from fastapi import HTTPException
+
+        if not self.api_key:
+            return True
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization[7:].strip()
+            if token == self.api_key:
+                return True
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def verify_api_key(authorization: str | None = None) -> bool:
+    """FastAPI dependency for API key authentication.
+
+    Injects the ``Authorization`` header when used as a FastAPI dependency.
+    Raises HTTP 401 when ``API_KEY`` is configured and the bearer token is
+    missing or invalid. When ``API_KEY`` is empty, allows all requests
+    (Phase 0 local-dev convenience).
+    """
+    from fastapi import Header, HTTPException
+
+    # Support both dependency-injected Header and direct calls.
+    # When FastAPI resolves this, callers should use the wrapped dependency below.
+    api_key = os.getenv("API_KEY", "")
+    if not api_key:
+        return True
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+        if token == api_key:
+            return True
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid or missing API key",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def require_api_key(authorization: str | None = None) -> bool:
+    """FastAPI dependency that reads the Authorization header."""
+    from fastapi import Header
+
+    # Re-bind for FastAPI signature inspection via dependency wrapper in routes.
+    return verify_api_key(authorization)

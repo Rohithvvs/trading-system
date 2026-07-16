@@ -34,10 +34,17 @@ except Exception:
 @router.get("/market-status")
 def market_status_public():
     """Lightweight public market status. Use this from frontend before buy flows."""
+    from ..core.response_cache import cache_get, cache_set
+
+    cache_key = "market_status_public"
+    hit = cache_get(cache_key)
+    if hit is not None:
+        return hit
+
     if not _THS_OK:
         return {"is_open": False, "status": "UNKNOWN", "reason": "unavailable"}
     info = _ths.get_market_status()
-    return {
+    payload = {
         "is_open": bool(info.get("is_open")),
         "status": info.get("status"),
         "reason": info.get("reason"),
@@ -45,3 +52,6 @@ def market_status_public():
         "next_open_ist": info.get("next_open_ist"),
         "market_hours_ist": "09:15 - 15:30",
     }
+    # Short TTL — market open/close is time-sensitive
+    cache_set(cache_key, payload, ttl_seconds=60.0)
+    return payload

@@ -46,7 +46,7 @@ class TechnicalAnalysisService:
             return {}
 
         total_candles = sum(len(c) for c in universe_candles.values())
-        print(f"MEMORY_AUDIT stage=before_analyze_bulk rss_mb={get_rss_mb():.2f} symbols={len(universe_candles)} candles={total_candles}")
+        self.logger.debug("MEMORY_AUDIT stage=before_analyze_bulk rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(universe_candles), total_candles)
 
         records = []
         for symbol, candles in universe_candles.items():
@@ -61,10 +61,10 @@ class TechnicalAnalysisService:
                     "volume": c.volume
                 })
         
-        print(f"MEMORY_AUDIT stage=after_records_creation rss_mb={get_rss_mb():.2f} symbols={len(universe_candles)} candles={total_candles}")
+        self.logger.debug("MEMORY_AUDIT stage=after_records_creation rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(universe_candles), total_candles)
 
         frame = pd.DataFrame(records)
-        print(f"MEMORY_AUDIT stage=after_frame_creation rss_mb={get_rss_mb():.2f} symbols={len(universe_candles)} candles={total_candles}")
+        self.logger.debug("MEMORY_AUDIT stage=after_frame_creation rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(universe_candles), total_candles)
 
         if frame.empty:
             return {}
@@ -146,7 +146,7 @@ class TechnicalAnalysisService:
                 summary = f"{symbol} shows a {signal} {mode.value} setup with a technical score of {score}. The score blends trend, momentum, volume, and structure checks from the technical engine."
                 results[symbol] = TechnicalAnalysisResult(mode=mode, signal=signal, score=score, indicators=indicators, summary=summary)
 
-            print(f"MEMORY_AUDIT stage=after_results_generation rss_mb={get_rss_mb():.2f} symbols={len(results)} candles={total_candles}")
+            self.logger.debug("MEMORY_AUDIT stage=after_results_generation rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(results), total_candles)
             return results
 
         # Swing Mode Vectorized - GroupBy implementation
@@ -165,20 +165,20 @@ class TechnicalAnalysisService:
             return ema_12 - ema_26
 
         ema_20_series = grouped["close"].transform(lambda x: x.ewm(span=20, adjust=False).mean())
-        ema_50_series = grouped["close"].transform(lambda x: x.ewm(span=50, adjust=False, min_periods=50).mean())
-        sma_20_series = grouped["close"].transform(lambda x: x.rolling(window=20).mean())
-        sma_30_series = grouped["close"].transform(lambda x: x.rolling(window=30).mean())
-        sma_50_series = grouped["close"].transform(lambda x: x.rolling(window=50).mean())
-        sma_100_series = grouped["close"].transform(lambda x: x.rolling(window=100).mean())
-        sma_200_series = grouped["close"].transform(lambda x: x.rolling(window=200).mean())
+        ema_50_series = grouped["close"].transform(lambda x: x.ewm(span=50, adjust=False, min_periods=50).mean().fillna(0))
+        sma_20_series = grouped["close"].transform(lambda x: x.rolling(window=20).mean().fillna(0))
+        sma_30_series = grouped["close"].transform(lambda x: x.rolling(window=30).mean().fillna(0))
+        sma_50_series = grouped["close"].transform(lambda x: x.rolling(window=50).mean().fillna(0))
+        sma_100_series = grouped["close"].transform(lambda x: x.rolling(window=100).mean().fillna(0))
+        sma_200_series = grouped["close"].transform(lambda x: x.rolling(window=200).mean().fillna(0))
 
-        rsi_14_series = grouped["close"].transform(calc_rsi)
+        rsi_14_series = grouped["close"].transform(calc_rsi).fillna(0)
         
-        macd_series = grouped["close"].transform(calc_macd)
-        macd_signal_series = grouped["close"].transform(lambda x: calc_macd(x).ewm(span=9, adjust=False).mean())
+        macd_series = grouped["close"].transform(calc_macd).fillna(0)
+        macd_signal_series = grouped["close"].transform(lambda x: calc_macd(x).ewm(span=9, adjust=False).mean()).fillna(0)
 
-        support_series = grouped["low"].transform(lambda x: x.rolling(window=20).min())
-        resistance_series = grouped["high"].transform(lambda x: x.rolling(window=20).max())
+        support_series = grouped["low"].transform(lambda x: x.rolling(window=20).min().fillna(0))
+        resistance_series = grouped["high"].transform(lambda x: x.rolling(window=20).max().fillna(0))
 
         final_supertrend = grouped.apply(lambda f: self._calculate_supertrend(f).iloc[-1], include_groups=False)
 
@@ -197,7 +197,7 @@ class TechnicalAnalysisService:
             "resistance": resistance_series,
         })
         
-        print(f"MEMORY_AUDIT stage=after_indicator_calculations rss_mb={get_rss_mb():.2f} symbols={len(universe_candles)} candles={total_candles}")
+        self.logger.debug("MEMORY_AUDIT stage=after_indicator_calculations rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(universe_candles), total_candles)
 
         last_inds = df_indicators.groupby(level="symbol").last()
         sma_20_prev_df = sma_20_series.groupby(level="symbol").nth(-20)
@@ -328,11 +328,12 @@ class TechnicalAnalysisService:
                 "basic_liquidity_filter_pass": basic_liquidity_filter_pass,
                 "hard_filters_pass": hard_filters_pass,
             }
-            self._log_analysis_decision(symbol, mode, indicators, score, signal)
+            if self.logger.isEnabledFor(10):
+                self._log_analysis_decision(symbol, mode, indicators, score, signal)
             summary = f"{symbol} shows a {signal} {mode.value} setup with a technical score of {score}. The score blends trend, momentum, volume, and structure checks from the technical engine."
             results[symbol] = TechnicalAnalysisResult(mode=mode, signal=signal, score=score, indicators=indicators, summary=summary)
 
-        print(f"MEMORY_AUDIT stage=after_results_generation rss_mb={get_rss_mb():.2f} symbols={len(results)} candles={total_candles}")
+        self.logger.debug("TECHNICAL | Bulk analysis done | mode=%s | symbols=%s | rss_mb=%.1f", mode.value, len(results), get_rss_mb())
         return results
 
     def analyze_bulk_from_frame(self, frame: pd.DataFrame, mode: AnalysisMode) -> dict[str, TechnicalAnalysisResult]:
@@ -350,7 +351,7 @@ class TechnicalAnalysisService:
             return {}
 
         total_candles = len(frame)
-        print(f"MEMORY_AUDIT stage=before_analyze_bulk rss_mb={get_rss_mb():.2f} rows={total_candles}")
+        self.logger.debug("TECHNICAL | Start bulk analysis (frame) | mode=%s | rows=%s", mode.value, len(frame))
 
         # Frame is already multi-indexed and sorted by caller
         results: dict[str, TechnicalAnalysisResult] = {}
@@ -420,11 +421,12 @@ class TechnicalAnalysisService:
                     "volume_trend": vol_trend,
                     "close_above_vwap": close_above_vwap,
                 }
-                self._log_analysis_decision(symbol, mode, indicators, score, signal)
+                if self.logger.isEnabledFor(10):
+                    self._log_analysis_decision(symbol, mode, indicators, score, signal)
                 summary = f"{symbol} shows a {signal} {mode.value} setup with a technical score of {score}. The score blends trend, momentum, volume, and structure checks from the technical engine."
                 results[symbol] = TechnicalAnalysisResult(mode=mode, signal=signal, score=score, indicators=indicators, summary=summary)
 
-            print(f"MEMORY_AUDIT stage=after_results_generation rss_mb={get_rss_mb():.2f} symbols={len(results)} candles={total_candles}")
+            self.logger.debug("TECHNICAL | Bulk analysis done | mode=%s | symbols=%s | rss_mb=%.1f", mode.value, len(results), get_rss_mb())
             return results
 
         # Swing Mode Vectorized - GroupBy implementation
@@ -475,7 +477,7 @@ class TechnicalAnalysisService:
             "resistance": resistance_series,
         })
 
-        print(f"MEMORY_AUDIT stage=after_indicator_calculations rss_mb={get_rss_mb():.2f} rows={total_candles}")
+        self.logger.debug("MEMORY_AUDIT stage=after_indicator_calculations rss_mb=%.1f rows=%s", get_rss_mb(), total_candles)
 
         last_inds = df_indicators.groupby(level="symbol").last()
         sma_20_prev_df = sma_20_series.groupby(level="symbol").nth(-20)
@@ -608,11 +610,12 @@ class TechnicalAnalysisService:
                 "basic_liquidity_filter_pass": basic_liquidity_filter_pass,
                 "hard_filters_pass": hard_filters_pass,
             }
-            self._log_analysis_decision(symbol, mode, indicators, score, signal)
+            if self.logger.isEnabledFor(10):
+                self._log_analysis_decision(symbol, mode, indicators, score, signal)
             summary = f"{symbol} shows a {signal} {mode.value} setup with a technical score of {score}. The score blends trend, momentum, volume, and structure checks from the technical engine."
             results[symbol] = TechnicalAnalysisResult(mode=mode, signal=signal, score=score, indicators=indicators, summary=summary)
 
-        print(f"MEMORY_AUDIT stage=after_results_generation rss_mb={get_rss_mb():.2f} symbols={len(results)} candles={total_candles}")
+        self.logger.debug("TECHNICAL | Bulk analysis done | mode=%s | symbols=%s | rss_mb=%.1f", mode.value, len(results), get_rss_mb())
         return results
 
     def _log_analysis_decision(

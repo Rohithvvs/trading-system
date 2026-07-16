@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ScreenerConditionResult } from "../types";
 import { InfoTooltip } from "./InfoTooltip";
 import { TOOLTIPS } from "../constants/tooltips";
@@ -24,7 +25,7 @@ function getRejectionReasons(conditions: Record<string, boolean>, matched: boole
   return reasons.length > 0 ? reasons : ["Failed final threshold"];
 }
 
-export function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) {
+export const AllAnalyzedStocksTable = memo(function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) {
   if (!stocks.length) {
     return (
       <section className="panel empty-state">
@@ -34,9 +35,18 @@ export function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) 
     );
   }
 
-  const matched = stocks.filter((s) => s.matched);
-  const rejected = stocks.filter((s) => !s.matched);
-  const dataIssueCount = stocks.filter((s) => s.conditions?.data_source_failed || s.conditions?.data_quality_failed).length;
+  let matchedCount = 0;
+  let rejectedCount = 0;
+  let dataIssueCount = 0;
+  for (let i = 0; i < stocks.length; i++) {
+    const s = stocks[i];
+    if (s.matched) matchedCount++;
+    else rejectedCount++;
+    if (s.conditions?.data_source_failed || s.conditions?.data_quality_failed) dataIssueCount++;
+  }
+
+  const passedStocks = stocks.filter((s) => s.matched);
+  const failedStocks = stocks.filter((s) => !s.matched);
 
   return (
     <section className="panel table-panel">
@@ -46,19 +56,20 @@ export function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) 
           <h2>All {stocks.length} analyzed stocks</h2>
         </div>
         <p className="panel-helper">
-          {matched.length} passed, {rejected.length} rejected
+          {matchedCount} passed, {rejectedCount} rejected
         </p>
       </div>
 
       {dataIssueCount > 0 ? (
         <div className="data-issue-banner" role="status" aria-live="polite">
           <strong>⚠ {dataIssueCount} stocks were skipped due to missing or low-quality data.</strong>
-          <div style={{ marginTop: 6 }}>Check your FYERS connection or increase the lookback window.</div>
+          <div className="data-issue-banner__hint">Check your FYERS connection or increase the lookback window.</div>
         </div>
       ) : null}
 
+      {/* Desktop table */}
       <div className="table-scroll">
-        <table className="candidate-table debug-table">
+        <table className="candidate-table candidate-table--analyzed">
           <thead>
             <tr>
               <th>Symbol</th>
@@ -78,7 +89,7 @@ export function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) 
             </tr>
           </thead>
           <tbody>
-            {matched.map((stock) => (
+            {passedStocks.map((stock) => (
               <tr key={stock.symbol} className="row-passed">
                 <td className="symbol-cell">
                   <strong>{stock.symbol}</strong>
@@ -98,7 +109,7 @@ export function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) 
                 </td>
               </tr>
             ))}
-            {rejected.map((stock) => {
+            {failedStocks.map((stock) => {
               const reasons = getRejectionReasons(stock.conditions, stock.matched);
               const isDataIssue = stock.conditions.data_source_failed || stock.conditions.data_quality_failed;
               return (
@@ -134,60 +145,57 @@ export function AllAnalyzedStocksTable({ stocks }: AllAnalyzedStocksTableProps) 
         </table>
       </div>
 
-      <style>{`
-        .debug-table {
-          font-size: 0.85rem;
-        }
-
-        .row-passed {
-          background-color: rgba(76, 175, 80, 0.05);
-        }
-
-        .row-rejected {
-          background-color: rgba(244, 67, 54, 0.05);
-        }
-
-        .row-data-issue {
-          background-color: rgba(255, 193, 7, 0.05);
-        }
-
-        .row-rejected:hover {
-          background-color: rgba(244, 67, 54, 0.1);
-        }
-
-        .badge {
-          display: inline-block;
-          padding: 0.25rem 0.5rem;
-          border-radius: 3px;
-          font-size: 0.75rem;
-          font-weight: 600;
-        }
-
-        .badge-success {
-          background-color: #4caf50;
-          color: white;
-        }
-
-        .badge-danger {
-          background-color: #f44336;
-          color: white;
-        }
-
-        .badge-warning {
-          background-color: #ff9800;
-          color: white;
-        }
-
-        .rejection-reasons {
-          font-size: 0.8rem;
-          max-width: 200px;
-        }
-
-        .reason-item {
-          color: #d32f2f;
-          padding: 0.25rem 0;
-        }
-      `}</style>
+      {/* Mobile cards — no horizontal table scroll */}
+      <div className="analyzed-cards">
+        {[...passedStocks, ...failedStocks].map((stock) => {
+          const reasons = getRejectionReasons(stock.conditions, stock.matched);
+          const isDataIssue = stock.conditions.data_source_failed || stock.conditions.data_quality_failed;
+          return (
+            <article
+              key={stock.symbol}
+              className={`analyzed-card ${stock.matched ? "row-passed" : `row-rejected ${isDataIssue ? "row-data-issue" : ""}`}`}
+            >
+              <div className="analyzed-card__top">
+                <div className="analyzed-card__symbol">{stock.symbol}</div>
+                {stock.matched ? (
+                  <span className="badge badge-success">Passed</span>
+                ) : (
+                  <span className={`badge ${isDataIssue ? "badge-warning" : "badge-danger"}`}>
+                    {isDataIssue ? "Warning" : "Failed"}
+                  </span>
+                )}
+              </div>
+              <div className="analyzed-card__grid">
+                <div>
+                  <span>Close</span>
+                  <strong>{stock.close > 0 ? stock.close.toFixed(2) : "N/A"}</strong>
+                </div>
+                <div>
+                  <span>Score</span>
+                  <strong>{stock.screener_score.toFixed(1)}</strong>
+                </div>
+                <div>
+                  <span>Signal</span>
+                  <strong>{stock.technical_signal || "—"}</strong>
+                </div>
+                <div>
+                  <span>Volume</span>
+                  <strong>{stock.volume > 0 ? `${(stock.volume / 1000000).toFixed(1)}M` : "N/A"}</strong>
+                </div>
+                <div>
+                  <span>EMA-20</span>
+                  <strong>{stock.ema_20 > 0 ? stock.ema_20.toFixed(2) : "N/A"}</strong>
+                </div>
+                <div>
+                  <span>SMA-50</span>
+                  <strong>{stock.sma_50 > 0 ? stock.sma_50.toFixed(2) : "N/A"}</strong>
+                </div>
+              </div>
+              <div className="analyzed-card__reason">{reasons.join(" · ")}</div>
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
-}
+});

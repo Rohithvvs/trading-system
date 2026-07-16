@@ -25,6 +25,7 @@ async def shadow_run_report(db: AsyncSession = Depends(get_db)):
 @router.get("/health/ready")
 async def health_ready(db: AsyncSession = Depends(get_db)):
     import datetime
+    from datetime import timezone
     from sqlalchemy import text
     from ..config import settings
     from ..services.token_service import get_current_access_token
@@ -73,7 +74,7 @@ async def health_ready(db: AsyncSession = Depends(get_db)):
     return {
         "ready": ready,
         "checks": checks,
-        "timestamp": datetime.datetime.utcnow().isoformat()
+        "timestamp": datetime.datetime.now(timezone.utc).isoformat()
     }
 
 

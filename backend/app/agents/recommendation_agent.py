@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ..schemas import AnalysisMode, BacktestResult, FinalRecommendation, OHLCVPoint, TechnicalAnalysisResult, FundamentalAnalysisResult
 from ..services.llm_service import LLMService
 from ..services.recommendation_service import RecommendationService
@@ -19,6 +21,18 @@ class RecommendationAgent:
         fundamental_result: FundamentalAnalysisResult | None,
         backtests: list[BacktestResult],
         candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]],
+        feat004_config: dict[str, Any] | None = None,
+        benchmark_ohlcv: list[OHLCVPoint] | None = None,
+        benchmark_failure_reason: str | None = None,
+        benchmark_symbol: str | None = None,
+        sector_mapping: dict[str, str] | None = None,
+        sector_ohlcv_cache: dict[str, list[OHLCVPoint]] | None = None,
+        feat007_config: dict[str, Any] | None = None,
+        sector_rs_value: float | None = None,
+        sector_index_symbol: str | None = None,
+        sector_roc20: float | None = None,
+        benchmark_roc20: float | None = None,
+        feat007_abstained_reason: str | None = None,
     ) -> FinalRecommendation:
         primary_technical = technical_results[0]
         best_backtest = max(backtests, key=lambda item: item.total_return)
@@ -47,4 +61,16 @@ class RecommendationAgent:
             backtests=backtests,
             candles_by_mode=candles_by_mode,
             llm_reasoning=llm_reasoning,
+            feat004_config=feat004_config,
+            benchmark_ohlcv=benchmark_ohlcv,
+            benchmark_failure_reason=benchmark_failure_reason,
+            benchmark_symbol=benchmark_symbol,
+            sector_mapping=sector_mapping,
+            sector_ohlcv_cache=sector_ohlcv_cache,
+            feat007_config=feat007_config,
+            sector_rs_value=sector_rs_value,
+            sector_index_symbol=sector_index_symbol,
+            sector_roc20=sector_roc20,
+            benchmark_roc20=benchmark_roc20,
+            feat007_abstained_reason=feat007_abstained_reason,
         )

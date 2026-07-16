@@ -1,0 +1,186 @@
+/**
+ * Trading Platform Design System — tokens
+ * Spacing, radius, type, color, density, motion
+ */
+
+:root {
+  /* —— Spacing scale (4–48) —— */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* —— Border radius —— */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+  --radius: var(--radius-lg);
+
+  /* —— Typography scale —— */
+  --font-sans: "Inter", "Segoe UI", "Helvetica Neue", system-ui, -apple-system, Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "SF Mono", "Consolas", ui-monospace, monospace;
+
+  /* Fluid type */
+  --text-display: clamp(1.35rem, 1.1rem + 1vw, 1.75rem);
+  --text-heading: clamp(1.1rem, 1rem + 0.5vw, 1.35rem);
+  --text-title: clamp(0.95rem, 0.9rem + 0.25vw, 1.05rem);
+  --text-body: clamp(0.875rem, 0.85rem + 0.15vw, 0.9375rem);
+  --text-caption: clamp(0.7rem, 0.68rem + 0.1vw, 0.75rem);
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* —— Layout —— */
+  --sidebar-width: clamp(200px, 15vw, 240px);
+  --sidebar-collapsed: 72px;
+  --bottom-nav-height: 64px;
+  --topbar-height: 56px;
+  --content-max: 100%;
+  --header-height: var(--topbar-height);
+
+  /* —— Z-index —— */
+  --z-sidebar: 40;
+  --z-topbar: 50;
+  --z-bottom-nav: 50;
+  --z-dropdown: 60;
+  --z-drawer: 70;
+  --z-modal: 80;
+  --z-toast: 90;
+
+  /* —— Motion —— */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+
+  /* —— Density: comfortable (default) —— */
+  --density-pad-y: 10px;
+  --density-pad-x: 14px;
+  --density-row: 48px;
+  --density-gap: 12px;
+  --density-control-h: 40px;
+  --density-font: var(--text-body);
+
+  /* —— Dark theme (default) —— */
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --bg-elevated: #0f141b;
+  --surface: #141a22;
+  --surface-2: #1a222d;
+  --surface-3: #222b38;
+  --surface-hover: #1e2733;
+  --border: #2a3444;
+  --border-strong: #3d4d63;
+  --text: #f0f4f8;
+  --text-secondary: #b6c2d1;
+  --text-muted: #8b9aab;
+  --text-inverse: #0b0f14;
+
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+  --accent-muted: rgba(59, 130, 246, 0.28);
+
+  /* P&L — pair with icons/arrows, not color alone */
+  --positive: #22c55e;
+  --positive-soft: rgba(34, 197, 94, 0.14);
+  --positive-text: #4ade80;
+  --negative: #ef4444;
+  --negative-soft: rgba(239, 68, 68, 0.14);
+  --negative-text: #f87171;
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.14);
+
+  --buy: #16a34a;
+  --buy-hover: #15803d;
+  --sell: #dc2626;
+  --sell-hover: #b91c1c;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  --gradient-header: linear-gradient(180deg, rgba(59, 130, 246, 0.08) 0%, transparent 100%);
+  --gradient-card: linear-gradient(145deg, rgba(255, 255, 255, 0.03) 0%, transparent 60%);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --surface-3: #eef2f7;
+  --surface-hover: #f0f4f8;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-inverse: #f8fafc;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-muted: rgba(37, 99, 235, 0.2);
+
+  --positive: #16a34a;
+  --positive-soft: rgba(22, 163, 74, 0.1);
+  --positive-text: #15803d;
+  --negative: #dc2626;
+  --negative-soft: rgba(220, 38, 38, 0.1);
+  --negative-text: #b91c1c;
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+  --info: #0284c7;
+  --info-soft: rgba(2, 132, 199, 0.1);
+
+  --buy: #16a34a;
+  --buy-hover: #15803d;
+  --sell: #dc2626;
+  --sell-hover: #b91c1c;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  --gradient-header: linear-gradient(180deg, rgba(37, 99, 235, 0.06) 0%, transparent 100%);
+  --gradient-card: linear-gradient(145deg, rgba(15, 23, 42, 0.02) 0%, transparent 60%);
+}
+
+/* Compact density */
+:root[data-density="compact"] {
+  --density-pad-y: 6px;
+  --density-pad-x: 10px;
+  --density-row: 36px;
+  --density-gap: 8px;
+  --density-control-h: 32px;
+  --density-font: 0.875rem;
+  --space-panel: 12px;
+}
+
+:root[data-density="comfortable"] {
+  --space-panel: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}

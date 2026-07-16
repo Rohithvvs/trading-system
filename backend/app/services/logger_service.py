@@ -288,9 +288,12 @@ class LoggingService:
             async with AsyncSessionLocal() as db:
                 async with db.begin():
                     for entry in entries:
+                        ts = datetime.fromisoformat(entry["timestamp"])
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
                         db.add(
                             SystemLog(
-                                timestamp=datetime.fromisoformat(entry["timestamp"]),
+                                timestamp=ts,
                                 level=entry["level"],
                                 source=entry["source"],
                                 module=entry["module"],

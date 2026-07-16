@@ -99,7 +99,7 @@ async def test_stale_candle_ingestion_blocked():
     with TestingSessionLocal() as db:
         session = engine_service._get_or_create_session(db)
         # Manually force last_tick_at to be 6 minutes ago (frozen)
-        session.last_tick_at = datetime.utcnow() - timedelta(minutes=6)
+        session.last_tick_at = datetime.now(timezone.utc) - timedelta(minutes=6)
         db.commit()
         
         # Test status endpoint reports correctly
@@ -110,7 +110,7 @@ async def test_stale_candle_ingestion_blocked():
         # is correctly tracked for monitoring.
         # Additional application-level stale filtering logic can be tested here.
         # We assert that the status endpoint correctly surfaces the stale datetime.
-        assert (datetime.utcnow() - status["last_tick_at"]).total_seconds() > 300
+        assert (datetime.now(timezone.utc) - status["last_tick_at"]).total_seconds() > 300
 
 @pytest.mark.asyncio
 async def test_stale_websocket_state_blocks_trading():

@@ -164,13 +164,17 @@ async def validate_and_save_token(
     deactivated = result.rowcount
     logger.info("Deactivated %d previous token(s)", deactivated)
 
-    # Step 2: Insert new active token
+    # Step 2: Insert new active token with JWT expiry
     now = datetime.now(timezone.utc)
+    from ..services.token_service import _decode_jwt_expiry
+    expires_at = _decode_jwt_expiry(raw_token)
+    from ..services.token_service import _encrypt_for_storage
     new_row = FyersToken(
-        access_token=raw_token,
+        access_token=_encrypt_for_storage(raw_token),
         is_active=True,
         status="active",
         created_at=now,
+        expires_at=expires_at,
         access_token_saved_at=now,
         last_error=None,
     )
@@ -188,7 +192,16 @@ async def validate_and_save_token(
     await db.commit()
     await db.refresh(new_row)
 
-    # Step 4: Log success
+    # Keep in-memory cache as plaintext for market services
+    try:
+        from ..services.token_service import _set_token_cache
+        _set_token_cache(raw_token, now)
+        from ..core.response_cache import cache_invalidate
+        cache_invalidate("token_status")
+    except Exception:
+        pass
+
+    # Step 4: Log success (masked only)
     logger_service.log_info(
         module="settings.token",
         message="FYERS token validated and saved successfully",

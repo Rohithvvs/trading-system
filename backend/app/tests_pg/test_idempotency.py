@@ -16,7 +16,7 @@ from unittest.mock import patch
 @pytest.fixture(autouse=True)
 def mock_validation():
     patcher1 = patch.object(PaperTradingService, '_validate_symbol', return_value=None)
-    patcher2 = patch.object(PaperTradingService, '_price_snapshot', return_value=PriceSnapshot(symbol="TEST", current_price=100.0, source="NO_DATA", fetched_at=datetime.utcnow(), candles=[], ema_20=None, supertrend=None))
+    patcher2 = patch.object(PaperTradingService, '_price_snapshot', return_value=PriceSnapshot(symbol="TEST", current_price=100.0, source="NO_DATA", fetched_at=datetime.now(timezone.utc), candles=[], ema_20=None, supertrend=None))
     patcher1.start()
     patcher2.start()
     yield

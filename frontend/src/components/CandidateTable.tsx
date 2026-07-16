@@ -2,8 +2,10 @@ import { AreaChart, Area, ResponsiveContainer, YAxis } from "recharts";
 import type { CandidateRow, BacktestEquityPoint } from "../types";
 import { InfoTooltip } from "./InfoTooltip";
 import { TOOLTIPS } from "../constants/tooltips";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, useCallback } from "react";
 import { checkCanPlaceBuyOrder } from "../utils/tradingHours";
+import { SignalBadge as DsSignalBadge } from "../design-system";
+import { useResearchPrefetch } from "../hooks/useResearchPrefetch";
 
 type CandidateTableProps = {
   rows: CandidateRow[];
@@ -13,91 +15,47 @@ type CandidateTableProps = {
   liveTicks?: Record<string, number>;
 };
 
-export function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTicks }: CandidateTableProps) {
-  // Aggregate trailing performance metrics from the backtest engine across all visible candidates
-  const aggregateMetrics = useMemo(() => {
-    if (!rows.length) return { winRate: 0, profitFactor: 0 };
-    let totalWinRate = 0;
-    let totalProfitFactor = 0;
-    let count = 0;
-
-    for (const row of rows) {
-      const backtest = row.analysisItem?.backtests?.[0];
-      if (backtest) {
-        totalWinRate += backtest.win_rate;
-        totalProfitFactor += backtest.profit_factor;
-        count++;
-      }
-    }
-
-    if (count === 0) return { winRate: 64.5, profitFactor: 1.82 }; // Fallback defaults
-    return {
-      winRate: totalWinRate / count,
-      profitFactor: totalProfitFactor / count,
-    };
-  }, [rows]);
+export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTicks }: CandidateTableProps) {
+  const { hoverHandlers } = useResearchPrefetch();
 
   if (!rows.length) {
     return (
       <section className="panel table-panel">
-        <div
-          className="empty-state"
-          aria-live="polite"
-          style={{ textAlign: "center", color: "#6b7280", padding: "48px 16px" }}
-        >
-          <p style={{ margin: 0, fontWeight: 600 }}>No stocks match the current filters.</p>
-          <span style={{ display: "block", marginTop: 8 }}>Try relaxing the signal filter, score range, or search term.</span>
+        <div className="ds-empty" role="status" aria-live="polite">
+          <h3 className="ds-empty__title">No matching stocks</h3>
+          <p className="ds-empty__desc">
+            Try relaxing the signal filter, score range, or search term to see more scan results.
+          </p>
         </div>
       </section>
     );
   }
 
   return (
-    <section className="panel table-panel" style={{ overflow: "hidden" }}>
-      {/* SYSTEM ALPHA CARD */}
-      <div className="system-alpha-card" style={{ display: "flex", gap: "24px", padding: "16px 24px", background: "var(--bg-surface-elevated)", borderBottom: "1px solid var(--border-color)", alignItems: "center" }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: "14px", color: "var(--text-secondary)" }}>System Alpha Overview</h3>
-          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--text-muted)" }}>Trailing 30-Day Aggregate Performance</p>
-        </div>
-        <div style={{ width: "1px", height: "32px", background: "var(--border-color)" }}></div>
-        <div>
-          <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--signal-bullish)" }}>
-            {(aggregateMetrics.winRate * 100).toFixed(1)}%
-          </div>
-          <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Avg Win Rate</div>
-        </div>
-        <div style={{ width: "1px", height: "32px", background: "var(--border-color)" }}></div>
-        <div>
-          <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)" }}>
-            {aggregateMetrics.profitFactor.toFixed(2)}x
-          </div>
-          <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Profit Factor</div>
-        </div>
-      </div>
-
+    <section className="panel table-panel">
       <div className="panel-header">
         <div>
-          <p className="section-label">Shortlisted stocks</p>
-          <h2>Candidate decision table</h2>
+          <p className="section-label">Favorites</p>
+          <h2>Scan results</h2>
         </div>
         <p className="panel-helper">
           <abbr title="Signal comes from the final recommendation layer">Signal</abbr>, score, confidence, trade plan, and support evidence stay aligned in one table.
         </p>
       </div>
 
-      <div className="table-scroll">
-        <table className="candidate-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+      {/* Desktop/tablet table */}
+      <div className="table-scroll table-scroll--sticky">
+        <table className="candidate-table candidate-table--pro" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <thead>
             <tr>
-              <th style={{ width: "60px" }}>Rank</th>
-              <th style={{ width: "100px" }}>Symbol</th>
-              <th style={{ width: "100px" }}>Signal & Regime</th>
-              <th style={{ width: "140px" }}>Score Composition</th>
-              <th style={{ width: "240px" }}>Trade Plan <InfoTooltip content={TOOLTIPS.SCANNER.ENTRY_PRICE} /></th>
-              <th style={{ width: "140px" }}>Equity Curve <InfoTooltip content="Backtested trailing equity curve" /></th>
-              <th style={{ width: "100px" }}>Trend / Mom</th>
-              <th>Action</th>
+              <th className="col-sticky-left" style={{ minWidth: "3rem" }}>Rank</th>
+              <th className="col-sticky-symbol" style={{ minWidth: "6.5rem" }}>Symbol</th>
+              <th style={{ minWidth: "6.5rem" }}>Signal</th>
+              <th style={{ minWidth: "8rem" }}>Score</th>
+              <th style={{ minWidth: "11rem" }}>Trade plan <InfoTooltip content={TOOLTIPS.SCANNER.ENTRY_PRICE} /></th>
+              <th style={{ minWidth: "7rem" }}>Curve <InfoTooltip content="Backtested trailing equity curve" /></th>
+              <th style={{ minWidth: "5.5rem" }}>Trend</th>
+              <th style={{ minWidth: "5rem" }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -109,27 +67,210 @@ export function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTick
                 isSelected={selectedSymbol === row.symbol}
                 onSelect={onSelect}
                 onBuy={onBuy}
+                prefetchProps={hoverHandlers(row.symbol)}
               />
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Mobile cards (shown ≤600px) */}
+      <div className="candidate-cards">
+        {rows.map((row) => (
+          <CandidateCard
+            key={row.symbol}
+            row={row}
+            livePrice={liveTicks?.[row.symbol]}
+            isSelected={selectedSymbol === row.symbol}
+            onSelect={onSelect}
+            onBuy={onBuy}
+            prefetchProps={hoverHandlers(row.symbol)}
+          />
+        ))}
+      </div>
     </section>
   );
-}
+});
+
+const CandidateCard = memo(({
+  row,
+  livePrice,
+  isSelected,
+  onSelect,
+  onBuy,
+  prefetchProps,
+}: {
+  row: CandidateRow;
+  livePrice?: number;
+  isSelected: boolean;
+  onSelect: (symbol: string) => void;
+  onBuy?: (row: CandidateRow) => void;
+  prefetchProps?: PrefetchProps;
+}) => {
+  const distanceToEntry = useMemo(() => {
+    if (!livePrice || !row.entryHigh) return null;
+    return (((livePrice - row.entryHigh) / row.entryHigh) * 100).toFixed(2);
+  }, [livePrice, row.entryHigh]);
+
+  const dynamicRiskReward = useMemo(() => {
+    if (!livePrice || !row.stopLoss || !row.target1 || livePrice <= row.stopLoss) return null;
+    return ((row.target1 - livePrice) / (livePrice - row.stopLoss)).toFixed(2);
+  }, [livePrice, row.stopLoss, row.target1]);
+
+  const backtestData = row.analysisItem?.backtests?.[0];
+  const equityCurve: BacktestEquityPoint[] = backtestData?.equity_curve || [];
+  const regime = row.newsSentiment === "Bullish" || row.newsSentiment === "Bearish" ? "CATALYST" : "STANDARD";
+
+  return (
+    <article
+      className={`candidate-card ${isSelected ? "is-selected" : ""}`}
+      onClick={() => onSelect(row.symbol)}
+      tabIndex={0}
+      role="button"
+      aria-label={`${row.symbol} - ${row.signal} - Score ${row.score.toFixed(1)}`}
+      {...prefetchProps}
+    >
+      {/* Top row: Rank + Symbol + Signal */}
+      <div className="candidate-card__top">
+        <div className="candidate-card__symbol-area">
+          <span className="candidate-card__rank">#{row.rank ?? "--"}</span>
+          <div className="candidate-card__symbol-meta">
+            <div className="candidate-card__symbol" title={row.symbol}>{row.symbol}</div>
+            <div className="candidate-card__volume">{row.volume} Vol</div>
+          </div>
+        </div>
+        <div className="candidate-card__signal">
+          <SignalBadge value={row.signal} />
+        </div>
+      </div>
+
+      {/* Score bar */}
+      <div className="candidate-card__score-row">
+        <div className="candidate-card__score-bar">
+          <div
+            className="candidate-card__score-fill"
+            style={{
+              width: `${Math.min(row.score, 100)}%`,
+              background: "var(--accent)",
+            }}
+          />
+        </div>
+        <div className="candidate-card__score-label">
+          <span>Score <strong>{row.score.toFixed(1)}</strong></span>
+          <span>Conf <strong>{row.confidence === null ? "--" : `${Math.round(row.confidence * 100)}%`}</strong></span>
+        </div>
+      </div>
+
+      {/* Info grid */}
+      <div className="candidate-card__info-grid">
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">Entry</span>
+          <span className="candidate-card__info-value">
+            {livePrice ? (
+              <span>
+                {formatNumber(livePrice)}
+                <span style={{ fontSize: "0.85em", marginLeft: "3px", color: livePrice > (row.entryHigh ?? Infinity) ? "var(--negative)" : "var(--positive)" }}>
+                  ({distanceToEntry}%)
+                </span>
+              </span>
+            ) : (
+              formatZone(row.entryLow, row.entryHigh)
+            )}
+          </span>
+        </div>
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">SL / TP</span>
+          <span className="candidate-card__info-value">{formatNumber(row.stopLoss)} / {formatNumber(row.target1)}</span>
+        </div>
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">R:R</span>
+          <span className="candidate-card__info-value" style={{ color: "var(--accent)" }}>
+            {dynamicRiskReward !== null ? dynamicRiskReward : formatNumber(row.riskReward)}x
+          </span>
+        </div>
+        <div className="candidate-card__info-item">
+          <span className="candidate-card__info-label">Regime</span>
+          <span className="candidate-card__info-value">
+            <span style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              padding: "2px 6px",
+              borderRadius: "4px",
+              backgroundColor: regime === "CATALYST" ? "var(--positive)" : "var(--surface-2)",
+              color: regime === "CATALYST" ? "#fff" : "var(--text-muted)",
+            }}>
+              {regime}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Equity curve */}
+      <div className="candidate-card__equity">
+        {equityCurve.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={equityCurve}>
+              <defs>
+                <linearGradient id={`colorEq${row.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--positive)" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="var(--positive)" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <YAxis domain={['dataMin', 'dataMax']} hide />
+              <Area type="monotone" dataKey="equity" stroke="var(--positive)" fillOpacity={1} fill={`url(#colorEq${row.symbol})`} />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>No chart data</span>
+        )}
+      </div>
+
+      {/* Trend tags */}
+      <div className="candidate-card__trend">
+        <span className="candidate-card__trend-item">{row.trend}</span>
+        <span className="candidate-card__trend-item">{row.momentum}</span>
+      </div>
+
+      {/* BUY button */}
+      <div className="candidate-card__actions">
+        <button
+          type="button"
+          className="ds-btn ds-btn--buy"
+          onClick={(event) => {
+            event.stopPropagation();
+            onBuy?.(row);
+          }}
+          disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
+          title={!checkCanPlaceBuyOrder().allowed ? "Market closed — BUY disabled" : "BUY on Paper Desk"}
+          aria-label={`Buy ${row.symbol}`}
+        >
+          BUY
+        </button>
+      </div>
+    </article>
+  );
+});
+
+type PrefetchProps = {
+  onMouseEnter?: () => void;
+  onFocus?: () => void;
+  onTouchStart?: () => void;
+};
 
 const CandidateTableRow = memo(({ 
   row, 
   livePrice, 
   isSelected, 
   onSelect, 
-  onBuy 
+  onBuy,
+  prefetchProps,
 }: { 
   row: CandidateRow; 
   livePrice?: number; 
   isSelected: boolean; 
   onSelect: (symbol: string) => void; 
   onBuy?: (row: CandidateRow) => void; 
+  prefetchProps?: PrefetchProps;
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -159,9 +300,10 @@ const CandidateTableRow = memo(({
         }}
         style={{ cursor: "pointer", borderBottom: "1px solid var(--border-color)" }}
         tabIndex={0}
+        {...prefetchProps}
       >
-        <td style={{ textAlign: "center", color: "var(--text-muted)" }}>{row.rank ?? "--"}</td>
-        <td className="symbol-cell">
+        <td className="col-sticky-left" style={{ textAlign: "center", color: "var(--text-muted)" }}>{row.rank ?? "--"}</td>
+        <td className="symbol-cell col-sticky-symbol">
           <strong>{row.symbol}</strong>
           <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
             {row.volume} Vol
@@ -257,15 +399,16 @@ const CandidateTableRow = memo(({
         <td>
           <button
             type="button"
-            className="button ghost-button small-button"
+            className="ds-btn ds-btn--buy ds-btn--sm"
             onClick={(event) => {
               event.stopPropagation();
               onBuy?.(row);
             }}
             disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
-            title={!checkCanPlaceBuyOrder().allowed ? "Market closed - Buy orders disabled" : undefined}
+            title={!checkCanPlaceBuyOrder().allowed ? "Market closed — BUY disabled" : "BUY on Paper Desk"}
+            aria-label={`Buy ${row.symbol}`}
           >
-            Buy
+            BUY
           </button>
         </td>
       </tr>
@@ -274,7 +417,7 @@ const CandidateTableRow = memo(({
 });
 
 function SignalBadge({ value }: { value: CandidateRow["signal"] }) {
-  return <span className={`signal-badge signal-${value.toLowerCase()}`}>{value}</span>;
+  return <DsSignalBadge signal={value} />;
 }
 
 function formatNumber(value: number | null) {

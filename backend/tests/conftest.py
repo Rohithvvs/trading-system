@@ -33,11 +33,19 @@ from sqlalchemy import create_engine
 import sqlalchemy.pool
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
-from backend.app.config import settings  # noqa: E402
-from backend.app.db.base import Base  # noqa: E402
-from backend.app.db.session import get_db  # noqa: E402
-from backend.app.main import app  # noqa: E402
-from backend.app.models import *  # noqa: F401,F403,E402
+# Support both `pytest` from repo root and from backend/ with PYTHONPATH=.
+try:
+    from app.config import settings  # noqa: E402
+    from app.db.base import Base  # noqa: E402
+    from app.db.session import get_db  # noqa: E402
+    from app.main import app  # noqa: E402
+    from app.models import *  # noqa: F401,F403,E402
+except ModuleNotFoundError:
+    from backend.app.config import settings  # noqa: E402
+    from backend.app.db.base import Base  # noqa: E402
+    from backend.app.db.session import get_db  # noqa: E402
+    from backend.app.main import app  # noqa: E402
+    from backend.app.models import *  # noqa: F401,F403,E402
 
 
 @pytest.fixture(autouse=True)

@@ -56,9 +56,15 @@ export default function Dashboard() {
 
   const [liveTicks, setLiveTicks] = useState<Record<string, number>>({});
   
-  // Streaming Progress State
-  const [progressStage, setProgressStage] = useState("Initializing...");
-  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressData, setProgressData] = useState({
+    stage: "Initializing...",
+    progress: 0,
+    current_symbol: "",
+    worker_id: undefined as number | undefined,
+    done: 0,
+    remaining: 0,
+    eta_sec: 0,
+  });
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
   // WebSocket Live Badge State
@@ -230,8 +236,15 @@ export default function Dashboard() {
   async function handleRunScanner() {
     setIsLoading(true);
     setError(null);
-    setProgressStage("Authenticating & Waking Agents...");
-    setProgressPercent(0);
+    setProgressData({
+      stage: "Authenticating & Waking Agents...",
+      progress: 0,
+      current_symbol: "",
+      worker_id: undefined,
+      done: 0,
+      remaining: 0,
+      eta_sec: 0,
+    });
     setScanStartTime(Date.now());
 
     try {
@@ -249,9 +262,17 @@ export default function Dashboard() {
         },
         selectedUniverse === "NIFTY500" ? [] : universes.find((item) => item.name === selectedUniverse)?.symbols ?? [],
         topN,
-        (stage, progress) => {
-          setProgressStage(stage);
-          setProgressPercent(progress);
+        (update) => {
+          setProgressData((prev) => ({
+            ...prev,
+            stage: update.stage || prev.stage,
+            progress: update.progress ?? prev.progress,
+            current_symbol: update.current_symbol ?? prev.current_symbol,
+            worker_id: update.worker_id ?? prev.worker_id,
+            done: update.done ?? prev.done,
+            remaining: update.remaining ?? prev.remaining,
+            eta_sec: update.eta_sec ?? prev.eta_sec,
+          }));
         }
       );
 
@@ -439,7 +460,7 @@ export default function Dashboard() {
               <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
             </section>
 
-            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
               <button
                 type="button"
                 className={`button ${!showAllAnalyzedStocks ? "primary-button" : ""}`}
@@ -457,9 +478,8 @@ export default function Dashboard() {
             </div>
 
             {isLoading ? (
-              <ScannerProgress 
-                stage={progressStage}
-                progress={progressPercent}
+              <ScannerProgress
+                data={progressData}
                 error={error}
                 startTime={scanStartTime}
                 onRetry={handleRunScanner}

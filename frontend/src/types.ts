@@ -2,7 +2,7 @@ export type AnalysisMode = "intraday" | "swing" | "both";
 
 export type ThemeMode = "dark" | "light";
 
-export type DetailTab = "overview" | "technicals" | "trade-plan" | "news" | "backtest" | "chart";
+export type DetailTab = "research" | "overview" | "technicals" | "trade-plan" | "news" | "backtest" | "chart";
 
 export type SignalFilter = "ALL" | "BUY" | "WATCH" | "REJECT";
 
@@ -237,7 +237,16 @@ export type DashboardFilters = {
   onlyHighConfidence: boolean;
 };
 
-export type MainAppView = "home" | "scanner" | "paper-trading" | "logs" | "central_command";
+export type MainAppView =
+  | "home"
+  | "markets"
+  | "scanner"
+  | "watchlist"
+  | "paper-trading"
+  | "performance"
+  | "logs"
+  | "central_command"
+  | "profile";
 
 export type ScanHistoryItem = {
   id: string;
@@ -412,20 +421,61 @@ export type HoldingPeriodRow = {
 };
 
 export type AnalyticsResponse = {
+  period?: string;
+  range_label?: string;
   total_trades: number;
+  winning_trades?: number;
+  losing_trades?: number;
   win_rate_pct: number;
+  total_pnl?: number;
+  todays_pnl?: number;
+  unrealized_pnl?: number;
+  realized_pnl?: number;
+  portfolio_value?: number;
+  available_cash?: number;
+  capital_utilized?: number;
+  roi_pct?: number;
   profit_factor?: number | null;
   average_profit?: number | null;
   average_loss?: number | null;
+  average_risk_reward?: number | null;
+  largest_profit?: number | null;
+  largest_loss?: number | null;
   best_trade_symbol?: string | null;
   best_trade_amount?: number | null;
   worst_trade_symbol?: string | null;
   worst_trade_amount?: number | null;
+  most_profitable_symbol?: string | null;
+  most_losing_symbol?: string | null;
+  longest_winning_streak?: number;
+  longest_losing_streak?: number;
+  average_holding_minutes?: number;
+  average_return_pct?: number;
+  max_drawdown?: number;
+  max_drawdown_pct?: number;
+  sharpe_ratio?: number | null;
+  open_positions_count?: number;
+  total_orders?: number;
+  executed_orders?: number;
+  cancelled_orders?: number;
+  pending_orders?: number;
+  buy_orders?: number;
+  sell_orders?: number;
+  intraday_trades?: number;
+  delivery_trades?: number;
   daily_pnl: DailyPnlPoint[];
+  monthly_pnl?: DailyPnlPoint[];
   cumulative_pnl: DailyPnlPoint[];
+  equity_curve?: { date: string; equity: number }[];
+  capital_growth?: { date: string; value: number }[];
+  sector_performance?: { sector: string; pnl: number }[];
+  trade_frequency?: { date: string; count: number }[];
+  portfolio_allocation?: { symbol: string; value: number; pct: number }[];
   wins: number;
   losses: number;
   holding_periods: HoldingPeriodRow[];
+  current_streak_type?: string;
+  current_streak_count?: number;
 };
 
 export type PaperWorkspaceSnapshot = {
@@ -478,6 +528,8 @@ export type SymbolDetail = {
   backtest_extras?: BacktestExtras | null;
   news_extras?: { corporate_events?: Record<string, unknown> | null; social_sentiment?: number | null } | null;
   ohlcv?: OHLCVPoint[] | null;
+  /** AI Swing Trading Research dashboard payload from /analysis/symbol/{symbol}/detail */
+  research?: Record<string, unknown> | null;
 };
 
 export type PaperQuoteResponse = {

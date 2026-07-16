@@ -1,6 +1,6 @@
 import asyncio
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..models.system_log import SystemLog
 from ..db.session import AsyncSessionLocal
@@ -10,7 +10,7 @@ async def log_to_db(level: str, module: str, message: str, endpoint: str = None,
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 log_entry = SystemLog(
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     level=level,
                     module=module,
                     message=message,

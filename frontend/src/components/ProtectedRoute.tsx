@@ -6,25 +6,40 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
+/**
+ * Auth gate that never freezes on a blank spinner when a cached session exists.
+ * - Cached user → render children immediately (revalidation is background)
+ * - No user + loading → lightweight shell (not full-page wait forever)
+ * - No user + done → redirect login
+ */
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
+  // Instant path: authenticated (from cache or network)
+  if (isAuthenticated) {
+    return <>{children}</>;
+  }
+
+  // Only block when we have zero session info and still checking
   if (isLoading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-gray-900">
-        <div className="text-blue-500 animate-spin w-8 h-8 border-4 border-current border-t-transparent rounded-full" />
+      <div
+        className="flex h-screen w-full flex-col items-center justify-center gap-3"
+        style={{ background: "var(--bg, #0e1116)", color: "var(--text-muted, #9eacbb)" }}
+        role="status"
+        aria-live="polite"
+      >
+        <div
+          className="app-skel"
+          style={{ width: 48, height: 48, borderRadius: "50%" }}
+          aria-hidden
+        />
+        <div className="app-skel" style={{ width: 160, height: 12, borderRadius: 6 }} aria-hidden />
+        <span style={{ fontSize: 13, opacity: 0.8 }}>Restoring session…</span>
       </div>
     );
   }
 
-  if (!isAuthenticated) {
-    // Redirect them to the /login page, but save the current location they were
-    // trying to go to when they were redirected. This allows us to send them
-    // along to that page after they login, which is a nicer user experience
-    // than dropping them off on the home page.
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  return <>{children}</>;
+  return <Navigate to="/login" state={{ from: location }} replace />;
 };

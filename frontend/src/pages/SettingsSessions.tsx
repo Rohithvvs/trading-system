@@ -43,7 +43,11 @@ export const SettingsSessions: React.FC = () => {
       // Remove from list
       setSessions(prev => prev.filter(s => s.id !== sessionId));
     } catch (err: any) {
-      alert(err.message);
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "error", message: err.message || "Session action failed" },
+        }),
+      );
     }
   };
 

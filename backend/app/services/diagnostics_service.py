@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timezone
 import os
 from typing import Dict, List, Any
 
@@ -37,13 +37,13 @@ class ShadowRunDiagnostics:
     def set_scanner_success(self, scan_id: str):
         self.last_scan_status = "SUCCESS"
         self.last_scan_error = None
-        self.last_successful_scan_time = datetime.datetime.utcnow().isoformat()
+        self.last_successful_scan_time = datetime.now(timezone.utc).isoformat()
         self.last_successful_scan_id = scan_id
 
     def set_scanner_failed(self, error_message: str):
         self.last_scan_status = "FAILED"
         self.last_scan_error = str(error_message)[:500] if error_message else "Unknown Error"
-        self.last_failed_scan_time = datetime.datetime.utcnow().isoformat()
+        self.last_failed_scan_time = datetime.now(timezone.utc).isoformat()
 
     def record_scanner_run(self, data: Dict[str, Any]):
         self.scanner_runs.append(data)

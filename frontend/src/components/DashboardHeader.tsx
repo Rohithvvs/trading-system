@@ -1,22 +1,20 @@
-import type { ChangeEvent, ReactNode } from "react";
-import { InfoTooltip } from './InfoTooltip';
-import { TOOLTIPS } from '../constants/tooltips';
-
+import { memo, type ChangeEvent, type ReactNode } from "react";
+import { useAuth } from '../hooks/useAuth';
 import type { ThemeMode } from "../types";
 import NotificationBell from "./NotificationBell";
 
 function formatScanTime(isoString: string | null): string {
-  if (!isoString) return "No scan has been completed yet";
+  if (!isoString) return "No scan yet";
   const date = new Date(isoString);
-  if (isNaN(date.getTime())) return "No scan has been completed yet";
+  if (isNaN(date.getTime())) return "No scan yet";
 
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMinutes = Math.floor(diffMs / 60000);
 
   if (diffMinutes < 1) return "Just now";
-  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
-  
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
   const day = date.getDate().toString().padStart(2, '0');
   const month = date.toLocaleString('en-US', { month: 'short' });
   const year = date.getFullYear();
@@ -26,10 +24,9 @@ function formatScanTime(isoString: string | null): string {
   hour = hour % 12;
   if (hour === 0) hour = 12;
   const hourStr = hour.toString().padStart(2, '0');
-  
+
   return `${day} ${month} ${year}, ${hourStr}:${minute} ${ampm}`;
 }
-
 
 type DashboardHeaderProps = {
   isLoading: boolean;
@@ -51,9 +48,7 @@ type DashboardHeaderProps = {
   onThemeToggle: () => void;
 };
 
-  import { useAuth } from '../hooks/useAuth';
-
-export function DashboardHeader({
+export const DashboardHeader = memo(function DashboardHeader({
   isLoading,
   lastScanAt,
   marketStatus,
@@ -73,27 +68,30 @@ export function DashboardHeader({
   onThemeToggle,
 }: DashboardHeaderProps) {
   const { user, logout } = useAuth();
-  
+
   return (
-    <header className="dashboard-header panel">
-      <div className="header-brand">
-        <div>
-          <p className="section-label">Nifty 500 swing workstation</p>
-          <h1>Swing Decision Dashboard</h1>
+    <header className="dashboard-header">
+      {/* Row 1: Title + Market Status + Last Scan */}
+      <div className="dh-row dh-row--top">
+        <div className="dh-title-group">
+          <p className="dh-sublabel">Nifty 500 swing workstation</p>
+          <h1 className="dh-title">Swing Decision Dashboard</h1>
         </div>
-        <div className="header-meta">
-          <StatusPill label="Market" value={marketStatus} tone={marketStatus === "Open" ? "positive" : "neutral"} />
-          <StatusPill
-            label="Last Scan Completed"
-            value={formatScanTime(lastScanAt)}
-            tone="neutral"
-          />
+        <div className="dh-meta-group">
+          <span className={`dh-status dh-status--${marketStatus === "Open" ? "open" : "closed"}`}>
+            <span className="dh-status-dot" aria-hidden />
+            {marketStatus === "Open" ? "Market Open" : "Closed"}
+          </span>
+          <span className="dh-scan-time">
+            Last Scan: <strong>{formatScanTime(lastScanAt)}</strong>
+          </span>
         </div>
       </div>
 
-      <div className="header-actions">
-        <div className="scan-controls" aria-label="Scanner settings">
-          <InlineField label="Timeframe" tooltip={TOOLTIPS.SCANNER.TIMEFRAME}>
+      {/* Row 2: Controls + Buttons */}
+      <div className="dh-row dh-row--bottom">
+        <div className="dh-controls">
+          <InlineField label="Timeframe">
             <select value={timeframe} onChange={(event) => onTimeframeChange(event.target.value)}>
               <option value="1h">1h</option>
               <option value="4h">4h</option>
@@ -107,7 +105,7 @@ export function DashboardHeader({
               ))}
             </select>
           </InlineField>
-          <InlineField label="Lookback" tooltip={TOOLTIPS.SCANNER.LOOKBACK}>
+          <InlineField label="Lookback">
             <input
               type="number"
               min={60}
@@ -117,7 +115,7 @@ export function DashboardHeader({
               onChange={(event) => onLookbackChange(Number(event.target.value))}
             />
           </InlineField>
-          <InlineField label="Top set" tooltip={TOOLTIPS.SCANNER.TOP_SET}>
+          <InlineField label="Top set">
             <input
               type="number"
               min={5}
@@ -127,52 +125,50 @@ export function DashboardHeader({
               onChange={(event) => onTopNChange(Number(event.target.value))}
             />
           </InlineField>
-        </div>
-
-        <div className="header-buttons">
-          <NotificationBell />
-          <button type="button" className="button ghost-button" onClick={onThemeToggle}>
-            {theme === "dark" ? "Light mode" : "Dark mode"}
-          </button>
-          {user && (
-            <button type="button" className="button ghost-button text-red-500" onClick={logout}>
-              Sign Out
+          <div className="dh-search">
+            <label className="dh-search-label">
+              <span className="sr-only">Search ticker</span>
+              <input
+                type="search"
+                placeholder="Search ticker…"
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                aria-label="Search ticker"
+                className="dh-search-input"
+              />
+            </label>
+          </div>
+          <div className="dh-actions">
+            <NotificationBell />
+            <button type="button" className="dh-btn dh-btn--ghost" onClick={onThemeToggle} aria-label="Toggle theme">
+              {theme === "dark" ? "Light" : "Dark"}
             </button>
-          )}
-          <button data-testid="run-scanner-button" type="button" className="button primary-button" onClick={onRunScanner} disabled={isLoading}>
-            {isLoading ? "Scanning..." : "Run Nifty 500 Swing Scanner"}
-          </button>
+            {user && (
+              <button type="button" className="dh-btn dh-btn--ghost" onClick={logout}>
+                Sign Out
+              </button>
+            )}
+            <button
+              data-testid="run-scanner-button"
+              type="button"
+              className="dh-btn dh-btn--primary"
+              onClick={onRunScanner}
+              disabled={isLoading}
+            >
+              {isLoading ? "Scanning…" : "Run Scanner"}
+            </button>
+          </div>
         </div>
       </div>
     </header>
   );
-}
+});
 
-function InlineField({ label, children, tooltip }: { label: string; children: ReactNode; tooltip?: string }) {
+function InlineField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="inline-field">
-      <span>
-        {label}
-        {tooltip ? <InfoTooltip content={tooltip} /> : null}
-      </span>
+    <label className="dh-field">
+      <span className="dh-field-label">{label}</span>
       {children}
     </label>
-  );
-}
-
-function StatusPill({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "positive" | "neutral";
-}) {
-  return (
-    <div className={`status-pill status-pill-${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
   );
 }

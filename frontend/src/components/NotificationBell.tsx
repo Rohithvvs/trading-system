@@ -64,7 +64,7 @@ export default function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="notification-dropdown panel" style={{ position: "absolute", right: 0, top: "40px", width: 360, zIndex: 40 }}>
+        <div className="notification-dropdown panel" style={{ position: "absolute", right: 0, top: "40px", width: "100%", maxWidth: 360, zIndex: 40 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <strong>Notifications</strong>
             <button className="button ghost-button" onClick={handleMarkAll}>Mark all read</button>

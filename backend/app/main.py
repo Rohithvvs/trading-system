@@ -8,22 +8,18 @@ _backend_dir = str(Path(__file__).resolve().parent.parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from datetime import datetime
+from datetime import datetime, timezone
 from time import perf_counter
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.responses import Response
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse, Response
 import traceback
-from datetime import date
 from .services.db_logger import log_to_db
-from sqlalchemy import select
-from .models.system_log import SystemLog
 
 from .core.logger import setup_logging
-import sys
 import logging
 
 # Fail-fast config validation
@@ -38,6 +34,7 @@ from .routes.fyers import router as fyers_router
 from .utils import configure_logging, get_logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from .services.candle_store import (
     get_all_cached_symbols,
     is_cache_fresh,
@@ -81,7 +78,7 @@ def _scheduler_listener(event):
     
     scheduled_time = getattr(event, "scheduled_run_time", None)
     scheduled_time_str = scheduled_time.isoformat() if scheduled_time else "unknown"
-    actual_time_str = datetime.datetime.utcnow().isoformat()
+    actual_time_str = datetime.datetime.now(timezone.utc).isoformat()
     
     if event.code == EVENT_JOB_SUBMITTED:
         _job_starts[event.job_id] = time.perf_counter()
@@ -315,6 +312,14 @@ async def lifespan(app: FastAPI):
         logger.info("STARTUP PROGRESS: Validating database schema lineage...")
         check_alembic_head()
         logger.info("STARTUP PROGRESS: Database schema is up-to-date.")
+
+        # Drop any async connections that may hold prepared plans from before DDL
+        try:
+            from .db.session import dispose_async_pool
+
+            await dispose_async_pool(reason="post_alembic_startup")
+        except Exception:
+            logger.warning("Could not dispose async DB pool after alembic check", exc_info=True)
         
         logger.info("STARTUP PROGRESS: settings module loaded successfully.")
         
@@ -458,6 +463,31 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
+    # JOB 6: Diagnostics alert evaluation (every 10s — NFR-002)
+    from .observability.alert_jobs import (
+        evaluate_system_alerts_job,
+        rotate_observability_logs_job,
+    )
+
+    # Evaluate every 30s (NFR-002 is 10s breach-to-alert budget; 30s keeps
+    # load low while still meeting Phase 0 thresholds for most metrics).
+    scheduler.add_job(
+        evaluate_system_alerts_job,
+        IntervalTrigger(seconds=30),
+        id="diagnostics_alert_evaluation",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # JOB 7: Observability JSONL retention (90 days — NFR-004)
+    scheduler.add_job(
+        rotate_observability_logs_job,
+        CronTrigger(hour=3, minute=0, timezone="Asia/Kolkata"),
+        id="observability_log_rotation",
+        replace_existing=True,
+    )
+
     # Clear in-memory FYERS quarantine on every app start
     from .services.fyers_service import QUARANTINED_SYMBOLS
     QUARANTINED_SYMBOLS.clear()
@@ -588,7 +618,7 @@ async def lifespan(app: FastAPI):
                                 alert.condition == "<=" and ltp <= alert.target_price
                             )
                             if triggered:
-                                alert.last_triggered_at = datetime.utcnow()
+                                alert.last_triggered_at = datetime.now(timezone.utc)
                                 alert.last_message = f"{alert.symbol} {alert.condition} {alert.target_price} hit at {round(ltp, 2)}"
                         await db.commit()
                     except Exception:
@@ -660,6 +690,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+# Compress JSON responses > 500 bytes (reduces payload for dashboard/analytics)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 # CORS for SPA on Vercel (incl. preview URLs) talking to Render API with credentials.
 # Do NOT use allow_origins=["*"] with allow_credentials=True — browsers reject it.
 app.add_middleware(
@@ -679,6 +711,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
+    max_age=600,
 )
 
 
@@ -732,13 +765,23 @@ async def log_http_requests(request: Request, call_next):
         )
 
     elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
-    request_logger.info(
-        "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s",
+    # Performance log: route execution time (surface slow endpoints)
+    slow = elapsed_ms >= 1000
+    log_fn = request_logger.warning if slow else request_logger.info
+    log_fn(
+        "HTTP request end | method=%s | path=%s | status=%s | elapsed_ms=%s | slow=%s",
         request.method,
         request.url.path,
         response.status_code,
         elapsed_ms,
+        slow,
     )
+    # Expose server timing for browser/devtools without changing response body
+    try:
+        response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
+        response.headers["Server-Timing"] = f"app;dur={elapsed_ms}"
+    except Exception:
+        pass
     
     # Log critical user actions to DB
     if request.method in ["POST", "PUT", "DELETE"]:
@@ -754,10 +797,24 @@ async def log_http_requests(request: Request, call_next):
 
 
 from .routes import scheduler as scheduler_router
+from .routers.walk_forward import router as walk_forward_router
+from .routers.event_calendar import router as event_calendar_router
 
 app.include_router(api_router)
 app.include_router(fyers_router)
 app.include_router(scheduler_router.router)
+app.include_router(walk_forward_router)
+app.include_router(event_calendar_router)
+
+
+@app.middleware("http")
+async def diagnostics_rate_monitor_middleware(request: Request, call_next):
+    from .observability.rate_monitor import record_request, record_error
+    record_request()
+    response = await call_next(request)
+    if response.status_code >= 400:
+        record_error()
+    return response
 
 
 async def nightly_candle_sync():
@@ -887,7 +944,7 @@ async def automated_screening_job():
             try:
                 token_row = await token_service.get_fyers_token_row(db)
                 token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
-                token_age = (datetime.utcnow() - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
+                token_age = (datetime.now(timezone.utc) - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
                 log_token_status(
                     scan_ctx,
                     token_exists=bool(token),
@@ -908,6 +965,8 @@ async def automated_screening_job():
                 import datetime
                 
                 startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
+                if startup_dt.tzinfo is None:
+                    startup_dt = startup_dt.replace(tzinfo=datetime.timezone.utc)
                 app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
                 
                 # Use centralized service for accurate market status (weekends + holidays)
@@ -934,7 +993,9 @@ async def automated_screening_job():
                 if last_scan:
                     last_scan_ts = last_scan.get("scan_timestamp")
                     last_scan_dt = datetime.datetime.fromisoformat(last_scan_ts)
-                    minutes_since = (datetime.datetime.utcnow() - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
+                    if last_scan_dt.tzinfo is None:
+                        last_scan_dt = last_scan_dt.replace(tzinfo=datetime.timezone.utc)
+                    minutes_since = (datetime.datetime.now(timezone.utc) - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
                     last_scan_res = "SUCCESS" if last_scan.get("valid_symbols", 0) > 0 else "NO_DATA"
                 else:
                     last_scan_ts = None
@@ -976,7 +1037,7 @@ async def automated_screening_job():
                 import psutil
             except ImportError:
                 psutil = None
-            start_t_iso = datetime.datetime.utcnow().isoformat()
+            start_t_iso = datetime.datetime.now(timezone.utc).isoformat()
             
             # Record scanner memory before run
             from .services.diagnostics_service import diagnostics
@@ -995,7 +1056,7 @@ async def automated_screening_job():
             diagnostics.record_scanner_run({
                 "scan_id": response.screener_name or f"scan-{start_t_iso}",
                 "start_time": start_t_iso,
-                "end_time": datetime.datetime.utcnow().isoformat(),
+                "end_time": datetime.datetime.now(timezone.utc).isoformat(),
                 "duration_ms": duration_ms,
                 "requested_symbols": response.scanned_symbols,
                 "valid_symbols": len(response.data_valid_symbols),

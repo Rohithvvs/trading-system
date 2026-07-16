@@ -12,7 +12,7 @@ export function CentralCommand() {
     // API call to close position
     // Usually this is submitting an opposite order or using a specific close endpoint
     // For this example, we'll log it or use placePaperOrder
-    console.log("Closing position", position.symbol);
+    console.warn("[paper] close not implemented — stub only", position.symbol);
   };
 
   const handleBuy = async () => {
@@ -33,9 +33,17 @@ export function CentralCommand() {
     };
     try {
       await placePaperOrder(ticket, crypto.randomUUID());
-      alert("Order placed successfully");
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "success", message: "Order placed successfully" },
+        }),
+      );
     } catch (err: any) {
-      alert("Order failed: " + err.message);
+      window.dispatchEvent(
+        new CustomEvent("app:toast", {
+          detail: { level: "error", message: "Order failed", description: err.message },
+        }),
+      );
     }
   };
 

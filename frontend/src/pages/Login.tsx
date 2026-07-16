@@ -38,7 +38,7 @@ export const Login: React.FC = () => {
       }
       const data = await authLogin({ email, password, remember_me: rememberMe });
       login(data.user);
-      const from = location.state?.from?.pathname || "/";
+      const from = location.state?.from?.pathname || "/scanner";
       navigate(from, { replace: true });
     } catch (err: unknown) {
       setServerError(toUserFacingApiMessage(err, 'Login failed. Please check your credentials.'));

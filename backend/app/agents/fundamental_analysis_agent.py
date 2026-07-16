@@ -12,8 +12,9 @@ class FundamentalAnalysisAgent:
 
     def run(self, symbol: str) -> FundamentalAnalysisResult:
         try:
-            # yfinance expects Indian equities to have the .NS suffix (e.g. RELIANCE.NS)
-            yf_symbol = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
+            # yfinance expects Indian equities as TICKER.NS (not NSE: or -EQ forms).
+            clean = symbol.upper().replace("NSE:", "").replace("-EQ", "").strip()
+            yf_symbol = clean if clean.endswith(".NS") else f"{clean}.NS"
             ticker = yf.Ticker(yf_symbol)
             info = ticker.info
 

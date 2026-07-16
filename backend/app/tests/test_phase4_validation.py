@@ -35,7 +35,7 @@ def mock_fyers_network():
                 # Provide a quick synchronous mock to skip asyncio/yfinance completely
                 from app.services.paper_trading_service import PriceSnapshot
                 mock_ps.return_value = PriceSnapshot(
-                    symbol="MOCK", current_price=100.0, candles=[], ema_20=None, supertrend=None, source="MOCK", fetched_at=datetime.utcnow()
+                    symbol="MOCK", current_price=100.0, candles=[], ema_20=None, supertrend=None, source="MOCK", fetched_at=datetime.now(timezone.utc)
                 )
                 with patch("app.services.paper_trading_service.PaperTradingService._load_price_cache") as mock_lpc:
                     mock_lpc.return_value = {sym: 100.0 for sym in ["DATAPATTNS", "DATAPATTNS-EQ", "REAL", "RECOVER", "DUPE", "BURST", "FAIL", "OBSERV", "PERF"]}
