@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 import uuid
 from dataclasses import dataclass
@@ -49,6 +50,11 @@ from ..core.log_manager import trading_logger
 from ..utils.money import as_float, dec, q_pnl, q_price, q_qty
 from ..observability.metrics import DUPLICATE_EXECUTIONS, ORDER_EXECUTIONS
 
+# In-memory PriceSnapshot cache with TTL (avoids redundant FYERS calls across requests within short window)
+_price_snapshot_cache: dict[str, tuple[PriceSnapshot, float]] = {}
+_price_snapshot_cache_lock = threading.Lock()
+_PRICE_CACHE_TTL_SEC = 3.0  # 3-second TTL — fresh enough for paper trading
+
 
 
 @dataclass(slots=True)
@@ -88,7 +94,7 @@ class PaperTradingService:
         price_cache = self._load_price_cache(symbols)
         for position in positions:
             snapshot = price_cache.get(position.symbol)
-            if snapshot:
+            if snapshot and snapshot.current_price > 0:
                 position.current_price = snapshot.current_price
 
         summary = self._build_account_summary(account, positions, orders, trades, price_cache)
@@ -112,7 +118,7 @@ class PaperTradingService:
         price_cache = self._load_price_cache({item.symbol for item in positions})
         for position in positions:
             snapshot = price_cache.get(position.symbol)
-            if snapshot:
+            if snapshot and snapshot.current_price > 0:
                 position.current_price = snapshot.current_price
         self.db.commit()
         # Re-fetch positions after commit to avoid stale object errors
@@ -152,7 +158,7 @@ class PaperTradingService:
         account = self._get_or_create_account()
         account.starting_balance = payload.starting_balance
         account.cash_balance = payload.starting_balance
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self.db.execute(delete(PaperPosition).where(PaperPosition.account_id == account.id))
         self.db.execute(delete(PaperOrder).where(PaperOrder.account_id == account.id))
         self.db.execute(delete(PaperTradeHistory).where(PaperTradeHistory.account_id == account.id))
@@ -257,7 +263,7 @@ class PaperTradingService:
             )
         except Exception:
             pass
-        order.last_evaluated_at = datetime.utcnow()
+        order.last_evaluated_at = datetime.now(timezone.utc)
         order.last_seen_ltp = price.current_price
         # Try to fill the order (this will update order.status, create/update position, and adjust account in the same session)
         filled_order, position, trade, message = self._try_fill_order(account, order, price.current_price)
@@ -270,7 +276,7 @@ class PaperTradingService:
                     position.lifecycle_state = "OPEN_POSITION"
                 tx = PaperTransaction(
                     account_id=int(account.id),
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     symbol=filled_order.symbol,
                     action="BUY",
                     qty=int(filled_order.qty),
@@ -334,7 +340,7 @@ class PaperTradingService:
             raise ValueError("Only pending orders can be cancelled.")
         order.status = "CANCELLED"
         order.lifecycle_state = "CANCELLED"
-        order.cancelled_at = datetime.utcnow()
+        order.cancelled_at = datetime.now(timezone.utc)
         self.db.commit()
         return PaperOrderActionResponse(
             account=self.get_dashboard(selected_symbol=order.symbol).account,
@@ -403,7 +409,7 @@ class PaperTradingService:
         position.target = payload.target
         if payload.notes is not None:
             position.notes = payload.notes
-        position.updated_at = datetime.utcnow()
+        position.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         return PaperOrderActionResponse(
             account=self.get_dashboard(selected_symbol=position.symbol).account,
@@ -669,7 +675,7 @@ class PaperTradingService:
                 return order, None, None, "Order rejected: insufficient available cash."
             order.status = "FILLED"
             order.lifecycle_state = "ENTRY_FILLED"
-            order.filled_at = datetime.utcnow()
+            order.filled_at = datetime.now(timezone.utc)
             order.filled_price = fill_price
             # Deduct funds and create/update OPEN position
             account.cash_balance = q_pnl(dec(account.cash_balance) - estimated_cost)
@@ -687,7 +693,7 @@ class PaperTradingService:
                 position.current_price = fill_price
                 position.stop_loss = order.stop_loss
                 position.target = order.target
-                position.updated_at = datetime.utcnow()
+                position.updated_at = datetime.now(timezone.utc)
             else:
                 position = PaperPosition(
                     account_id=account.id,
@@ -717,7 +723,7 @@ class PaperTradingService:
                     )
                 except Exception:
                     pass
-            account.updated_at = datetime.utcnow()
+            account.updated_at = datetime.now(timezone.utc)
             self._record_execution_event(
                 "ENTRY_FILLED",
                 order.symbol,
@@ -760,7 +766,7 @@ class PaperTradingService:
 
         order.status = "FILLED"
         order.lifecycle_state = "EXIT_FILLED"
-        order.filled_at = datetime.utcnow()
+        order.filled_at = datetime.now(timezone.utc)
         order.filled_price = fill_price
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price * order_qty))
         pnl = q_pnl((fill_price - dec(position.avg_entry_price)) * order_qty)
@@ -778,7 +784,7 @@ class PaperTradingService:
             source_score=position.source_score,
             source_confidence=position.source_confidence,
             opened_at=position.created_at,
-            closed_at=datetime.utcnow(),
+            closed_at=datetime.now(timezone.utc),
             exit_reason="MANUAL",
             exit_source="MANUAL",
         )
@@ -789,7 +795,7 @@ class PaperTradingService:
         try:
             tx = PaperTransaction(
                 account_id=int(account.id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=position.symbol,
                 action="SELL",
                 qty=int(order.qty),
@@ -807,7 +813,7 @@ class PaperTradingService:
         else:
             position.qty = q_qty(dec(position.qty) - order_qty)
             position.current_price = fill_price
-            position.updated_at = datetime.utcnow()
+            position.updated_at = datetime.now(timezone.utc)
             updated_position = position
         try:
             trading_logger.info(
@@ -822,7 +828,7 @@ class PaperTradingService:
             )
         except Exception:
             pass
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self._record_execution_event(
             "EXIT_FILLED",
             order.symbol,
@@ -994,7 +1000,7 @@ class PaperTradingService:
             if alert.account_id != account.id:
                 return
         alert.status = "TRIGGERED"
-        alert.triggered_at = datetime.utcnow()
+        alert.triggered_at = datetime.now(timezone.utc)
         alert.triggered_price = float(triggered_price)
         self.db.commit()
         try:
@@ -1046,7 +1052,7 @@ class PaperTradingService:
             lifecycle_state="EXIT_FILLED",
             notes=f"Auto exit: {reason} (Source: {source})",
             filled_price=fill_price_dec,
-            filled_at=datetime.utcnow(),
+            filled_at=datetime.now(timezone.utc),
         )
         self.db.add(order)
         self.db.flush()
@@ -1066,7 +1072,7 @@ class PaperTradingService:
             source_score=position.source_score,
             source_confidence=position.source_confidence,
             opened_at=position.created_at,
-            closed_at=datetime.utcnow(),
+            closed_at=datetime.now(timezone.utc),
             exit_reason=reason,
             exit_source=source,
         )
@@ -1076,7 +1082,7 @@ class PaperTradingService:
 
         # Credit account and remove position
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price_dec * dec(position.qty)))
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self._record_execution_event(
             "EXIT_FILLED",
             position.symbol,
@@ -1119,7 +1125,7 @@ class PaperTradingService:
         try:
             tx = PaperTransaction(
                 account_id=int(account.id),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=position.symbol,
                 action="AUTO_EXIT",
                 qty=int(position.qty),
@@ -1189,27 +1195,64 @@ class PaperTradingService:
         for order in pending_orders:
             price = price_cache.get(order.symbol)
             if price:
-                order.last_evaluated_at = datetime.utcnow()
+                order.last_evaluated_at = datetime.now(timezone.utc)
                 order.last_seen_ltp = price.current_price
                 self._try_fill_order(account, order, price.current_price)
 
     def _load_price_cache(self, symbols: set[str]) -> dict[str, PriceSnapshot]:
         cache: dict[str, PriceSnapshot] = {}
-        for symbol in sorted(symbols):
-            normalized = symbol.strip().upper()
-            if not normalized:
-                continue
-            try:
-                cache[normalized] = self._price_snapshot(normalized)
-            except Exception:
-                self.logger.exception("Failed to load price snapshot for symbol=%s", normalized)
+        if not symbols:
+            return cache
+        normalized = {s.strip().upper() for s in symbols if s.strip()}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(normalized), 10)) as pool:
+            fut_map = {pool.submit(self._price_snapshot, sym): sym for sym in normalized}
+            for future in concurrent.futures.as_completed(fut_map):
+                sym = fut_map[future]
+                try:
+                    cache[sym] = future.result()
+                except Exception:
+                    self.logger.exception("Failed to load price snapshot for symbol=%s", sym)
         return cache
 
     def _price_snapshot(self, symbol: str) -> PriceSnapshot:
+        import time as _time
+        now = _time.monotonic()
+        with _price_snapshot_cache_lock:
+            cached = _price_snapshot_cache.get(symbol)
+            if cached and (now - cached[1]) < _PRICE_CACHE_TTL_SEC:
+                return cached[0]
+
         from .fyers_service import _run_sync
         candles = _run_sync(self.fyers_service.fetch_ohlcv(symbol, AnalysisMode.swing, "1d", 90))
         if not candles:
             self.logger.warning("No OHLCV candles available for price snapshot | symbol=%s", symbol)
+            try:
+                import yfinance as yf
+                clean = symbol.replace("NSE:", "").replace("-EQ", "").strip()
+                yf_sym = f"{clean}.NS"
+                df = yf.download(yf_sym, period="6mo", interval="1d", progress=False)
+                if df is not None and not df.empty:
+                    candles = []
+                    for index, row in df.iterrows():
+                        dt = index
+                        if hasattr(dt, "to_pydatetime"):
+                            dt = dt.to_pydatetime()
+                        if dt.tzinfo is not None:
+                            dt = dt.replace(tzinfo=None)
+                        open_val = float(row["Open"]) if isinstance(row["Open"], (int, float)) else float(row["Open"].iloc[0])
+                        high_val = float(row["High"]) if isinstance(row["High"], (int, float)) else float(row["High"].iloc[0])
+                        low_val = float(row["Low"]) if isinstance(row["Low"], (int, float)) else float(row["Low"].iloc[0])
+                        close_val = float(row["Close"]) if isinstance(row["Close"], (int, float)) else float(row["Close"].iloc[0])
+                        vol_val = int(row["Volume"]) if isinstance(row["Volume"], (int, float)) else int(row["Volume"].iloc[0])
+                        candles.append(OHLCVPoint(
+                            timestamp=dt, open=open_val, high=high_val,
+                            low=low_val, close=close_val, volume=vol_val,
+                        ))
+                    self.logger.info("YFINANCE_CANDLES_FALLBACK | symbol=%s | candles=%s", symbol, len(candles))
+                else:
+                    self.logger.warning("YFINANCE_CANDLES_EMPTY | symbol=%s", symbol)
+            except Exception as yf_err:
+                self.logger.warning("YFINANCE_CANDLES_FALLBACK_FAILED | symbol=%s | error=%s", symbol, str(yf_err)[:120])
 
         low_level_price = None
         if candles:
@@ -1218,7 +1261,7 @@ class PaperTradingService:
         import asyncio; from ..db.session import main_event_loop
         try:
             future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(symbol), main_event_loop)
-            ltp = future.result(timeout=2)
+            ltp = future.result(timeout=5)
         except Exception as e:
             self.logger.exception(f'Error fetching ltp: {e}')
             ltp = None
@@ -1235,7 +1278,7 @@ class PaperTradingService:
             else:
                 current_price = 0.0
                 source = "NO_DATA"
-        if current_price <= 0 and settings.app_env == "test":
+        if current_price is not None and current_price <= 0 and settings.app_env == "test":
             current_price = 150.0
             source = "TEST_MOCK"
         elif current_price is None:
@@ -1243,27 +1286,46 @@ class PaperTradingService:
 
         if current_price <= 0 and source != "TEST_MOCK":
             self.logger.warning("PRICE_SNAPSHOT_FAILURE | No current price available for symbol %s; using 0.0 default", symbol)
+            # Last resort: try yfinance LTP directly
+            if settings.app_env != "test":
+                try:
+                    import yfinance as yf
+                    clean = symbol.replace("NSE:", "").replace("-EQ", "").strip()
+                    yf_sym = f"{clean}.NS"
+                    ticker = yf.Ticker(yf_sym)
+                    data = ticker.history(period="5d")
+                    if not data.empty:
+                        current_price = round(float(data["Close"].iloc[-1]), 2)
+                        source = "YFINANCE_LTP"
+                        self.logger.info("PRICE_SNAPSHOT_YFINANCE_LTP | symbol=%s | ltp=%s", symbol, current_price)
+                except Exception:
+                    pass
         else:
             self.logger.info("PRICE_SNAPSHOT_SUCCESS | symbol=%s | ltp=%s | source=%s", symbol, current_price, source)
 
-        frame = pd.DataFrame(
-            {
-                "high": [item.high for item in candles],
-                "low": [item.low for item in candles],
-                "close": [item.close for item in candles],
-            }
-        )
+        frame = pd.DataFrame()
+        if candles:
+            frame = pd.DataFrame(
+                {
+                    "high": [item.high for item in candles],
+                    "low": [item.low for item in candles],
+                    "close": [item.close for item in candles],
+                }
+            )
         ema_20 = float(EMAIndicator(close=frame["close"], window=20).ema_indicator().iloc[-1]) if len(frame) >= 20 else None
-        supertrend = self._approx_supertrend(frame)
-        return PriceSnapshot(
+        supertrend = self._approx_supertrend(frame) if not frame.empty else None
+        result = PriceSnapshot(
             symbol=symbol,
             current_price=current_price,
-            candles=candles[-60:],
+            candles=candles[-60:] if candles else [],
             ema_20=ema_20,
             supertrend=supertrend,
             source=source,
             fetched_at=datetime.now(timezone.utc),
         )
+        with _price_snapshot_cache_lock:
+            _price_snapshot_cache[symbol] = (result, _time.monotonic())
+        return result
 
     def _approx_supertrend(self, frame: pd.DataFrame) -> float | None:
         if len(frame) < 10:
@@ -1293,17 +1355,29 @@ class PaperTradingService:
         invested = Decimal("0")
         unrealized = Decimal("0")
         for position in positions:
-            current_price = dec(price_cache.get(position.symbol).current_price if position.symbol in price_cache else position.current_price)
+            cached = price_cache.get(position.symbol)
+            raw_price = cached.current_price if (cached and cached.current_price > 0) else position.current_price
+            current_price = dec(raw_price if raw_price > 0 else position.avg_entry_price)
             invested += dec(position.avg_entry_price) * dec(position.qty)
             unrealized += (current_price - dec(position.avg_entry_price)) * dec(position.qty)
         reserved_cash = Decimal("0")
         for order in orders:
             if order.status == "PENDING" and order.side == "BUY" and order.order_type in ["LIMIT", "GTT"]:
-                order_price = order.order_price or price_cache.get(order.symbol, self._price_snapshot(order.symbol)).current_price
-                reserved_cash += dec(order_price) * dec(order.qty)
+                cached = price_cache.get(order.symbol)
+                snap_price = cached.current_price if cached else None
+                if order.order_price and order.order_price > 0:
+                    order_price = dec(order.order_price)
+                elif snap_price and snap_price > 0:
+                    order_price = dec(snap_price)
+                else:
+                    order_price = dec(position.avg_entry_price) if positions else dec("100")
+                reserved_cash += order_price * dec(order.qty)
         position_value = sum(
             (
-                dec(price_cache.get(item.symbol).current_price if item.symbol in price_cache else item.current_price) * dec(item.qty)
+                dec(
+                    (price_cache.get(item.symbol).current_price if item.symbol in price_cache and price_cache[item.symbol].current_price > 0 else item.current_price)
+                    if price_cache.get(item.symbol) else item.current_price
+                ) * dec(item.qty)
                 for item in positions
             ),
             Decimal("0"),
@@ -1331,6 +1405,11 @@ class PaperTradingService:
         current_price = dec(position.current_price)
         avg_entry = dec(position.avg_entry_price)
         qty = dec(position.qty)
+        # If current_price is 0 or invalid, use snapshot price or avg_entry (break-even fallback)
+        if current_price <= 0 and snapshot and snapshot.current_price > 0:
+            current_price = dec(snapshot.current_price)
+        elif current_price <= 0:
+            current_price = avg_entry
         unrealized = q_pnl((current_price - avg_entry) * qty)
         unrealized_pct = q_pnl(((current_price - avg_entry) / avg_entry) * Decimal("100")) if avg_entry else Decimal("0.00")
         risk_reward = None
@@ -1864,7 +1943,7 @@ class PaperTradingService:
         account.starting_balance = float(amount)
         # Adjust cash balance by the delta so the user's relative balance is preserved
         account.cash_balance = float(account.cash_balance) + delta
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.logger.info("Updated starting capital | account_id=%s | amount=%s", account.id, amount)
         return self.get_dashboard()

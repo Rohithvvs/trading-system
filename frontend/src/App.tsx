@@ -1,12 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
 
 import { fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
-import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
-import { CandidateTable } from "./components/CandidateTable";
-import { DashboardHeader } from "./components/DashboardHeader";
+
+const AllAnalyzedStocksTable = lazy(() =>
+  import("./components/AllAnalyzedStocksTable").then((m) => ({ default: m.AllAnalyzedStocksTable })),
+);
+const CandidateTable = lazy(() =>
+  import("./components/CandidateTable").then((m) => ({ default: m.CandidateTable })),
+);
 import { isMarketOpenForDisplay, checkCanPlaceBuyOrder, showMarketClosedAlert } from "./utils/tradingHours";
-import { SummaryRow } from "./components/SummaryRow";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -22,11 +25,11 @@ import type {
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { prefetchAppData } from "./utils/prefetchAppData";
-import { ChartSkeleton, PanelSkeleton, ScannerSkeleton } from "./components/Skeleton";
+import { ChartSkeleton, PanelSkeleton } from "./components/Skeleton";
 import { AppShell } from "./layout/AppShell";
 import { EmptyState, useToast } from "./design-system";
 import { ScannerProgress } from "./components/ScannerProgress";
-import { InfrastructureStatus } from "./components/InfrastructureStatus";
+import { StatusCards } from "./components/StatusCards";
 import { AdminRoute } from "./components/AdminRoute";
 import FyersCallback from "./components/FyersCallback";
 
@@ -108,6 +111,7 @@ export default function App() {
     eta_sec: 0,
   });
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
+  const [lastScanDuration, setLastScanDuration] = useState<number | null>(null);
 
   const universesMapped = useMemo(
     () => universes.map(({ name, count }) => ({ name, count })),
@@ -124,6 +128,7 @@ export default function App() {
       setSelectedSymbol(symbol);
       setDetailViewOpen(true);
       navigate(`/scanner?symbol=${encodeURIComponent(symbol)}`, { replace: true });
+      import("./utils/researchPrefetcher").then(({ markPrefetched }) => markPrefetched(symbol));
     },
     [navigate],
   );
@@ -163,9 +168,11 @@ export default function App() {
     void fetchUniverses().then(setUniverses).catch((err) => console.warn("Failed to load universes", err));
   }, []);
 
-  // Deep-link: /scanner?symbol=RELIANCE opens stock detail
+  // Deep-link: /scanner?symbol=RELIANCE opens stock detail (only on initial load)
+  const initialLoad = useRef(true);
   useEffect(() => {
-    if (symbolParam) {
+    if (initialLoad.current && symbolParam) {
+      initialLoad.current = false;
       setSelectedSymbol(symbolParam.toUpperCase());
       setDetailViewOpen(true);
     }
@@ -269,9 +276,14 @@ export default function App() {
         },
       );
 
+      if (scanStartTime) setLastScanDuration(Math.round((Date.now() - scanStartTime) / 1000));
       applyScanResult(response, "fresh");
       toast.success("Scan complete", `${response.buy_candidate_symbols?.length ?? 0} BUY · ${response.watch_candidate_symbols?.length ?? 0} WATCH`);
     } catch (requestError: any) {
+      if (requestError?.scanInProgress) {
+        toast.info("Scanner is already running. Please wait for it to complete.");
+        return;
+      }
       console.error("[scanner] scanner request failed", requestError);
       const detail = requestError?.response?.data?.detail || requestError?.detail || null;
 
@@ -363,143 +375,138 @@ export default function App() {
     navigate("/paper");
   }, [navigate]);
 
-  const scannerView =
-    detailViewOpen && selectedRow ? (
-      <main className="page-container detail-screen-layout">
-        <Suspense fallback={<ViewFallback />}>
-          <StockDetailPanel
-            row={selectedRow}
-            onBack={handleDetailBack}
-            onSendToPaperTrading={sendRowToPaperTrading}
+  const scannerListView = useMemo(() => (
+    <div className="scanner-center">
+      <header className="page-hero scanner-page-hero">
+        <div>
+          <p className="ds-label">Scanner</p>
+          <h1 className="ds-display">Scanner</h1>
+          <p className="ds-muted">Favorites and scan results from the shared swing scanner.</p>
+        </div>
+        <div className="page-hero__actions scanner-header-right">
+          <button
+            type="button"
+            className="button ghost-button"
+            onClick={() => navigate("/markets")}
+          >
+            Run from Markets
+          </button>
+          <StatusCards
+            compact
+            lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
+            isLoading={isLoading}
+            scannedSymbols={screenerResult?.scanned_symbols ?? null}
+            durationSec={lastScanDuration}
           />
-        </Suspense>
-      </main>
-    ) : (
-      <>
-        <DashboardHeader
-          isLoading={isLoading}
-          lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
-          marketStatus={marketStatus}
-          search={filters.search}
-          onSearchChange={handleSearchChange}
-          onRunScanner={handleRunScanner}
-          topN={topN}
-          lookback={lookback}
-          timeframe={timeframe}
-          universe={selectedUniverse}
-          universes={universesMapped}
-          onTopNChange={setTopN}
-          onLookbackChange={setLookback}
-          onTimeframeChange={setTimeframe}
-          onUniverseChange={setSelectedUniverse}
-          theme={theme}
-          onThemeToggle={toggleTheme}
+        </div>
+      </header>
+
+      <div className="scanner-result-tabs" role="tablist" aria-label="Result views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!showAllAnalyzedStocks}
+          className={`button ${!showAllAnalyzedStocks ? "primary-button" : "ghost-button"}`}
+          onClick={() => setShowAllAnalyzedStocks(false)}
+        >
+          Favorites ({screenerResult?.shortlisted_symbols.length ?? 0})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={showAllAnalyzedStocks}
+          className={`button ${showAllAnalyzedStocks ? "primary-button" : "ghost-button"}`}
+          onClick={() => setShowAllAnalyzedStocks(true)}
+        >
+          Scan results ({screenerResult?.all_analyzed_stocks?.length ?? 0})
+        </button>
+      </div>
+
+      {isLoading ? (
+        <ScannerProgress
+          data={progressData}
+          error={error}
+          startTime={scanStartTime}
+          onRetry={handleRunScanner}
         />
+      ) : null}
 
-        <main className="page-container scanner-layout">
-          <div className="scanner-center">
-            <div className="scanner-status-bar">
-              <span className={`ds-status-pill ds-status-pill--${marketStatus === "Open" ? "online" : "offline"}`}>
-                <span className="ds-status-pill__dot" aria-hidden />
-                Market {marketStatus === "Open" ? "open" : "closed"}
-              </span>
-              <span className={`ds-status-pill ds-status-pill--${screenerResult ? "online" : "idle"}`}>
-                <span className="ds-status-pill__dot" aria-hidden />
-                {isLoading ? "Scanning…" : screenerResult ? "Scan ready" : "Awaiting scan"}
-              </span>
-              <span className="ds-caption scanner-status-bar__meta">
-                {selectedUniverse} · {timeframe}
-                {screenerResult?.scanned_symbols != null ? ` · ${screenerResult.scanned_symbols} scanned` : ""}
-              </span>
-            </div>
-            <InfrastructureStatus />
-            <SummaryRow metrics={summaryMetrics} />
+      {error ? (
+        <section className="panel error-state" role="alert">
+          <h2 className="ds-title">Scan failed</h2>
+          <p>{error}</p>
+          <button type="button" className="button primary-button" onClick={handleRunScanner} style={{ marginTop: 12 }}>
+            Retry scan
+          </button>
+        </section>
+      ) : null}
 
-            {screenerResult?.data_warning ? (
-              <section className="panel warning-box">
-                <strong>Data feed notice</strong>
-                <p>{screenerResult.data_warning}</p>
-              </section>
-            ) : null}
+      {!isLoading && !error ? (
+        showAllAnalyzedStocks ? (
+          <AllAnalyzedStocksTable stocks={screenerResult?.all_analyzed_stocks ?? []} />
+        ) : filteredRows.length ? (
+          <CandidateTable
+            rows={filteredRows}
+            selectedSymbol={selectedRow?.symbol ?? null}
+            onSelect={handleSelectSymbol}
+            onBuy={sendRowToPaperTrading}
+          />
+        ) : screenerResult ? (
+          <EmptyState
+            title="No matches for these filters"
+            description="Adjust signal, score range, or search from Markets to refine results."
+            primaryAction={{ label: "Open Markets", onClick: () => navigate("/markets"), variant: "secondary" }}
+          />
+        ) : null
+      ) : null}
 
-            <div className="scanner-result-tabs" role="tablist" aria-label="Result views">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!showAllAnalyzedStocks}
-                className={`button ${!showAllAnalyzedStocks ? "primary-button" : "ghost-button"}`}
-                onClick={() => setShowAllAnalyzedStocks(false)}
-              >
-                Favorites ({screenerResult?.shortlisted_symbols.length ?? 0})
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={showAllAnalyzedStocks}
-                className={`button ${showAllAnalyzedStocks ? "primary-button" : "ghost-button"}`}
-                onClick={() => setShowAllAnalyzedStocks(true)}
-              >
-                Scan results ({screenerResult?.all_analyzed_stocks?.length ?? 0})
-              </button>
-            </div>
+      {!screenerResult && !isLoading && !error ? (
+        <EmptyState
+          title="No scan results yet"
+          description="Configure and run the swing scanner from Markets. Results will appear here automatically."
+          primaryAction={{ label: "Go to Markets", onClick: () => navigate("/markets"), variant: "trade" }}
+        />
+      ) : null}
 
-            {isLoading ? (
-              <ScannerProgress
-                data={progressData}
-                error={error}
-                startTime={scanStartTime}
-                onRetry={handleRunScanner}
-              />
-            ) : null}
+      {screenerResult ? (
+        <section className="panel footer-note">
+          <p>
+            <strong>{screenerResult.screener_name}</strong> is advisory only. You make the final trading decision.
+          </p>
+          <p>
+            Sample rows: {analysisItems.length} analyzed · {filteredRows.length} visible after filters.
+          </p>
+        </section>
+      ) : null}
+    </div>
+  ), [
+    handleRunScanner, handleSelectSymbol, navigate,
+    screenerResult, isLoading, error, showAllAnalyzedStocks,
+    analysisItems, filteredRows, selectedRow?.symbol,
+    progressData, scanStartTime, lastScanDuration,
+  ]);
 
-            {error ? (
-              <section className="panel error-state" role="alert">
-                <h2 className="ds-title">Scan failed</h2>
-                <p>{error}</p>
-                <button type="button" className="button primary-button" onClick={handleRunScanner} style={{ marginTop: 12 }}>
-                  Retry scan
-                </button>
-              </section>
-            ) : null}
+  const scannerView = (
+    <main className="page-container" key="scanner-view">
+      <div style={{ display: detailViewOpen && selectedRow ? "block" : "none" }}>
+        <Suspense fallback={<ViewFallback />}>
+          {selectedRow && (
+            <StockDetailPanel
+              row={selectedRow}
+              onBack={handleDetailBack}
+              onSendToPaperTrading={sendRowToPaperTrading}
+            />
+          )}
+        </Suspense>
+      </div>
+      <div style={{ display: detailViewOpen && selectedRow ? "none" : "block" }}>
+        {scannerListView}
+      </div>
+    </main>
+  );
 
-            {!isLoading && !error ? (
-              showAllAnalyzedStocks ? (
-                <AllAnalyzedStocksTable stocks={screenerResult?.all_analyzed_stocks ?? []} />
-              ) : filteredRows.length ? (
-                <CandidateTable
-                  rows={filteredRows}
-                  selectedSymbol={selectedRow?.symbol ?? null}
-                  onSelect={handleSelectSymbol}
-                  onBuy={sendRowToPaperTrading}
-                />
-              ) : screenerResult ? (
-                <EmptyState
-                  title="No matches for these filters"
-                  description="Adjust signal, score range, or search to see more results."
-                  primaryAction={{ label: "Modify filters", onClick: () => setFilters(DEFAULT_FILTERS), variant: "secondary" }}
-                />
-              ) : null
-            ) : null}
-
-            {!screenerResult && !isLoading && !error ? <ScannerSkeleton /> : null}
-
-            {screenerResult ? (
-              <section className="panel footer-note">
-                <p>
-                  <strong>{screenerResult.screener_name}</strong> is advisory only. You make the final trading decision.
-                </p>
-                <p>
-                  Sample rows: {analysisItems.length} analyzed · {filteredRows.length} visible after filters.
-                </p>
-              </section>
-            ) : null}
-          </div>
-        </main>
-      </>
-    );
-
-  const paperDeskView = (
-    <div className="page-container page-container--wide">
+  const paperDeskView = useMemo(() => (
+    <div className="page-container page-container--wide" key="paper-desk">
       <Suspense fallback={<ViewFallback />}>
         <PaperTradingPage
           recommendationPrefill={paperTradingPrefill}
@@ -510,10 +517,10 @@ export default function App() {
         />
       </Suspense>
     </div>
-  );
+  ), [paperTradingPrefill, shortlistRows, screenerResult?.analysis?.generated_at]);
 
-  const profileView = (
-    <Suspense fallback={<ViewFallback />}>
+  const profileView = useMemo(() => (
+    <Suspense fallback={<ViewFallback />} key="profile">
       <UserProfilePage
         retailMode
         onNavigate={(view) => {
@@ -523,7 +530,7 @@ export default function App() {
         }}
       />
     </Suspense>
-  );
+  ), [navigate]);
 
   return (
     <AppShell>
@@ -535,7 +542,31 @@ export default function App() {
             path="/markets"
             element={
               <Suspense fallback={<ViewFallback />}>
-                <MarketsPage onLoadSavedScan={loadSavedScan} />
+                <MarketsPage
+                  onLoadSavedScan={loadSavedScan}
+                  screenerResult={screenerResult}
+                  isLoading={isLoading}
+                  scanError={error}
+                  marketStatus={marketStatus}
+                  selectedUniverse={selectedUniverse}
+                  timeframe={timeframe}
+                  summaryMetrics={summaryMetrics}
+                  onRunScanner={handleRunScanner}
+                  search={filters.search}
+                  onSearchChange={handleSearchChange}
+                  topN={topN}
+                  lookback={lookback}
+                  universe={selectedUniverse}
+                  universes={universesMapped}
+                  onTopNChange={setTopN}
+                  onLookbackChange={setLookback}
+                  onTimeframeChange={setTimeframe}
+                  onUniverseChange={setSelectedUniverse}
+                  theme={theme}
+                  onThemeToggle={toggleTheme}
+                  progressData={progressData}
+                  scanStartTime={scanStartTime}
+                />
               </Suspense>
             }
           />

@@ -447,13 +447,40 @@
   .app-topbar {
     min-width: 0;
     max-width: 100%;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .app-topbar__actions {
     min-width: 0;
     flex-wrap: nowrap;
     gap: 4px;
+  }
+
+  /* Mobile profile menu: bottom sheet style */
+  .nav-profile-menu--mobile {
+    position: fixed !important;
+    bottom: calc(var(--bottom-nav-height, 64px) + env(safe-area-inset-bottom, 0px)) !important;
+    top: auto !important;
+    left: var(--space-3, 12px) !important;
+    right: var(--space-3, 12px) !important;
+    width: auto !important;
+    min-width: 0 !important;
+    z-index: 1000 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+    padding: var(--space-2, 8px) !important;
+    animation: profile-slide-up 200ms ease-out;
+  }
+
+  .nav-profile-menu--mobile button {
+    padding: var(--space-3, 12px) var(--space-4, 16px) !important;
+    min-height: 48px !important;
+    font-size: 1rem !important;
+  }
+
+  @keyframes profile-slide-up {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
 }
 

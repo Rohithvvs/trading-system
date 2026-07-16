@@ -8,23 +8,18 @@ _backend_dir = str(Path(__file__).resolve().parent.parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from datetime import datetime
+from datetime import datetime, timezone
 from time import perf_counter
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 import traceback
-from datetime import date
 from .services.db_logger import log_to_db
-from sqlalchemy import select
-from .models.system_log import SystemLog
 
 from .core.logger import setup_logging
-import sys
 import logging
 
 # Fail-fast config validation
@@ -82,7 +77,7 @@ def _scheduler_listener(event):
     
     scheduled_time = getattr(event, "scheduled_run_time", None)
     scheduled_time_str = scheduled_time.isoformat() if scheduled_time else "unknown"
-    actual_time_str = datetime.datetime.utcnow().isoformat()
+    actual_time_str = datetime.datetime.now(timezone.utc).isoformat()
     
     if event.code == EVENT_JOB_SUBMITTED:
         _job_starts[event.job_id] = time.perf_counter()
@@ -597,7 +592,7 @@ async def lifespan(app: FastAPI):
                                 alert.condition == "<=" and ltp <= alert.target_price
                             )
                             if triggered:
-                                alert.last_triggered_at = datetime.utcnow()
+                                alert.last_triggered_at = datetime.now(timezone.utc)
                                 alert.last_message = f"{alert.symbol} {alert.condition} {alert.target_price} hit at {round(ltp, 2)}"
                         await db.commit()
                     except Exception:
@@ -690,6 +685,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
+    max_age=600,
 )
 
 
@@ -912,7 +908,7 @@ async def automated_screening_job():
             try:
                 token_row = await token_service.get_fyers_token_row(db)
                 token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
-                token_age = (datetime.utcnow() - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
+                token_age = (datetime.now(timezone.utc) - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
                 log_token_status(
                     scan_ctx,
                     token_exists=bool(token),
@@ -933,6 +929,8 @@ async def automated_screening_job():
                 import datetime
                 
                 startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
+                if startup_dt.tzinfo is None:
+                    startup_dt = startup_dt.replace(tzinfo=datetime.timezone.utc)
                 app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
                 
                 # Use centralized service for accurate market status (weekends + holidays)
@@ -959,7 +957,9 @@ async def automated_screening_job():
                 if last_scan:
                     last_scan_ts = last_scan.get("scan_timestamp")
                     last_scan_dt = datetime.datetime.fromisoformat(last_scan_ts)
-                    minutes_since = (datetime.datetime.utcnow() - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
+                    if last_scan_dt.tzinfo is None:
+                        last_scan_dt = last_scan_dt.replace(tzinfo=datetime.timezone.utc)
+                    minutes_since = (datetime.datetime.now(timezone.utc) - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
                     last_scan_res = "SUCCESS" if last_scan.get("valid_symbols", 0) > 0 else "NO_DATA"
                 else:
                     last_scan_ts = None
@@ -1001,7 +1001,7 @@ async def automated_screening_job():
                 import psutil
             except ImportError:
                 psutil = None
-            start_t_iso = datetime.datetime.utcnow().isoformat()
+            start_t_iso = datetime.datetime.now(timezone.utc).isoformat()
             
             # Record scanner memory before run
             from .services.diagnostics_service import diagnostics
@@ -1020,7 +1020,7 @@ async def automated_screening_job():
             diagnostics.record_scanner_run({
                 "scan_id": response.screener_name or f"scan-{start_t_iso}",
                 "start_time": start_t_iso,
-                "end_time": datetime.datetime.utcnow().isoformat(),
+                "end_time": datetime.datetime.now(timezone.utc).isoformat(),
                 "duration_ms": duration_ms,
                 "requested_symbols": response.scanned_symbols,
                 "valid_symbols": len(response.data_valid_symbols),

@@ -178,33 +178,33 @@ class DailyAnalyticsService:
         }
 
     def _trades_in_range(self, account_id: int, start: datetime, end: datetime) -> list[PaperTradeHistory]:
-        rows = list(
+        return list(
             self.db.scalars(
                 select(PaperTradeHistory)
-                .where(PaperTradeHistory.account_id == account_id)
+                .where(
+                    PaperTradeHistory.account_id == account_id,
+                    PaperTradeHistory.closed_at >= start,
+                    PaperTradeHistory.closed_at < end,
+                )
                 .order_by(PaperTradeHistory.closed_at.desc())
             )
         )
-        out = []
-        for t in rows:
-            closed = _aware(t.closed_at)
-            if closed and start <= closed < end:
-                out.append(t)
-        return out
 
     def _orders_in_range(self, account_id: int, start: datetime, end: datetime) -> list[PaperOrder]:
-        rows = list(
-            self.db.scalars(select(PaperOrder).where(PaperOrder.account_id == account_id))
+        from sqlalchemy import or_
+        return list(
+            self.db.scalars(
+                select(PaperOrder)
+                .where(
+                    PaperOrder.account_id == account_id,
+                    or_(
+                        (PaperOrder.created_at >= start) & (PaperOrder.created_at < end),
+                        (PaperOrder.filled_at >= start) & (PaperOrder.filled_at < end),
+                    ),
+                )
+                .order_by(PaperOrder.created_at.desc())
+            )
         )
-        out = []
-        for o in rows:
-            created = _aware(o.created_at)
-            filled = _aware(o.filled_at)
-            if created and start <= created < end:
-                out.append(o)
-            elif filled and start <= filled < end and o not in out:
-                out.append(o)
-        return out
 
     def _open_positions(self, account_id: int) -> list[PaperPosition]:
         return list(
@@ -215,6 +215,16 @@ class DailyAnalyticsService:
                 )
             )
         )
+
+    def _unrealized_pnl(self, positions: list[PaperPosition]) -> float:
+        total = 0.0
+        for p in positions:
+            current = float(p.current_price or 0)
+            avg = float(p.avg_entry_price or 0)
+            qty = float(p.qty or 0)
+            if current > 0 and avg > 0:
+                total += (current - avg) * qty
+        return total
 
     def _overview(
         self,
@@ -228,7 +238,7 @@ class DailyAnalyticsService:
         gross_profit = sum(float(t.pnl) for t in wins)
         gross_loss = abs(sum(float(t.pnl) for t in losses))
         realized = sum(float(t.pnl or 0) for t in trades)
-        unrealized = sum(float(p.unrealized_pnl or 0) for p in positions)
+        unrealized = self._unrealized_pnl(positions)
         capital = float(account.starting_balance or 1_000_000)
         invested = sum(float(dec(p.avg_entry_price) * dec(p.qty)) for p in positions)
         cash = float(account.cash_balance or 0)
@@ -345,7 +355,7 @@ class DailyAnalyticsService:
     def _portfolio(self, account: PaperTradingAccount, positions: list[PaperPosition]) -> dict[str, Any]:
         cash = float(account.cash_balance or 0)
         invested = sum(float(dec(p.avg_entry_price) * dec(p.qty)) for p in positions)
-        unrealized = sum(float(p.unrealized_pnl or 0) for p in positions)
+        unrealized = self._unrealized_pnl(positions)
         equity = cash + invested + unrealized
         start = float(account.starting_balance or 1_000_000)
         return {
@@ -401,7 +411,10 @@ class DailyAnalyticsService:
             })
         for p in positions:
             invested = float(dec(p.avg_entry_price) * dec(p.qty))
-            upnl = float(p.unrealized_pnl or 0)
+            current = float(p.current_price or 0)
+            avg = float(p.avg_entry_price or 0)
+            qty = float(p.qty or 0)
+            upnl = (current - avg) * qty if current > 0 and avg > 0 else 0.0
             ret = (upnl / invested * 100) if invested else 0.0
             opened = _aware(p.created_at)
             hold = ((datetime.now(timezone.utc) - opened).total_seconds() / 60.0) if opened else 0.0
@@ -462,7 +475,7 @@ class DailyAnalyticsService:
     def _risk(self, account: PaperTradingAccount, positions: list[PaperPosition], trades: list[PaperTradeHistory]) -> dict[str, Any]:
         sizes = [float(dec(p.avg_entry_price) * dec(p.qty)) for p in positions]
         start = float(account.starting_balance or 1_000_000)
-        equity = float(account.cash_balance or 0) + sum(sizes) + sum(float(p.unrealized_pnl or 0) for p in positions)
+        equity = float(account.cash_balance or 0) + sum(sizes) + self._unrealized_pnl(positions)
         largest = max(sizes) if sizes else 0.0
         smallest = min(sizes) if sizes else 0.0
         exposure = sum(sizes)
@@ -563,13 +576,15 @@ class DailyAnalyticsService:
     ) -> dict[str, Any]:
         sorted_t = sorted(trades, key=lambda t: _aware(t.closed_at) or datetime.min.replace(tzinfo=timezone.utc))
         equity = float(account.starting_balance or 1_000_000)
+        unrealized = self._unrealized_pnl(positions)
         equity_curve = []
         for t in sorted_t:
             equity += float(t.pnl or 0)
             closed = _aware(t.closed_at)
+            current_equity = equity + unrealized
             equity_curve.append({
                 "t": closed.isoformat() if closed else None,
-                "equity": round(equity, 2),
+                "equity": round(current_equity, 2),
                 "pnl": round(float(t.pnl or 0), 2),
             })
         hourly = self._time_analysis(trades, [])
@@ -781,7 +796,7 @@ class DailyAnalyticsService:
             row.lessons = lessons
         if tomorrow_plan is not None:
             row.tomorrow_plan = tomorrow_plan
-        row.updated_at = datetime.utcnow()
+        row.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(row)
         return self._get_journal(account.id, jdate)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from ..config import settings
 from ..schemas import ArticleItem
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class NewsService:
@@ -16,12 +16,15 @@ class NewsService:
                 if resp.status_code == 200:
                     data = resp.json()
                     for item in data.get("articles", [])[:10]:
+                        pub = datetime.fromisoformat(item.get("published_at")) if item.get("published_at") else datetime.now(timezone.utc)
+                        if pub.tzinfo is None:
+                            pub = pub.replace(tzinfo=timezone.utc)
                         results.append(ArticleItem(
                             title=item.get("title", ""),
                             description=item.get("description", ""),
                             source=item.get("source", {}).get("name", "unknown"),
                             url=item.get("url", ""),
-                            published_at=datetime.fromisoformat(item.get("published_at")) if item.get("published_at") else datetime.utcnow(),
+                            published_at=pub,
                             sentiment_score=0.0,
                         ))
                     return results
@@ -42,7 +45,7 @@ class NewsService:
                             description=t.get("Text"),
                             source="websearch",
                             url=t.get("FirstURL"),
-                            published_at=datetime.utcnow(),
+                            published_at=datetime.now(timezone.utc),
                             sentiment_score=0.0,
                         ))
                 return results

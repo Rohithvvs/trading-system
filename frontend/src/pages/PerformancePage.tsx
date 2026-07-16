@@ -11,26 +11,18 @@ const DailyAnalyticsPanel = lazy(() =>
 
 function formatEquity(v: number | null | undefined): string {
   if (v == null) return "—";
-  return `₹${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  return `₹${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
 function formatWinRate(v: number | null | undefined): string {
   if (v == null) return "—";
-  const rate = Number(v) * (Number(v) > 1 ? 1 : 100);
+  const rate = Number(v) > 1 ? Number(v) : Number(v) * 100;
   return `${rate.toFixed(1)}%`;
 }
 
 function formatProfitFactor(v: number | null | undefined): string {
   if (v == null) return "—";
   return Number(v).toFixed(2);
-}
-
-function formatDrawdown(v: number | null | undefined): string | null {
-  if (v == null) return null;
-  const abs = -Math.abs(Number(v));
-  const isPct = !String(v).includes(".") || Math.abs(Number(v)) < 5;
-  const isCurrency = Math.abs(Number(v)) >= 5;
-  return String(abs);
 }
 
 export function PerformancePage() {

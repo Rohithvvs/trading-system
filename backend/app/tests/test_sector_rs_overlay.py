@@ -182,7 +182,7 @@ async def test_sector_rs_evaluation_unmapped():
     
     result = await service.evaluate_sector_overlay(
         symbol="UNKNOWN_XYZ",
-        scan_date=datetime.utcnow(),
+        scan_date=datetime.now(timezone.utc),
         original_recommendation=original_recommendation
     )
     

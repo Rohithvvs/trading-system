@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useRef, memo } from "react";
 import { InfoTooltip } from './InfoTooltip';
 import { TOOLTIPS } from '../constants/tooltips';
 import { apiUrl } from '../config';
@@ -59,7 +59,7 @@ import { fetchPaperTradingEngineStatus } from "../api";
 function TradeDetailsModal({ trade, onClose }: { trade: PaperTradeHistoryItem | null; onClose: () => void }) {
   if (!trade) return null;
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose} style={{ zIndex: 9999 }}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }} tabIndex={-1} style={{ zIndex: 9999 }}>
       <div className="confirm-modal" onClick={e => e.stopPropagation()} style={{ minWidth: 400, maxWidth: 500 }}>
         <h2>Trade Exit Details</h2>
         <div style={{ marginTop: 16, marginBottom: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -656,6 +656,7 @@ export function PaperTradingPage({
 
     setIsBusy(true);
     setError(null);
+    setStatusMessage(null);
     try {
       if (editingOrderId) {
         const payload: any = {
@@ -674,22 +675,26 @@ export function PaperTradingPage({
       } else {
         const response = await placePaperOrder(ticket, idempotencyKey);
         setStatusMessage(response.message);
-        setIdempotencyKey(crypto.randomUUID()); // regenerate after successful submission
-        if (listTab === "orders") {
-          await loadPendingOrders(ticket.symbol);
-        } else if (listTab === "history") {
-          await loadTradeHistory(ticket.symbol);
-        } else {
-          await loadPositions(ticket.symbol);
-        }
+        setIdempotencyKey(crypto.randomUUID());
+        await Promise.all([
+          loadPendingOrders(ticket.symbol),
+          loadPositions(ticket.symbol),
+          loadTradeHistory(ticket.symbol),
+        ]);
         try {
           const acct = await fetchPaperAccountSummary();
           setAccountSummary(acct);
         } catch (e) {
-          // non-fatal
           console.warn('Failed to refresh account after placing order', e);
         }
+        // Reset form: keep symbol and current price, clear everything else
         setSelectedSymbol(ticket.symbol);
+        setTicket({
+          ...DEFAULT_TICKET,
+          symbol: ticket.symbol,
+          limitPrice: workspace?.current_price ?? null,
+          side: ticket.side,
+        });
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to place order.");
@@ -712,7 +717,7 @@ export function PaperTradingPage({
     setSelectedSymbol(normalized);
     // Scroll the order ticket into view
     try {
-      const el = document.querySelector(".paper-right") as HTMLElement | null;
+      const el = document.querySelector(".paper-ticket-section") as HTMLElement | null;
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {
       /* ignore */
@@ -758,7 +763,10 @@ export function PaperTradingPage({
     try {
       const response = await cancelPaperOrder(orderId);
       setStatusMessage(response.message);
-      await loadPositions(selectedSymbol);
+      await Promise.all([
+        loadPendingOrders(selectedSymbol),
+        loadPositions(selectedSymbol),
+      ]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to cancel order.");
     } finally {
@@ -792,11 +800,10 @@ export function PaperTradingPage({
     try {
       const response = await deletePaperOrder(orderId);
       setStatusMessage(response.message);
-      if (listTab === "orders") {
-        await loadPendingOrders(selectedSymbol);
-      } else {
-        await loadPositions(selectedSymbol);
-      }
+      await Promise.all([
+        loadPendingOrders(selectedSymbol),
+        loadPositions(selectedSymbol),
+      ]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to cancel order.");
     } finally {
@@ -809,13 +816,11 @@ export function PaperTradingPage({
     try {
       const response = await closePaperPosition(positionId);
       setStatusMessage(response.message);
-      if (listTab === "positions") {
-        await loadPositions(selectedSymbol);
-      } else if (listTab === "orders") {
-        await loadPendingOrders(selectedSymbol);
-      } else {
-        await loadTradeHistory(selectedSymbol);
-      }
+      await Promise.all([
+        loadPositions(selectedSymbol),
+        loadPendingOrders(selectedSymbol),
+        loadTradeHistory(selectedSymbol),
+      ]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to close position.");
     } finally {
@@ -834,7 +839,7 @@ export function PaperTradingPage({
     setSelectedSymbol(position.symbol);
     setListTab("orders");
     try {
-      const el = document.querySelector(".paper-right") as HTMLElement | null;
+      const el = document.querySelector(".paper-ticket-section") as HTMLElement | null;
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {
       /* ignore */
@@ -850,7 +855,13 @@ export function PaperTradingPage({
     setIsBusy(true);
     try {
       const resp = await squareOffAllPositions();
-      setDashboard(resp);
+      setDashboard({
+        ...resp,
+        open_orders: resp.open_orders ?? dashboard?.open_orders ?? [],
+        positions: resp.positions ?? [],
+        trades: resp.trades ?? dashboard?.trades ?? [],
+        order_history: resp.order_history ?? dashboard?.order_history ?? [],
+      });
       setStatusMessage("All positions squared off.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to square off all positions.");
@@ -995,6 +1006,135 @@ export function PaperTradingPage({
         </div>
       </section>
 
+      {/* TRADING WORKSPACE - Positions / Orders / History / Analytics / Daily / Alerts / Capital */}
+      <section className="panel paper-tabs-panel">
+        <div className="detail-tabs" role="tablist" aria-label="Paper trading data tabs">
+          {[
+            ["positions", "Positions"],
+            ["orders", "Orders"],
+            ["history", "History"],
+            ["analytics", "Analytics"],
+            ["daily-analytics", "Daily"],
+            ["alerts", "Alerts"],
+            ["account", "Capital"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              data-testid={`paper-tab-${id}`}
+              type="button"
+              className={`detail-tab ${listTab === id ? "is-active" : ""}`}
+              onClick={() => setListTab(id as PaperPanelTab)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {listTab === "positions" ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8, alignItems: 'center' }}>
+              <button type="button" className="button ghost-button" onClick={() => void handleSquareOffAll()} disabled={isBusy || !(dashboard?.positions?.length)}>
+                Square Off ALL
+              </button>
+              <InfoTooltip content={TOOLTIPS.PAPER_TRADING.SQUARE_OFF_ALL} />
+            </div>
+            {dashboard === null ? (
+              <TableSkeleton rows={5} cols={6} />
+            ) : (dashboard.positions?.length ?? 0) === 0 ? (
+              <div className="ds-empty" role="status">
+                <h3 className="ds-empty__title">No open positions</h3>
+                <p className="ds-empty__desc">Place a BUY order to open your first paper position.</p>
+              </div>
+            ) : (
+              <PositionsTable
+                positions={dashboard.positions}
+                selectedSymbol={selectedSymbol}
+                onSelect={(symbol) => {
+                  setSelectedSymbol(symbol);
+                  void loadDashboard(symbol);
+                }}
+                onClose={(positionId) => void handleClosePosition(positionId)}
+                onExit={(position) => handleExitOpenTicket(position)}
+              />
+            )}
+          </>
+        ) : null}
+
+        {listTab === "orders" ? (
+          dashboard === null ? (
+            <TableSkeleton rows={5} cols={6} />
+          ) : (dashboard.open_orders?.length ?? 0) === 0 ? (
+            <div className="ds-empty" role="status">
+              <h3 className="ds-empty__title">No open orders</h3>
+              <p className="ds-empty__desc">Use the order ticket to place a limit or market order.</p>
+            </div>
+          ) : (
+            <OrdersTable
+              orders={dashboard.open_orders}
+              selectedSymbol={selectedSymbol}
+              onSelect={(symbol) => {
+                setSelectedSymbol(symbol);
+                void loadDashboard(symbol);
+              }}
+              onEdit={(order) => handleEditOrder(order)}
+              onDelete={(orderId) => void handleDeleteOrder(orderId)}
+            />
+          )
+        ) : null}
+
+        {listTab === "history" ? (
+          dashboard === null ? (
+            <TableSkeleton rows={5} cols={6} />
+          ) : (dashboard.trades?.length ?? 0) === 0 ? (
+            <div className="ds-empty" role="status">
+              <h3 className="ds-empty__title">No trade history</h3>
+              <p className="ds-empty__desc">Closed trades will appear here after you exit positions.</p>
+            </div>
+          ) : (
+            <HistoryTable trades={dashboard.trades} selectedTrade={selectedTrade} setSelectedTrade={setSelectedTrade} />
+          )
+        ) : null}
+
+        {listTab === "analytics" ? (
+          <Suspense
+            fallback={
+              <section aria-busy="true">
+                <MetricCardSkeleton count={8} />
+                <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+                  <ChartSkeleton height={200} />
+                  <ChartSkeleton height={200} />
+                </div>
+              </section>
+            }
+          >
+            <AnalyticsPanel />
+          </Suspense>
+        ) : null}
+        {listTab === "daily-analytics" ? (
+          <Suspense
+            fallback={
+              <section className="panel" aria-busy="true">
+                <MetricCardSkeleton count={6} />
+                <div style={{ marginTop: 12 }}>
+                  <ChartSkeleton height={180} />
+                </div>
+              </section>
+            }
+          >
+            <DailyAnalyticsPanel />
+          </Suspense>
+        ) : null}
+        {listTab === "alerts" ? (
+          <AlertsPanel onRefresh={() => void loadPositions(selectedSymbol)} />
+        ) : null}
+        {listTab === "account" ? (
+          <AccountPanel
+            onAccountUpdate={(a) => setAccountSummary(a)}
+            onDashboardUpdate={(d) => setDashboard(d)}
+          />
+        ) : null}
+      </section>
+
       <AccountSummaryStrip dashboard={dashboard} />
 
       {!retailMode ? (
@@ -1007,11 +1147,8 @@ export function PaperTradingPage({
         onQuickSell={(symbol?: string) => handleQuickOrder("SELL", symbol)}
       />
 
-      {statusMessage ? <section className="panel success-banner" role="status"><p>{statusMessage}</p></section> : null}
-      {error ? <section className="panel error-state" role="alert"><h2>Paper trading action failed</h2><p>{error}</p></section> : null}
-
       {confirmAction === "reset" ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-reset-title">
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-reset-title" onKeyDown={(e) => { if (e.key === 'Escape') setConfirmAction(null); }} tabIndex={-1}>
           <div className="confirm-modal">
             <h2 id="confirm-reset-title">Reset paper account?</h2>
             <p>This clears positions and orders and restores capital to ₹{resetBalance.toLocaleString("en-IN")}. This cannot be undone.</p>
@@ -1030,7 +1167,7 @@ export function PaperTradingPage({
       ) : null}
 
       {confirmAction === "square-off" ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-sqoff-title">
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-sqoff-title" onKeyDown={(e) => { if (e.key === 'Escape') setConfirmAction(null); }} tabIndex={-1}>
           <div className="confirm-modal">
             <h2 id="confirm-sqoff-title">Square off all positions?</h2>
             <p>Every open position will be closed at the current market price. This cannot be undone.</p>
@@ -1042,144 +1179,15 @@ export function PaperTradingPage({
         </div>
       ) : null}
 
-      <section className="paper-layout">
-        <section className="paper-left">
-          <section className="panel paper-tabs-panel">
-            <div className="detail-tabs" role="tablist" aria-label="Paper trading data tabs">
-              {[
-                ["positions", "Positions"],
-                ["orders", "Orders"],
-                ["history", "History"],
-                ["analytics", "Analytics"],
-                ["daily-analytics", "Daily"],
-                ["alerts", "Alerts"],
-                ["account", "Capital"],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  data-testid={`paper-tab-${id}`}
-                  type="button"
-                  className={`detail-tab ${listTab === id ? "is-active" : ""}`}
-                  onClick={() => setListTab(id as PaperPanelTab)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {listTab === "positions" ? (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8, alignItems: 'center' }}>
-                  <button type="button" className="button ghost-button" onClick={() => void handleSquareOffAll()} disabled={isBusy || !(dashboard?.positions?.length)}>
-                    Square Off ALL
-                  </button>
-                  <InfoTooltip content={TOOLTIPS.PAPER_TRADING.SQUARE_OFF_ALL} />
-                </div>
-                {dashboard === null ? (
-                  <TableSkeleton rows={5} cols={6} />
-                ) : (dashboard.positions?.length ?? 0) === 0 ? (
-                  <div className="ds-empty" role="status">
-                    <h3 className="ds-empty__title">No open positions</h3>
-                    <p className="ds-empty__desc">Place a BUY order to open your first paper position.</p>
-                  </div>
-                ) : (
-                  <PositionsTable
-                    positions={dashboard.positions}
-                    selectedSymbol={selectedSymbol}
-                    onSelect={(symbol) => {
-                      setSelectedSymbol(symbol);
-                      void loadDashboard(symbol);
-                    }}
-                    onClose={(positionId) => void handleClosePosition(positionId)}
-                    onExit={(position) => handleExitOpenTicket(position)}
-                  />
-                )}
-              </>
-            ) : null}
-
-            {listTab === "orders" ? (
-              dashboard === null ? (
-                <TableSkeleton rows={5} cols={6} />
-              ) : (dashboard.open_orders?.length ?? 0) === 0 ? (
-                <div className="ds-empty" role="status">
-                  <h3 className="ds-empty__title">No open orders</h3>
-                  <p className="ds-empty__desc">Use the order ticket to place a limit or market order.</p>
-                </div>
-              ) : (
-                <OrdersTable
-                  orders={dashboard.open_orders}
-                  selectedSymbol={selectedSymbol}
-                  onSelect={(symbol) => {
-                    setSelectedSymbol(symbol);
-                    void loadDashboard(symbol);
-                  }}
-                  onEdit={(order) => handleEditOrder(order)}
-                  onDelete={(orderId) => void handleDeleteOrder(orderId)}
-                />
-              )
-            ) : null}
-
-            {listTab === "history" ? (
-              dashboard === null ? (
-                <TableSkeleton rows={5} cols={6} />
-              ) : (dashboard.trades?.length ?? 0) === 0 ? (
-                <div className="ds-empty" role="status">
-                  <h3 className="ds-empty__title">No trade history</h3>
-                  <p className="ds-empty__desc">Closed trades will appear here after you exit positions.</p>
-                </div>
-              ) : (
-                <HistoryTable trades={dashboard.trades} selectedTrade={selectedTrade} setSelectedTrade={setSelectedTrade} />
-              )
-            ) : null}
-
-            {listTab === "analytics" ? (
-              <Suspense
-                fallback={
-                  <section aria-busy="true">
-                    <MetricCardSkeleton count={8} />
-                    <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-                      <ChartSkeleton height={200} />
-                      <ChartSkeleton height={200} />
-                    </div>
-                  </section>
-                }
-              >
-                <AnalyticsPanel />
-              </Suspense>
-            ) : null}
-            {listTab === "daily-analytics" ? (
-              <Suspense
-                fallback={
-                  <section className="panel" aria-busy="true">
-                    <MetricCardSkeleton count={6} />
-                    <div style={{ marginTop: 12 }}>
-                      <ChartSkeleton height={180} />
-                    </div>
-                  </section>
-                }
-              >
-                <DailyAnalyticsPanel />
-              </Suspense>
-            ) : null}
-            {listTab === "alerts" ? (
-              <AlertsPanel onRefresh={() => void loadPositions(selectedSymbol)} />
-            ) : null}
-            {listTab === "account" ? (
-              <AccountPanel
-                onAccountUpdate={(a) => setAccountSummary(a)}
-                onDashboardUpdate={(d) => setDashboard(d)}
-              />
-            ) : null}
-          </section>
-        </section>
-
-        <section className="paper-right">
+      {/* ORDER TICKET + SELECTED SYMBOL */}
+      <section className="paper-ticket-section">
+        <section className="paper-ticket-main">
           <OrderTicketCard
             symbols={ticketSymbols}
             scannerSymbols={scannerSymbols}
             ticket={ticket}
             onChange={setTicket}
-            onSymbolSelect={handleSymbolSelect}
+            onSymbolSelect={(symbol) => setTicket((prev) => ({ ...prev, symbol }))}
             onPlace={() => void handlePlaceOrder()}
             isBusy={isBusy}
             currentPrice={workspace?.current_price ?? null}
@@ -1188,8 +1196,14 @@ export function PaperTradingPage({
             availableCash={dashboard?.account.available_cash ?? null}
             scannerCandidate={selectedScannerCandidate}
             lastScanAt={lastScanAt}
+            statusMessage={statusMessage}
+            error={error}
+            onDismissStatus={() => setStatusMessage(null)}
+            onDismissError={() => setError(null)}
           />
+        </section>
 
+        <section className="paper-chart-sidebar">
           <section className="panel">
             <div className="panel-header">
               <div>
@@ -1208,14 +1222,15 @@ export function PaperTradingPage({
             </div>
             <PaperChart workspace={workspace} ticket={ticket} />
           </section>
-
-          <TradeDetailsCard
-            position={selectedPosition}
-            orders={selectedOrders}
-            onPositionChange={(position) => void handleSyncPosition(position)}
-          />
         </section>
       </section>
+
+      {/* TRADE DETAILS */}
+      <TradeDetailsCard
+        position={selectedPosition}
+        orders={selectedOrders}
+        onPositionChange={(position) => void handleSyncPosition(position)}
+      />
     </main>
   );
 }
@@ -1374,6 +1389,10 @@ function OrderTicketCard({
   availableCash,
   scannerCandidate,
   lastScanAt,
+  statusMessage,
+  error,
+  onDismissStatus,
+  onDismissError,
 }: {
   symbols: string[];
   scannerSymbols: string[];
@@ -1396,10 +1415,15 @@ function OrderTicketCard({
   availableCash: number | null;
   scannerCandidate: CandidateRow | null;
   lastScanAt: string | null;
+  statusMessage?: string | null;
+  error?: string | null;
+  onDismissStatus?: () => void;
+  onDismissError?: () => void;
 }) {
   const [trailingStopPercent, setTrailingStopPercent] = useState(2);
   const [allocationPercent, setAllocationPercent] = useState(10);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
   const [qtyError, setQtyError] = useState<string | null>(null);
   const LOT_SIZES: Record<string, number> = { "NIFTY-FUT": 50 };
   const scannerSet = useMemo(() => new Set(scannerSymbols), [scannerSymbols]);
@@ -1429,6 +1453,12 @@ function OrderTicketCard({
       notes: appendTicketNote(ticket.notes, `Sizing helper: ${allocationPercent}% of available cash.`),
     });
   }
+
+  useEffect(() => {
+    if (previewOpen && previewRef.current) {
+      previewRef.current.focus();
+    }
+  }, [previewOpen]);
 
   useEffect(() => {
     // Lot size validation for futures symbols ending with -FUT
@@ -1600,19 +1630,38 @@ function OrderTicketCard({
 
       <div className="paper-ticket-footer">
         <span className="helper-chip">Risk {riskMetrics.riskPercent.toFixed(2)}% of account</span>
-        <div>
-          {qtyError ? <div className="error-state" style={{ display: 'inline-block', padding: 8, marginRight: 8 }}>{qtyError}</div> : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {qtyError ? <div className="error-state" style={{ display: 'inline-block', padding: 8 }}>{qtyError}</div> : null}
+          {statusMessage ? (
+            <PaperToast type="success" onDismiss={onDismissStatus ?? (() => {})}>
+              {statusMessage}
+            </PaperToast>
+          ) : null}
+          {error ? (
+            <PaperToast type="error" onDismiss={onDismissError ?? (() => {})}>
+              {error}
+            </PaperToast>
+          ) : null}
           <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError || (ticket.side === "BUY" && !checkCanPlaceBuyOrder().allowed)}>
             {isBusy ? "Working..." : "Place paper order"}
           </button>
         </div>
       </div>
       {previewOpen ? (
-        <div className="panel" style={{ position: 'fixed', left: '50%', top: '20%', transform: 'translateX(-50%)', zIndex: 60, width: "95%", maxWidth: 520 }}>
+        <div
+          ref={previewRef}
+          className="panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="order-preview-title"
+          tabIndex={-1}
+          style={{ position: 'fixed', left: '50%', top: '20%', transform: 'translateX(-50%)', zIndex: 60, width: "95%", maxWidth: 520 }}
+          onKeyDown={(e) => { if (e.key === 'Escape') setPreviewOpen(false); }}
+        >
           <div className="panel-header">
             <div>
               <p className="section-label">Order preview</p>
-              <h2>Confirm order</h2>
+              <h2 id="order-preview-title">Confirm order</h2>
             </div>
           </div>
           <div style={{ padding: 12 }}>
@@ -1642,7 +1691,39 @@ function OrderTicketCard({
   );
 }
 
-function PositionsTable({
+function PositionCard({ position, selectedSymbol, onSelect, onClose, onExit }: {
+  position: PaperPosition;
+  selectedSymbol: string;
+  onSelect: (symbol: string) => void;
+  onClose: (positionId: number) => void;
+  onExit: (position: PaperPosition) => void;
+}) {
+  return (
+    <div className={`paper-card ${selectedSymbol === position.symbol ? "is-selected" : ""}`}>
+      <div className="paper-card__header">
+        <button type="button" className="paper-card__symbol" onClick={() => onSelect(position.symbol)}>{position.symbol}</button>
+        <span className={`paper-card__status ${position.unrealized_pnl >= 0 ? "paper-card__pnl-positive" : "paper-card__pnl-negative"}`}>
+          {formatCurrency(position.unrealized_pnl)} ({position.unrealized_pnl_percent.toFixed(2)}%)
+        </span>
+      </div>
+      <div className="paper-card__body">
+        <div className="paper-card__field"><span className="paper-card__field-label">Qty</span><span className="paper-card__field-value">{position.qty}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Avg</span><span className="paper-card__field-value">{position.avg_entry_price.toFixed(2)}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Current</span><span className="paper-card__field-value">{position.current_price?.toFixed(2) ?? "--"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Stop</span><span className="paper-card__field-value">{position.stop_loss?.toFixed(2) ?? "--"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Target</span><span className="paper-card__field-value">{position.target?.toFixed(2) ?? "--"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">R:R</span><span className="paper-card__field-value">{position.risk_reward_ratio?.toFixed(2) ?? "--"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Status</span><span className="paper-card__field-value">{formatLifecycle(position.lifecycle_state, position.paused_reason)}</span></div>
+      </div>
+      <div className="paper-card__actions">
+        <button type="button" className="button ghost-button" onClick={() => onExit(position)}>Exit</button>
+        <button type="button" className="button ghost-button" onClick={() => onClose(position.id)}>Square Off</button>
+      </div>
+    </div>
+  );
+}
+
+const PositionsTable = memo(function PositionsTable({
   positions,
   selectedSymbol,
   onSelect,
@@ -1660,7 +1741,8 @@ function PositionsTable({
   }
 
   return (
-    <div className="table-scroll">
+    <>
+      <div className="table-scroll paper-data-table">
         <table className="candidate-table">
         <thead>
           <tr>
@@ -1683,7 +1765,7 @@ function PositionsTable({
               <td><button type="button" className="text-button" onClick={() => onSelect(position.symbol)}>{position.symbol}</button></td>
               <td>{position.qty}</td>
               <td className="number-cell">{position.avg_entry_price.toFixed(2)}</td>
-              <td className="number-cell">{position.current_price.toFixed(2)}</td>
+              <td className="number-cell">{position.current_price?.toFixed(2) ?? "--"}</td>
               <td className={`number-cell ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatCurrency(position.unrealized_pnl)}</td>
               <td className={`number-cell ${position.unrealized_pnl_percent >= 0 ? "text-positive" : "text-negative"}`}>{position.unrealized_pnl_percent.toFixed(2)}%</td>
               <td className="number-cell">{position.stop_loss?.toFixed(2) ?? "--"}</td>
@@ -1698,11 +1780,46 @@ function PositionsTable({
           ))}
         </tbody>
       </table>
+      </div>
+      <div className="paper-cards">
+        {positions.map((position) => (
+          <PositionCard key={position.id} position={position} selectedSymbol={selectedSymbol} onSelect={onSelect} onClose={onClose} onExit={onExit} />
+        ))}
+      </div>
+    </>
+  );
+});
+
+function OrderCard({ order, selectedSymbol, onSelect, onEdit, onDelete }: {
+  order: PaperOrder;
+  selectedSymbol: string;
+  onSelect: (symbol: string) => void;
+  onEdit: (order: PaperOrder) => void;
+  onDelete: (orderId: number) => void;
+}) {
+  return (
+    <div className={`paper-card ${selectedSymbol === order.symbol ? "is-selected" : ""}`}>
+      <div className="paper-card__header">
+        <button type="button" className="paper-card__symbol" onClick={() => onSelect(order.symbol)}>{order.symbol}</button>
+        <span className={`status-tag ${order.status === "PENDING" ? "is-neutral" : order.status === "FILLED" ? "is-positive" : "is-risk"}`}>{order.status}</span>
+      </div>
+      <div className="paper-card__body">
+        <div className="paper-card__field"><span className="paper-card__field-label">Side</span><span className="paper-card__field-value">{order.side}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Type</span><span className="paper-card__field-value">{order.type}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Qty</span><span className="paper-card__field-value">{order.qty}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Price</span><span className="paper-card__field-value">{order.price?.toFixed(2) ?? "--"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Lifecycle</span><span className="paper-card__field-value">{formatLifecycle(order.lifecycle_state, order.paused_reason)}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Placed</span><span className="paper-card__field-value">{new Date(order.created_at).toLocaleString()}</span></div>
+      </div>
+      <div className="paper-card__actions">
+        <button type="button" className="button ghost-button" onClick={() => onEdit(order)}>Edit</button>
+        <button type="button" className="button ghost-button" onClick={() => onDelete(order.id)}>Cancel</button>
+      </div>
     </div>
   );
 }
 
-function OrdersTable({
+const OrdersTable = memo(function OrdersTable({
   orders,
   selectedSymbol,
   onSelect,
@@ -1720,43 +1837,50 @@ function OrdersTable({
   }
 
   return (
-    <div className="table-scroll">
-      <table className="candidate-table">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Side</th>
-            <th>Type</th>
-            <th>Qty</th>
-            <th>Order price</th>
-            <th>Placed</th>
-            <th>Status</th>
-            <th>Lifecycle</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((order) => (
-            <tr key={order.id} className={selectedSymbol === order.symbol ? "is-selected" : ""}>
-              <td><button type="button" className="text-button" onClick={() => onSelect(order.symbol)}>{order.symbol}</button></td>
-              <td>{order.side}</td>
-              <td>{order.type}</td>
-              <td>{order.qty}</td>
-              <td className="number-cell">{order.price?.toFixed(2) ?? "--"}</td>
-              <td>{new Date(order.created_at).toLocaleString()}</td>
-              <td><span className={`status-tag ${order.status === "PENDING" ? "is-neutral" : order.status === "FILLED" ? "is-positive" : "is-risk"}`}>{order.status}</span></td>
-              <td>{formatLifecycle(order.lifecycle_state, order.paused_reason)}</td>
-              <td style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="button ghost-button small-button" onClick={() => onEdit(order)}>Edit</button>
-                <button type="button" className="button ghost-button small-button" onClick={() => onDelete(order.id)}>Cancel</button>
-              </td>
+    <>
+      <div className="table-scroll paper-data-table">
+        <table className="candidate-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Side</th>
+              <th>Type</th>
+              <th>Qty</th>
+              <th>Order price</th>
+              <th>Placed</th>
+              <th>Status</th>
+              <th>Lifecycle</th>
+              <th>Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={order.id} className={selectedSymbol === order.symbol ? "is-selected" : ""}>
+                <td><button type="button" className="text-button" onClick={() => onSelect(order.symbol)}>{order.symbol}</button></td>
+                <td>{order.side}</td>
+                <td>{order.type}</td>
+                <td>{order.qty}</td>
+                <td className="number-cell">{order.price?.toFixed(2) ?? "--"}</td>
+                <td>{new Date(order.created_at).toLocaleString()}</td>
+                <td><span className={`status-tag ${order.status === "PENDING" ? "is-neutral" : order.status === "FILLED" ? "is-positive" : "is-risk"}`}>{order.status}</span></td>
+                <td>{formatLifecycle(order.lifecycle_state, order.paused_reason)}</td>
+                <td style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="button ghost-button small-button" onClick={() => onEdit(order)}>Edit</button>
+                  <button type="button" className="button ghost-button small-button" onClick={() => onDelete(order.id)}>Cancel</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="paper-cards">
+        {orders.map((order) => (
+          <OrderCard key={order.id} order={order} selectedSymbol={selectedSymbol} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />
+        ))}
+      </div>
+    </>
   );
-}
+});
 
 function formatLifecycle(state?: string | null, pausedReason?: string | null) {
   if (!state) return "--";
@@ -1764,53 +1888,81 @@ function formatLifecycle(state?: string | null, pausedReason?: string | null) {
   return state.replace(/_/g, " ");
 }
 
-function HistoryTable({ trades, selectedTrade, setSelectedTrade }: { trades: PaperTradeHistoryItem[]; selectedTrade: PaperTradeHistoryItem | null; setSelectedTrade: (t: PaperTradeHistoryItem | null) => void }) {
+function HistoryCard({ trade, onSelect }: { trade: PaperTradeHistoryItem; onSelect: (t: PaperTradeHistoryItem) => void }) {
+  return (
+    <div className="paper-card" onClick={() => onSelect(trade)} style={{ cursor: 'pointer' }}>
+      <div className="paper-card__header">
+        <span className="paper-card__symbol" style={{ color: 'var(--text)', cursor: 'pointer' }}>{trade.symbol}</span>
+        <span className={`paper-card__status ${trade.pnl >= 0 ? "paper-card__pnl-positive" : "paper-card__pnl-negative"}`}>
+          {formatCurrency(trade.pnl)} ({trade.pnl_percent.toFixed(2)}%)
+        </span>
+      </div>
+      <div className="paper-card__body">
+        <div className="paper-card__field"><span className="paper-card__field-label">Qty</span><span className="paper-card__field-value">{trade.qty}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Entry</span><span className="paper-card__field-value">{trade.entry_price.toFixed(2)}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Exit</span><span className="paper-card__field-value">{trade.exit_price.toFixed(2)}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Hold</span><span className="paper-card__field-value">{trade.holding_period_hours.toFixed(1)}h</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Exit Reason</span><span className="paper-card__field-value">{trade.exit_reason ?? "MANUAL"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Closed</span><span className="paper-card__field-value">{new Date(trade.closed_at).toLocaleString()}</span></div>
+      </div>
+    </div>
+  );
+}
+
+const HistoryTable = memo(function HistoryTable({ trades, selectedTrade, setSelectedTrade }: { trades: PaperTradeHistoryItem[]; selectedTrade: PaperTradeHistoryItem | null; setSelectedTrade: (t: PaperTradeHistoryItem | null) => void }) {
   if (!trades.length) {
     return <div className="empty-state"><h2>No trade history</h2><p>Closed paper trades will appear here with holding period and P&amp;L.</p></div>;
   }
 
   return (
-    <div className="table-scroll">
-      <table className="candidate-table">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Qty</th>
-            <th>Entry</th>
-            <th>Exit</th>
-            <th>P&amp;L</th>
-            <th>P&amp;L %</th>
-            <th>Signal</th>
-            <th>Score</th>
-            <th>Opened</th>
-            <th>Closed</th>
-            <th>Exit Reason</th>
-            <th>Hold</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trades.map((trade) => (
-            <tr key={trade.id} data-testid="history-row" onClick={() => setSelectedTrade(trade)} style={{ cursor: 'pointer' }}>
-              <td>{trade.symbol}</td>
-              <td>{trade.qty}</td>
-              <td className="number-cell">{trade.entry_price.toFixed(2)}</td>
-              <td className="number-cell">{trade.exit_price.toFixed(2)}</td>
-              <td className={`number-cell ${trade.pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatCurrency(trade.pnl)}</td>
-              <td className={`number-cell ${trade.pnl >= 0 ? "text-positive" : "text-negative"}`}>{trade.pnl_percent.toFixed(2)}%</td>
-              <td>{trade.source_signal ? <span className={`signal-badge signal-${trade.source_signal.toLowerCase()}`}>{trade.source_signal}</span> : "--"}</td>
-              <td className="number-cell">{trade.source_score?.toFixed(1) ?? "--"}</td>
-              <td>{new Date(trade.opened_at).toLocaleString()}</td>
-              <td>{new Date(trade.closed_at).toLocaleString()}</td>
-              <td>{trade.exit_reason ?? "MANUAL"}</td>
-              <td>{trade.holding_period_hours.toFixed(1)}h</td>
+    <>
+      <div className="table-scroll paper-data-table">
+        <table className="candidate-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Entry</th>
+              <th>Exit</th>
+              <th>P&amp;L</th>
+              <th>P&amp;L %</th>
+              <th>Signal</th>
+              <th>Score</th>
+              <th>Opened</th>
+              <th>Closed</th>
+              <th>Exit Reason</th>
+              <th>Hold</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {trades.map((trade) => (
+              <tr key={trade.id} data-testid="history-row" onClick={() => setSelectedTrade(trade)} style={{ cursor: 'pointer' }}>
+                <td>{trade.symbol}</td>
+                <td>{trade.qty}</td>
+                <td className="number-cell">{trade.entry_price.toFixed(2)}</td>
+                <td className="number-cell">{trade.exit_price.toFixed(2)}</td>
+                <td className={`number-cell ${trade.pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatCurrency(trade.pnl)}</td>
+                <td className={`number-cell ${trade.pnl >= 0 ? "text-positive" : "text-negative"}`}>{trade.pnl_percent.toFixed(2)}%</td>
+                <td>{trade.source_signal ? <span className={`signal-badge signal-${trade.source_signal.toLowerCase()}`}>{trade.source_signal}</span> : "--"}</td>
+                <td className="number-cell">{trade.source_score?.toFixed(1) ?? "--"}</td>
+                <td>{new Date(trade.opened_at).toLocaleString()}</td>
+                <td>{new Date(trade.closed_at).toLocaleString()}</td>
+                <td>{trade.exit_reason ?? "MANUAL"}</td>
+                <td>{trade.holding_period_hours.toFixed(1)}h</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="paper-cards">
+        {trades.map((trade) => (
+          <HistoryCard key={trade.id} trade={trade} onSelect={setSelectedTrade} />
+        ))}
+      </div>
       <TradeDetailsModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
-    </div>
+    </>
   );
-}
+});
 
 
 function AlertsPanel({ onRefresh }: { onRefresh?: () => void }) {
@@ -2126,7 +2278,7 @@ function TradeDetailsCard({
       </div>
       <div className="score-breakdown">
         <Metric label="Entry" value={position.avg_entry_price.toFixed(2)} />
-        <Metric label="Current" value={position.current_price.toFixed(2)} />
+        <Metric label="Current" value={position.current_price?.toFixed(2) ?? "--"} />
         <Metric label="Unrealized" value={formatCurrency(position.unrealized_pnl)} />
         <Metric label="Position size" value={position.qty} />
       </div>
@@ -2235,6 +2387,35 @@ function PaperChart({
         <span><i className="legend-swatch legend-supertrend" /> Supertrend</span>
         <span><i className="legend-swatch legend-entry" /> Entry / SL / Target</span>
       </div>
+    </div>
+  );
+}
+
+function PaperToast({ type, children, onDismiss }: { type: "success" | "error"; children: React.ReactNode; onDismiss: () => void }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setVisible(false);
+      onDismiss();
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  if (!visible) return null;
+
+  return (
+    <div className={`local-toast local-toast--${type}`} role={type === "error" ? "alert" : "status"} style={{ margin: 0, whiteSpace: 'nowrap' }}>
+      <span className="local-toast__icon">{type === "success" ? "✓" : "!"}</span>
+      <span>{children}</span>
+      <button
+        type="button"
+        onClick={() => { setVisible(false); onDismiss(); }}
+        style={{ background: 'none', border: 'none', color: 'inherit', padding: '2px 4px', cursor: 'pointer', fontSize: '1rem', lineHeight: 1, opacity: 0.7 }}
+        aria-label="Dismiss"
+      >
+        ×
+      </button>
     </div>
   );
 }

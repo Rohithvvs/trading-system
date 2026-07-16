@@ -176,6 +176,7 @@ class FyersService:
     _ohlcv_thread_lock = threading.Lock()
     _ltp_source_cache: dict[str, str] = {}
     _ltp_locks: dict[str, "asyncio.Lock"] = {}
+    _ltp_cache: dict[str, tuple[dict, float]] = {}
     _network_pool = __import__("concurrent.futures").futures.ThreadPoolExecutor(
         max_workers=max(50, _history_concurrency() * 3),
         thread_name_prefix="fyers_net",
@@ -307,7 +308,36 @@ class FyersService:
                     FyersService._ltp_source_cache[cache_key] = "FYERS_PRIMARY"
                     return ltp
 
-            # 5. Store NULL / None in DB to prevent repeated API calls
+            # 5. YFinance fallback when FYERS unavailable or fails
+            try:
+                import yfinance as yf
+                clean = symbol.replace("NSE:", "").replace("BSE:", "").replace("-INDEX", "").replace("-EQ", "")
+                yf_sym = f"{clean}.NS" if not clean.endswith(".NS") else clean
+                ticker = yf.Ticker(yf_sym)
+                data = ticker.history(period="2d")
+                if not data.empty:
+                    ltp = round(float(data["Close"].iloc[-1]), 2)
+                    try:
+                        fyers_logger.info("QUOTES | symbol=%s | ltp=%s | source=YFINANCE_FALLBACK", symbol, ltp)
+                    except Exception:
+                        pass
+                    self.logger.info("Fetched LTP from yfinance fallback | symbol=%s | ltp=%s", symbol, ltp)
+                    async with AsyncSessionLocal() as db:
+                        await db.execute(
+                            text(f"""
+                                INSERT INTO market_data.ltp_cache (symbol, ltp, updated_at)
+                                VALUES (:s, :ltp, CURRENT_TIMESTAMP)
+                                ON CONFLICT (symbol) DO UPDATE SET ltp = EXCLUDED.ltp, updated_at = EXCLUDED.updated_at
+                            """),
+                            {"s": cache_key, "ltp": float(ltp)}
+                        )
+                        await db.commit()
+                    FyersService._ltp_source_cache[cache_key] = "YFINANCE_FALLBACK"
+                    return ltp
+            except Exception as yf_err:
+                self.logger.warning("YFINANCE_LTP_FALLBACK_FAILED | symbol=%s | error=%s", symbol, str(yf_err)[:120])
+
+            # 6. Store NULL / None in DB to prevent repeated API calls
             async with AsyncSessionLocal() as db:
                 await db.execute(text(f"""
                     INSERT INTO market_data.ltp_cache (symbol, ltp, updated_at)
@@ -318,6 +348,151 @@ class FyersService:
                 )
                 await db.commit()
             FyersService._ltp_source_cache[cache_key] = "NO_DATA"
+            return None
+
+    async def fetch_quote(self, symbol: str) -> dict | None:
+        """Fetch both LTP and change_pct for a symbol.
+
+        Returns dict with keys: ltp, change_pct, change, source
+        or None on failure. Checks in-memory cache first, then DB cache,
+        then FYERS API, then yfinance fallback.
+        """
+        cache_key = self._cache_symbol(symbol)
+        start_t = time.time()
+
+        # Check in-memory cache (30s TTL)
+        cached_ltp = FyersService._ltp_cache.get(cache_key)
+        if cached_ltp:
+            val, ts = cached_ltp
+            if time.time() - ts < 30.0:
+                self.logger.info("FETCH_QUOTE_CACHE_HIT | symbol=%s | source=memory | key=%s", symbol, cache_key)
+                return val
+
+        # Check DB ltp_cache as fallback (15s TTL)
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(
+                text("SELECT ltp, updated_at FROM market_data.ltp_cache WHERE symbol = :s"),
+                {"s": cache_key}
+            )
+            row = res.mappings().first()
+            if row and row["ltp"] is not None:
+                updated_val = row["updated_at"]
+                if isinstance(updated_val, str):
+                    from dateutil.parser import parse
+                    updated_at = parse(updated_val).timestamp()
+                else:
+                    updated_at = updated_val.timestamp()
+                if time.time() - updated_at < 30.0:
+                    self.logger.info("FETCH_QUOTE_CACHE_HIT | symbol=%s | source=PG | ltp=%s", symbol, row["ltp"])
+                    return {"ltp": float(row["ltp"]), "change_pct": None, "change": None, "source": "PG_CACHE"}
+
+        if not self._is_fyers_configured():
+            self.logger.warning("FETCH_QUOTE_FYERS_NOT_CONFIGURED | symbol=%s", symbol)
+            fb = await self._fetch_yfinance_quote(symbol)
+            if fb:
+                return fb
+            return None
+
+        try:
+            client = self._client()
+            normalized = self._normalize_symbol(symbol)
+
+            def fetch_quotes():
+                with NetworkTimeoutContext(3.0):
+                    return client.quotes(data={"symbols": normalized})
+
+            response = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    FyersService._network_pool,
+                    fetch_quotes
+                ),
+                timeout=5.0
+            )
+            _check_fyers_response(response, symbol)
+        except FyersRateLimitError:
+            self.logger.warning("FETCH_QUOTE_RATE_LIMIT | symbol=%s | trying fallback", symbol)
+            fb = await self._fetch_yfinance_quote(symbol)
+            if fb:
+                return fb
+            return None
+        except FyersAuthExpiredError:
+            self.logger.warning("FETCH_QUOTE_AUTH_EXPIRED | symbol=%s | trying fallback", symbol)
+            fb = await self._fetch_yfinance_quote(symbol)
+            if fb:
+                return fb
+            return None
+        except Exception as exc:
+            elapsed = int((time.time() - start_t) * 1000)
+            self.logger.warning("FETCH_QUOTE_FAILED | symbol=%s | duration_ms=%s | error=%s", symbol, elapsed, str(exc)[:120])
+            fb = await self._fetch_yfinance_quote(symbol)
+            if fb:
+                return fb
+            return None
+
+        if not isinstance(response, dict):
+            return None
+
+        quotes = response.get("d") or []
+        if not quotes:
+            return None
+
+        value = quotes[0].get("v", {}) if isinstance(quotes[0], dict) else {}
+        ltp = value.get("lp") or value.get("ltp")
+        ch = value.get("ch")
+        chp = value.get("chp")
+
+        if ltp is None:
+            return None
+
+        try:
+            result = {
+                "ltp": float(ltp),
+                "change_pct": float(chp) if chp is not None else None,
+                "change": float(ch) if ch is not None else None,
+                "source": "FYERS_PRIMARY",
+            }
+            if not hasattr(FyersService, '_ltp_cache'):
+                FyersService._ltp_cache = {}
+            FyersService._ltp_cache[cache_key] = (result, time.time())
+            FyersService._ltp_source_cache[cache_key] = "FYERS_PRIMARY"
+            elapsed = int((time.time() - start_t) * 1000)
+            self.logger.info("FETCH_QUOTE_SUCCESS | symbol=%s | ltp=%s | source=FYERS | duration_ms=%s", symbol, ltp, elapsed)
+            return result
+        except (TypeError, ValueError) as exc:
+            self.logger.warning("FETCH_QUOTE_PARSE_ERROR | symbol=%s | error=%s", symbol, str(exc))
+            return None
+
+    async def _fetch_yfinance_quote(self, symbol: str) -> dict | None:
+        """Fallback quote fetch using yfinance."""
+        try:
+            import yfinance as yf
+            clean = symbol.replace("NSE:", "").replace("BSE:", "").replace("-INDEX", "").replace("-EQ", "")
+            yf_sym = f"{clean}.NS" if not clean.endswith(".NS") else clean
+            ticker = yf.Ticker(yf_sym)
+            data = ticker.history(period="2d")
+            if data.empty:
+                self.logger.warning("YF_QUOTE_EMPTY | symbol=%s | yf_sym=%s", symbol, yf_sym)
+                return None
+            last = data.iloc[-1]
+            prev = data.iloc[-2] if len(data) > 1 else last
+            ltp = round(float(last["Close"]), 2)
+            prev_close = round(float(prev["Close"]), 2)
+            change_pct = round(((ltp - prev_close) / prev_close) * 100, 2) if prev_close else None
+            result = {
+                "ltp": ltp,
+                "change_pct": change_pct,
+                "change": round(ltp - prev_close, 2) if prev_close else None,
+                "source": "YAHOO_FALLBACK",
+            }
+            cache_key = self._cache_symbol(symbol)
+            if not hasattr(FyersService, '_ltp_cache'):
+                FyersService._ltp_cache = {}
+            FyersService._ltp_cache[cache_key] = (result, time.time())
+            FyersService._ltp_source_cache[cache_key] = "YAHOO_FALLBACK"
+            self.logger.info("YF_QUOTE_SUCCESS | symbol=%s | ltp=%s", symbol, ltp)
+            return result
+        except Exception as exc:
+            self.logger.warning("YF_QUOTE_FAILED | symbol=%s | error=%s", symbol, str(exc)[:120])
             return None
 
     def fetch_quote_profile(self, symbol: str) -> dict[str, object]:
@@ -459,6 +634,18 @@ class FyersService:
                     resolution,
                 )
         
+                fallback = self._fetch_yfinance_candles(symbol, lookback_window, points)
+                if fallback:
+                    self.logger.info(
+                        "FYERS_OHLCV_FALLBACK | symbol=%s | mode=%s | resolution=%s | candles=%s | source=YFINANCE",
+                        symbol,
+                        mode.value,
+                        resolution,
+                        len(fallback),
+                    )
+                    self._store_ohlcv_cache(cache_key, lookback_window, fallback, "YFINANCE_FALLBACK")
+                    return fallback
+
             self.logger.warning(
                 "FYERS live data unavailable | symbol=%s | mode=%s | resolution=%s | returning empty | allow_mock=%s",
                 symbol,
@@ -802,8 +989,9 @@ class FyersService:
             clean_symbol = self._cache_symbol(symbol)
 
             cache_key = (clean_symbol, mode.value, resolution.lower())
+            _cache_ttl_minutes = 180  # 3 hours
             cache_reusable = await candle_store.is_cache_fresh(
-                clean_symbol, max_age_minutes=cache_ttl_minutes
+                clean_symbol, max_age_minutes=_cache_ttl_minutes
             ) or await candle_store.has_completed_daily_session(clean_symbol)
             if cache_reusable:
                 # Ensure cached DB has sufficient rows for the requested `points`.
@@ -1069,7 +1257,10 @@ class FyersService:
             raw_value = int(raw_value)
         if isinstance(raw_value, (int, float)):
             return datetime.fromtimestamp(raw_value, tz=timezone.utc)
-        return datetime.fromisoformat(str(raw_value))
+        dt = datetime.fromisoformat(str(raw_value))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
 
     def _to_float(self, value: object) -> float | None:
         try:
@@ -1106,7 +1297,7 @@ class FyersService:
             mode = "incremental"
 
         today_str = today_dt.isoformat()
-        self.logger.info(
+        self.logger.debug(
             "INCREMENTAL FETCH | symbol=%s | mode=%s | last_cached=%s | range_from=%s | range_to=%s",
             symbol,
             mode,

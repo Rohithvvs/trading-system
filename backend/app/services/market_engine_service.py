@@ -84,7 +84,7 @@ class MarketEngineService:
             async with db.begin():
                 session = await self._get_or_create_session(db)
                 session.status = "STARTING"
-                session.requested_start_at = datetime.utcnow()
+                session.requested_start_at = datetime.now(timezone.utc)
                 session.paused_reason = None
                 await db.refresh(session)
                 self.logger.info("Market engine start requested | session_id=%s", session.id)
@@ -95,7 +95,7 @@ class MarketEngineService:
             async with db.begin():
                 session = await self._get_or_create_session(db)
                 session.status = "STOPPED"
-                session.stopped_at = datetime.utcnow()
+                session.stopped_at = datetime.now(timezone.utc)
                 session.websocket_connected = False
                 await db.refresh(session)
                 self.logger.info("MARKET_ENGINE_STOPPED | session_id=%s", session.id)
@@ -106,7 +106,7 @@ class MarketEngineService:
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 session = await self._get_or_create_session(db)
-                session.last_heartbeat_at = datetime.utcnow()
+                session.last_heartbeat_at = datetime.now(timezone.utc)
                 
                 # Try to load symbols/positions for logging
                 try:
@@ -189,7 +189,7 @@ class MarketEngineService:
             session.token_status = "VALID"
             session.paused_reason = None
             if session.started_at is None:
-                session.started_at = datetime.utcnow()
+                session.started_at = datetime.now(timezone.utc)
                 positions_count = len((await db.scalars(select(PaperPosition.id).where(PaperPosition.status == "OPEN"))).all())
                 self.logger.info("MARKET_ENGINE_STARTED | session_id=%s | active_positions=%s | symbols=%s", session.id, positions_count, len(desired))
             await self._poll_missing_prices(desired)
@@ -239,7 +239,7 @@ class MarketEngineService:
             async with AsyncSessionLocal() as db:
                 await self._process_symbol(db, normalized, price, raw_symbol=symbol, is_reconciliation=is_reconciliation)
                 session = await self._get_or_create_session(db)
-                session.last_tick_at = datetime.utcnow()
+                session.last_tick_at = datetime.now(timezone.utc)
                 await db.commit()
         except Exception:
             self.logger.exception("Tick processing error for raw_symbol=%s canonical_symbol=%s", symbol, normalized)
@@ -258,7 +258,7 @@ class MarketEngineService:
         for order in orders:
             prior = order.lifecycle_state
             order.last_seen_ltp = price
-            order.last_evaluated_at = datetime.utcnow()
+            order.last_evaluated_at = datetime.now(timezone.utc)
             def _fill_order_sync(session, order_id, ltp):
                 # Multi-user safe: fill against the order's own account_id only
                 svc = PaperTradingService(session)  # system path — no user_id
@@ -311,7 +311,7 @@ class MarketEngineService:
             self.logger.debug("POSITION_MATCH_MISS | incoming_symbol=%s", symbol)
         else:
             for position in positions:
-                position.last_evaluated_at = datetime.utcnow()
+                position.last_evaluated_at = datetime.now(timezone.utc)
                 self.logger.info("POSITION_MATCH_FOUND | position_id=%s | symbol=%s", position.id, position.symbol)
                 
                 if is_reconciliation:
@@ -551,7 +551,7 @@ class MarketEngineService:
         from datetime import timedelta
         try:
             async with AsyncSessionLocal() as db:
-                five_mins_ago = datetime.utcnow() - timedelta(minutes=5)
+                five_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
                 # Find OPEN positions where last_reconciled_at is NULL or older than 5 mins
                 stmt = select(PaperPosition).where(
                     PaperPosition.status == "OPEN",
@@ -616,10 +616,10 @@ class MarketEngineService:
                 replay_start = max(times)
                 replay_start_utc = _normalize_utc(replay_start)
                 
-                gap_duration = _normalize_utc(datetime.utcnow()) - replay_start_utc
+                gap_duration = _normalize_utc(datetime.now(timezone.utc)) - replay_start_utc
                 if gap_duration < timedelta(minutes=1):
                     self.logger.info("RECONCILIATION_SKIPPED_NO_GAP | symbol=%s | gap_seconds=%s", position.symbol, gap_duration.total_seconds())
-                    position.last_reconciled_at = datetime.utcnow()
+                    position.last_reconciled_at = datetime.now(timezone.utc)
                     await db.commit()
                     return
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
@@ -62,6 +62,39 @@ export function AppShell({ children, topActions, title }: Props) {
     setSidebarCollapsed((c) => !c);
   }
 
+  const profileRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // Click outside + ESC to close profile menu
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [profileOpen]);
+
   const initials = (user?.full_name || user?.email || "U").slice(0, 1).toUpperCase();
   const navItems = developerMode ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
 
@@ -80,7 +113,7 @@ export function AppShell({ children, topActions, title }: Props) {
       {/* Desktop / tablet sidebar */}
       <aside className="app-sidebar" aria-label="Main navigation" data-collapsed={sidebarCollapsed ? "true" : "false"}>
         <div className="app-sidebar__brand">
-          <Link to="/markets" className="app-brand-link" aria-label="Go to Markets">
+          <Link to="/scanner" className="app-brand-link" aria-label="Go to Scanner">
             <span className="app-brand-mark" aria-hidden>
               TS
             </span>
@@ -175,7 +208,7 @@ export function AppShell({ children, topActions, title }: Props) {
             >
               SELL
             </button>
-            <div className="nav-profile-wrap">
+            <div className="nav-profile-wrap" ref={profileRef}>
               <button
                 type="button"
                 data-testid="nav-profile-menu"
@@ -192,14 +225,14 @@ export function AppShell({ children, topActions, title }: Props) {
                 </span>
               </button>
               {profileOpen ? (
-                <div className="nav-profile-menu" role="menu">
-                  <button type="button" role="menuitem" onClick={() => navigate("/profile")}>
+                <div className={`nav-profile-menu ${isMobile ? "nav-profile-menu--mobile" : ""}`} role="menu">
+                  <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/profile"); }}>
                     Profile
                   </button>
-                  <button type="button" role="menuitem" onClick={() => navigate("/profile?section=preferences")}>
+                  <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/profile?section=preferences"); }}>
                     Preferences
                   </button>
-                  <button type="button" role="menuitem" onClick={() => navigate("/paper")}>
+                  <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/paper"); }}>
                     Paper Desk
                   </button>
                   <button

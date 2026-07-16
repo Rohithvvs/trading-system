@@ -647,6 +647,7 @@ export function UserProfilePage({ onNavigate, retailMode = false }: Props) {
             }}
             onSaved={async (next) => {
               await persistPrefs(next);
+              return true;
             }}
           />
         ) : null}

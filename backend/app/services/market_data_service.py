@@ -2,6 +2,7 @@ import pandas as pd
 from datetime import datetime, timezone
 import time
 import random
+import asyncio
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import select, func
 from sqlalchemy.exc import OperationalError
@@ -334,18 +335,19 @@ class MarketDataService:
         self,
         symbols: list[str],
         timeframe: str,
-    ) -> dict[str, tuple[int, datetime | None]]:
+    ) -> dict[str, tuple[int, datetime | None, str | None]]:
         """
-        Return {universe_symbol: (row_count, latest_timestamp)} for a universe.
+        Return {universe_symbol: (row_count, latest_timestamp, stored_db_symbol)} for a universe.
 
         Resolves symbol-format drift (RELIANCE vs RELIANCE-EQ vs NSE:RELIANCE-EQ) so a warm
-        cache is not treated as a miss and forced through FYERS.
+        cache is not treated as a miss and forced through FYERS.  The 3rd element is the
+        actual stored symbol name, which callers can use directly without a second meta query.
         """
         if not symbols:
             return {}
 
-        meta: dict[str, tuple[int, datetime | None]] = {
-            symbol: (0, None) for symbol in symbols
+        meta: dict[str, tuple[int, datetime | None, str | None]] = {
+            symbol: (0, None, None) for symbol in symbols
         }
         # Map every DB variant -> original universe symbol(s)
         variant_to_universe: dict[str, list[str]] = {}
@@ -359,6 +361,7 @@ class MarketDataService:
 
         chunk_size = 300
         db_meta: dict[str, tuple[int, datetime | None]] = {}
+        db_symbol_names: dict[str, str] = {}
         for i in range(0, len(unique_variants), chunk_size):
             chunk = unique_variants[i : i + chunk_size]
             async with AsyncSessionLocal() as db:
@@ -377,26 +380,35 @@ class MarketDataService:
                 rows = (await db.execute(stmt)).all()
             for symbol, count, latest in rows:
                 db_meta[symbol] = (int(count or 0), latest)
+                db_symbol_names[symbol] = symbol
 
         # Prefer the variant with the richest history for each universe symbol
         for db_symbol, (count, latest) in db_meta.items():
             for universe_symbol in variant_to_universe.get(db_symbol, []):
-                prev_count, _ = meta[universe_symbol]
+                prev_count, _, _ = meta[universe_symbol]
                 if count > prev_count:
-                    meta[universe_symbol] = (count, latest)
+                    meta[universe_symbol] = (count, latest, db_symbol)
         return meta
 
     async def resolve_stored_symbol_map(
         self,
         symbols: list[str],
         timeframe: str,
+        meta_result: dict[str, tuple[int, datetime | None, str | None]] | None = None,
     ) -> dict[str, str]:
         """
         Map universe symbol -> best matching stored HistoricalCandle.symbol (if any).
-        Used so bulk loads hit the same rows the meta query found.
+        When meta_result from get_candle_meta_batch is provided, the stored symbol
+        name is extracted from it directly — no additional query needed.
         """
         if not symbols:
             return {}
+        if meta_result is not None:
+            return {
+                sym: db_sym
+                for sym, (_, _, db_sym) in meta_result.items()
+                if db_sym is not None
+            }
         variant_to_universe: dict[str, list[str]] = {}
         unique_variants: list[str] = []
         for symbol in symbols:
@@ -511,15 +523,23 @@ class MarketDataService:
     ) -> int:
         """
         Upsert candle frames for many symbols. Returns number of symbols written.
-        Uses the existing per-symbol upsert path (chunked, retry-safe).
+        Uses parallel per-symbol upserts bounded by a semaphore.
         """
-        written = 0
-        for symbol, timeframe, df in updates:
+        if not updates:
+            return 0
+        upsert_sem = asyncio.Semaphore(10)
+
+        async def _upsert_one(symbol: str, timeframe: str, df: pd.DataFrame) -> int:
             if df is None or df.empty:
-                continue
-            await self.upsert_candles(symbol, timeframe, df)
-            written += 1
-        return written
+                return 0
+            async with upsert_sem:
+                await self.upsert_candles(symbol, timeframe, df)
+            return 1
+
+        results = await asyncio.gather(
+            *(_upsert_one(sym, tf, d) for sym, tf, d in updates)
+        )
+        return sum(results)
 
     @staticmethod
     def is_daily_cache_fresh_enough(

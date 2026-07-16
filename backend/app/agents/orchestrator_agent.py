@@ -50,7 +50,7 @@ class OrchestratorAgent:
         self.ranking_agent = RankingAgent()
         self.fundamental_agent = FundamentalAnalysisAgent()
 
-    async def run_full(self, request: AnalysisRequest, progress_callback=None) -> FullAnalysisResponse:
+    async def run_full(self, request: AnalysisRequest, progress_callback=None, prefetched_candles: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] | None = None) -> FullAnalysisResponse:
         self.logger.info(
             "Starting full analysis | symbols=%s | mode=%s | intraday=%s | swing=%s | lookback=%s",
             ",".join(request.symbols),
@@ -61,83 +61,83 @@ class OrchestratorAgent:
         )
         import asyncio
         
-        # Pre-fetch all OHLCV data concurrently for the entire batch
         modes = self._resolve_modes(request.mode)
-        candles_by_symbol_and_mode = {}
         
-        async def fetch_for_symbol(symbol: str):
-            import time
-            from ..services.market_data_service import MarketDataService
-            start = time.perf_counter()
-            self.logger.info(f"Starting OHLCV fetch | symbol={symbol}")
-            candles_by_mode = {}
-            md_service = MarketDataService()
-            for mode in modes:
-                resolution = self._resolution_for_mode(mode, request)
-                # Prefer already-warmed DB history for daily swing (avoids re-hitting FYERS after screener).
-                if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
-                    try:
-                        df = await md_service.load_full_history(symbol, "1D")
-                        if df is not None and not df.empty and len(df) >= 220:
-                            points: list = []
-                            for ts, row in df.iterrows():
-                                dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-                                if getattr(dt, "tzinfo", None) is not None:
-                                    dt = dt.replace(tzinfo=None)
-                                points.append(
-                                    OHLCVPoint(
-                                        timestamp=dt,
-                                        open=float(row["open"]),
-                                        high=float(row["high"]),
-                                        low=float(row["low"]),
-                                        close=float(row["close"]),
-                                        volume=int(row["volume"]),
-                                    )
-                                )
-                            candles_by_mode[mode] = points
-                            self.fyers_service._store_ohlcv_cache(
-                                (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
-                                request.timeframe.lookback_window,
-                                points,
-                                "CANDLE_CACHE_DB",
-                            )
-                            continue
-                    except Exception as exc:
-                        self.logger.warning(
-                            "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
-                            symbol,
-                            exc,
-                        )
-                candles_by_mode[mode] = await self.fyers_service.fetch_ohlcv(
-                    symbol=symbol,
-                    mode=mode,
-                    resolution=resolution,
-                    lookback_window=request.timeframe.lookback_window,
-                )
-            elapsed = time.perf_counter() - start
-            total_rows = sum(len(c) for c in candles_by_mode.values())
-            self.logger.info(f"Completed OHLCV fetch | symbol={symbol} | rows={total_rows} | elapsed={elapsed:.2f}s")
-            candles_by_symbol_and_mode[symbol] = candles_by_mode
-            
-        async def prefetch_all():
-            # Bound shortlist concurrency so agent stage does not open hundreds of DB sessions at once.
-            sem = asyncio.Semaphore(8)
-
-            async def _bounded(symbol: str):
-                async with sem:
-                    await fetch_for_symbol(symbol)
-
-            await asyncio.gather(*(_bounded(symbol) for symbol in request.symbols))
-            
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-            
-        if loop and loop.is_running():
-            await prefetch_all()
+        # Use pre-fetched candles when available (avoids duplicate OHLCV fetch from screener)
+        if prefetched_candles is not None:
+            candles_by_symbol_and_mode = prefetched_candles
         else:
-            asyncio.run(prefetch_all())
+            candles_by_symbol_and_mode = {}
+            
+            async def fetch_for_symbol(symbol: str):
+                import time
+                from ..services.market_data_service import MarketDataService
+                start = time.perf_counter()
+                candles_by_mode = {}
+                md_service = MarketDataService()
+                for mode in modes:
+                    resolution = self._resolution_for_mode(mode, request)
+                    if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
+                        try:
+                            df = await md_service.load_full_history(symbol, "1D")
+                            if df is not None and not df.empty and len(df) >= 220:
+                                points: list = []
+                                for ts, row in df.iterrows():
+                                    dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                                    if getattr(dt, "tzinfo", None) is not None:
+                                        dt = dt.replace(tzinfo=None)
+                                    points.append(
+                                        OHLCVPoint(
+                                            timestamp=dt,
+                                            open=float(row["open"]),
+                                            high=float(row["high"]),
+                                            low=float(row["low"]),
+                                            close=float(row["close"]),
+                                            volume=int(row["volume"]),
+                                        )
+                                    )
+                                candles_by_mode[mode] = points
+                                self.fyers_service._store_ohlcv_cache(
+                                    (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
+                                    request.timeframe.lookback_window,
+                                    points,
+                                    "CANDLE_CACHE_DB",
+                                )
+                                continue
+                        except Exception as exc:
+                            self.logger.warning(
+                                "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
+                                symbol,
+                                exc,
+                            )
+                    candles_by_mode[mode] = await self.fyers_service.fetch_ohlcv(
+                        symbol=symbol,
+                        mode=mode,
+                        resolution=resolution,
+                        lookback_window=request.timeframe.lookback_window,
+                    )
+                elapsed = time.perf_counter() - start
+                total_rows = sum(len(c) for c in candles_by_mode.values())
+                candles_by_symbol_and_mode[symbol] = candles_by_mode
+                
+            async def prefetch_all():
+                sem = asyncio.Semaphore(20)
+
+                async def _bounded(symbol: str):
+                    async with sem:
+                        await fetch_for_symbol(symbol)
+
+                await asyncio.gather(*(_bounded(symbol) for symbol in request.symbols))
+                
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+                
+            if loop and loop.is_running():
+                await prefetch_all()
+            else:
+                asyncio.run(prefetch_all())
             
         # Build the bulk candles dictionary for the technical matrix
         candles_dict_by_mode = {mode: {} for mode in modes}
@@ -156,8 +156,39 @@ class OrchestratorAgent:
             
         if progress_callback:
             progress_callback({"stage": "Running AI Pattern Recognition...", "progress": 70})
+        # Pre-resolve FEAT-004 benchmark ONCE (was called per-symbol before — HUGE bottleneck)
+        feat004_config = self._build_feat004_config()
+        feat007_config = self._build_feat007_config()
+        benchmark_ohlcv, sector_ohlcv_cache, benchmark_failure_reason, benchmark_symbol = await self._resolve_feat004_benchmark()
+        # Pre-resolve market regime once (was called per-symbol before with same scan_date)
+        from ..services.market_permission_service import MarketPermissionService
+        _primary_candles = next(iter(candles_by_symbol_and_mode.values()), {}).get(modes[0], [])
+        _scan_date = _primary_candles[-1].timestamp if _primary_candles else datetime.now(timezone.utc)
+        _market_regime = await MarketPermissionService().evaluate_market_permission(scan_date=_scan_date)
+        # Batch-resolve stock IDs (avoids per-symbol DB session in _analyze_symbol_post_bulk)
+        stock_ids: dict[str, int] = {}
+        if request.symbols:
+            from sqlalchemy import select as _select
+            from ..db.session import AsyncSessionLocal as _AsyncSessionLocal
+            async with _AsyncSessionLocal() as _db:
+                existing = (await _db.scalars(
+                    _select(WatchedStock).where(WatchedStock.symbol.in_(request.symbols))
+                )).all()
+                for s in existing:
+                    stock_ids[s.symbol] = s.id
+            # Create missing stocks in batch
+            missing = [s for s in request.symbols if s not in stock_ids]
+            if missing:
+                async with _AsyncSessionLocal() as _db:
+                    for sym in missing:
+                        stock = WatchedStock(symbol=sym, display_name=sym.replace("-EQ", ""))
+                        _db.add(stock)
+                    await _db.commit()
+                    for sym in missing:
+                        stock_ids[sym] = (await _db.scalars(
+                            _select(WatchedStock).where(WatchedStock.symbol == sym)
+                        )).first().id
         # Dispatch Backtest / News / Fundamental agents with bounded concurrency.
-        # Unbounded gather over the full shortlist starves the event loop and hammer external APIs.
         async def run_remaining_agents():
             agent_sem = asyncio.Semaphore(6)
 
@@ -168,6 +199,13 @@ class OrchestratorAgent:
                         request,
                         candles_by_symbol_and_mode[symbol],
                         bulk_technical_results,
+                        feat004_config=feat004_config,
+                        benchmark_ohlcv=benchmark_ohlcv,
+                        benchmark_failure_reason=benchmark_failure_reason,
+                        benchmark_symbol=benchmark_symbol,
+                        feat007_config=feat007_config,
+                        stock_id=stock_ids.get(symbol),
+                        market_regime=_market_regime,
                     )
 
             return await asyncio.gather(*(_one(symbol) for symbol in request.symbols))
@@ -383,7 +421,33 @@ class OrchestratorAgent:
                 timeframe=request.timeframe,
             )
             self.logger.info("STEP 6/8 | Run full analysis only on top set | stage=%s | count=%s", stage_name, len(shortlisted_symbols))
-            shortlist_analysis = await self.run_full(analysis_request, progress_callback)
+            # Reuse OHLCV data from screener phase (avoids duplicate FYERS fetch)
+            prefetched_candles: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = {}
+            screener_frames = getattr(self.screener_service, "last_fetched_frames", {})
+            if screener_frames:
+                from ..schemas import AnalysisMode as AM
+                for sym in shortlisted_symbols:
+                    df = screener_frames.get(sym)
+                    if df is not None and not df.empty:
+                        points = []
+                        for ts, row in df.iterrows():
+                            dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                            if getattr(dt, "tzinfo", None) is not None:
+                                dt = dt.replace(tzinfo=None)
+                            points.append(OHLCVPoint(
+                                timestamp=dt,
+                                open=float(row["open"]),
+                                high=float(row["high"]),
+                                low=float(row["low"]),
+                                close=float(row["close"]),
+                                volume=int(row["volume"]),
+                            ))
+                        if len(points) >= 220:
+                            prefetched_candles[sym] = {AM.swing: points}
+            # Release frames from memory after extracting prefetched candles
+            screener_frames.clear()
+            self.screener_service.last_fetched_frames.clear()
+            shortlist_analysis = await self.run_full(analysis_request, progress_callback, prefetched_candles=prefetched_candles or None)
             buy_items = [item for item in shortlist_analysis.items if item.recommendation.action == "BUY"]
             watch_items = [item for item in shortlist_analysis.items if item.recommendation.action == "WATCH"]
             buy_candidate_symbols = [item.symbol for item in buy_items]
@@ -533,24 +597,37 @@ class OrchestratorAgent:
         The overlay module reads nested keys (score_deltas, buy_downgrade_thresholds),
         so we construct the dict here to avoid duplicating the defaults.
         """
+        feat004_enabled = getattr(settings, "feat004_enabled", False)
+        feat004_stage = getattr(settings, "feat004_stage", "SHADOW")
+        feat004_score_delta_fav = getattr(settings, "feat004_score_delta_fav", 2.0)
+        feat004_score_delta_neu = getattr(settings, "feat004_score_delta_neu", 0.0)
+        feat004_score_delta_cau = getattr(settings, "feat004_score_delta_cau", -3.0)
+        feat004_score_delta_def = getattr(settings, "feat004_score_delta_def", -5.0)
+        feat004_score_delta_abs = getattr(settings, "feat004_score_delta_abs", 0.0)
+        feat004_buy_downgrade_threshold_cau = getattr(settings, "feat004_buy_downgrade_threshold_cau", 74.0)
+        feat004_buy_downgrade_threshold_def = getattr(settings, "feat004_buy_downgrade_threshold_def", 77.0)
+        feat004_buy_threshold = getattr(settings, "feat004_buy_threshold", 72.0)
+        feat004_favorable_cap_below_buy = getattr(settings, "feat004_favorable_cap_below_buy", True)
+        feat004_sector_mapping_enabled = getattr(settings, "feat004_sector_mapping_enabled", True)
+        feat004_sector_min_candles = getattr(settings, "feat004_sector_min_candles", 50)
         return {
-            "enabled": settings.feat004_enabled,
-            "stage": settings.feat004_stage,
+            "enabled": feat004_enabled,
+            "stage": feat004_stage,
             "score_deltas": {
-                "FAV": settings.feat004_score_delta_fav,
-                "NEU": settings.feat004_score_delta_neu,
-                "CAU": settings.feat004_score_delta_cau,
-                "DEF": settings.feat004_score_delta_def,
-                "ABS": settings.feat004_score_delta_abs,
+                "FAV": feat004_score_delta_fav,
+                "NEU": feat004_score_delta_neu,
+                "CAU": feat004_score_delta_cau,
+                "DEF": feat004_score_delta_def,
+                "ABS": feat004_score_delta_abs,
             },
             "buy_downgrade_thresholds": {
-                "CAU": settings.feat004_buy_downgrade_threshold_cau,
-                "DEF": settings.feat004_buy_downgrade_threshold_def,
+                "CAU": feat004_buy_downgrade_threshold_cau,
+                "DEF": feat004_buy_downgrade_threshold_def,
             },
-            "buy_threshold": settings.feat004_buy_threshold,
-            "favorable_cap_below_buy": settings.feat004_favorable_cap_below_buy,
-            "sector_mapping_enabled": settings.feat004_sector_mapping_enabled,
-            "sector_min_candles": settings.feat004_sector_min_candles,
+            "buy_threshold": feat004_buy_threshold,
+            "favorable_cap_below_buy": feat004_favorable_cap_below_buy,
+            "sector_mapping_enabled": feat004_sector_mapping_enabled,
+            "sector_min_candles": feat004_sector_min_candles,
         }
 
     def _build_feat007_config(self) -> dict[str, Any]:
@@ -558,14 +635,21 @@ class OrchestratorAgent:
 
         Per FEAT-007 v1.1 spec and ADR-003 (difference formula).
         """
+        feat007_enabled = getattr(settings, "feat007_enabled", False)
+        feat007_stage = getattr(settings, "feat007_stage", "SHADOW")
+        feat007_score_delta_strength = getattr(settings, "feat007_score_delta_strength", 1.5)
+        feat007_score_delta_weak = getattr(settings, "feat007_score_delta_weak", -3.0)
+        feat007_buy_downgrade_threshold = getattr(settings, "feat007_buy_downgrade_threshold", 74.0)
+        feat007_buy_threshold = getattr(settings, "feat007_buy_threshold", 72.0)
+        feat007_strength_cap_enabled = getattr(settings, "feat007_strength_cap_enabled", True)
         return {
-            "enabled": settings.feat007_enabled,
-            "stage": settings.feat007_stage,
-            "score_delta_strength": settings.feat007_score_delta_strength,
-            "score_delta_weak": settings.feat007_score_delta_weak,
-            "buy_downgrade_threshold": settings.feat007_buy_downgrade_threshold,
-            "buy_threshold": settings.feat007_buy_threshold,
-            "strength_cap_enabled": settings.feat007_strength_cap_enabled,
+            "enabled": feat007_enabled,
+            "stage": feat007_stage,
+            "score_delta_strength": feat007_score_delta_strength,
+            "score_delta_weak": feat007_score_delta_weak,
+            "buy_downgrade_threshold": feat007_buy_downgrade_threshold,
+            "buy_threshold": feat007_buy_threshold,
+            "strength_cap_enabled": feat007_strength_cap_enabled,
         }
 
     async def _resolve_feat004_benchmark(self) -> tuple[Any, dict[str, list] | None, str | None, str | None]:
@@ -581,14 +665,16 @@ class OrchestratorAgent:
         benchmark failure taxonomy for auditing (benchmark_fetch_failed,
         insufficient_benchmark_history, benchmark_data_stale).
         """
-        if not settings.feat004_enabled:
+        feat004_enabled = getattr(settings, "feat004_enabled", False)
+        if not feat004_enabled:
             return None, None, None, None
 
         import pandas as pd
         from ..schemas import AnalysisMode
 
-        bm_symbols = [s.strip() for s in settings.feat004_benchmark_symbols.split(",") if s.strip()]
-        min_candles = settings.feat004_min_benchmark_candles
+        bm_symbols_raw = getattr(settings, "feat004_benchmark_symbols", "NIFTY500")
+        bm_symbols = [s.strip() for s in bm_symbols_raw.split(",") if s.strip()]
+        min_candles = getattr(settings, "feat004_min_benchmark_candles", 220)
 
         # Remember the specific reason the last candidate failed so the
         # overlay can audit it.  Initialised to the legacy default so the
@@ -635,12 +721,13 @@ class OrchestratorAgent:
                 if hasattr(last_ts, "tzinfo") and last_ts.tzinfo is None:
                     last_ts = last_ts.replace(tzinfo=timezone.utc)
                 age_days = (datetime.now(timezone.utc) - last_ts).days
-                if age_days > settings.feat004_staleness_limit_days:
+                staleness_limit_days = getattr(settings, "feat004_staleness_limit_days", 1)
+                if age_days > staleness_limit_days:
                     self.logger.warning(
                         "FEAT-004: %s last candle is %d day(s) old (limit=%d).",
                         bm_sym,
                         age_days,
-                        settings.feat004_staleness_limit_days,
+                        staleness_limit_days,
                     )
                     last_failure_reason = "benchmark_data_stale"
                     continue
@@ -664,11 +751,18 @@ class OrchestratorAgent:
         symbol: str, 
         request: AnalysisRequest, 
         candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]],
-        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]]
+        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]],
+        feat004_config: dict | None = None,
+        benchmark_ohlcv: Any = None,
+        benchmark_failure_reason: str | None = None,
+        benchmark_symbol: str | None = None,
+        feat007_config: dict | None = None,
+        stock_id: int | None = None,
+        market_regime: Any = None,
     ) -> StockAnalysisResult:
         import asyncio
-        self.logger.info("Completing post-bulk analysis | symbol=%s", symbol)
-        stock_id = await self._get_or_create_stock(symbol)
+        if stock_id is None:
+            stock_id = await self._get_or_create_stock(symbol)
         modes = self._resolve_modes(request.mode)
         
         if any(not candles for candles in candles_by_mode.values()):
@@ -768,9 +862,13 @@ class OrchestratorAgent:
         technical_score = max(result.score for result in technical_results)
         best_backtest = max(backtests, key=lambda item: item.total_return)
 
-        # FEAT-004: conditionally resolve benchmark and build config
-        feat004_config = self._build_feat004_config()
-        benchmark_ohlcv, sector_ohlcv_cache, benchmark_failure_reason, benchmark_symbol = await self._resolve_feat004_benchmark()
+        # FEAT-004: use pre-resolved benchmark (fetched once in run_full, not per-symbol)
+        if feat004_config is None:
+            feat004_config = self._build_feat004_config()
+        if benchmark_ohlcv is None:
+            benchmark_ohlcv, sector_ohlcv_cache, benchmark_failure_reason, benchmark_symbol = await self._resolve_feat004_benchmark()
+        else:
+            sector_ohlcv_cache = None
         sector_mapping = None  # Reserved for future sector-strength integration
 
         # ------------------------------------------------------------------
@@ -784,7 +882,7 @@ class OrchestratorAgent:
         from ..schemas import FinalRecommendation as FR, RecommendationReasoning
         sector_rs_service = SectorRelativeStrengthService()
         primary_candles = candles_by_mode.get(modes[0], [])
-        scan_date = primary_candles[-1].timestamp if primary_candles else datetime.utcnow()
+        scan_date = primary_candles[-1].timestamp if primary_candles else datetime.now(timezone.utc)
 
         sector_overlay = await sector_rs_service.evaluate_sector_overlay(
             symbol=symbol,
@@ -804,8 +902,9 @@ class OrchestratorAgent:
         benchmark_roc20 = sector_overlay.nifty50_roc20
         feat007_abstained_reason = sector_overlay.feat007_abstained_reason
 
-        # FEAT-007: build config from settings
-        feat007_config = self._build_feat007_config()
+        # FEAT-007: use pre-resolved config
+        if feat007_config is None:
+            feat007_config = self._build_feat007_config()
 
         recommendation = await asyncio.to_thread(
             self.recommendation_agent.run,
@@ -847,10 +946,10 @@ class OrchestratorAgent:
         # challenger_action fields are updated below after the challenger is built.
         # No second SR-003 evaluation is needed.
 
-        # Integrate SR-004 Market Permission Engine
-        from ..services.market_permission_service import MarketPermissionService
-        market_permission_service = MarketPermissionService()
-        market_regime = await market_permission_service.evaluate_market_permission(scan_date=scan_date)
+        # Integrate SR-004 Market Permission Engine (pre-resolved in run_full to avoid per-symbol re-evaluation)
+        if market_regime is None:
+            from ..services.market_permission_service import MarketPermissionService
+            market_regime = await MarketPermissionService().evaluate_market_permission(scan_date=scan_date)
 
         # Build Challenger recommendation (combining sector overlay and market permission)
         challenger_action = recommendation.action

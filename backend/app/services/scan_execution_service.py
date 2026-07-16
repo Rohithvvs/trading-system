@@ -7,6 +7,7 @@ from ..db.scan_store import save_latest_scan
 from ..services.latest_scan_service import LatestScanService
 from ..utils import sanitize_for_json
 from ..schemas import ScreenerRequest
+from ..services.scanner_cache import get_cached_scanner_result, cache_scanner_result
 
 logger = logging.getLogger("app.services.scan_execution_service")
 

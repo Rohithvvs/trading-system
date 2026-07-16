@@ -99,6 +99,34 @@ async def invalidate_scanner_cache(universe: str | None = None, mode: str | None
         logger.warning("Failed to invalidate scanner cache | error=%s", e)
 
 
+async def clear_scanner_cache() -> None:
+    if redis_client is None:
+        return
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis_client.scan(cursor, match=f"{CACHE_PREFIX}*", count=100)
+            if keys:
+                await redis_client.delete(*keys)
+            if cursor == 0:
+                break
+        logger.info("Cleared all scanner cache")
+    except Exception as e:
+        logger.warning("Failed to clear scanner cache | error=%s", e)
+
+
+async def cache_exists(universe: str, mode: str, timeframe: str) -> bool:
+    if redis_client is None:
+        return False
+    try:
+        key = _cache_key("result:", universe, mode, timeframe)
+        exists = await redis_client.exists(key)
+        return bool(exists)
+    except Exception as e:
+        logger.warning("Failed to check cache existence | error=%s", e)
+        return False
+
+
 async def cache_ohlcv(
     symbol: str,
     resolution: str,

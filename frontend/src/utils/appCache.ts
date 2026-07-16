@@ -259,6 +259,14 @@ function revalidateInBackground<T>(
   inflight.set(sk, promise);
 }
 
+/**
+ * Pre-warm the cache with known values. Useful for research prefetching
+ * where we want to seed the cache before navigation.
+ */
+export function preheatCache<T>(key: string, value: T, ttlMs = DEFAULT_TTL_MS): void {
+  setCached(key, value, ttlMs);
+}
+
 /** Stable cache keys for frequently accessed resources. */
 export const CACHE_KEYS = {
   authMe: "auth_me",

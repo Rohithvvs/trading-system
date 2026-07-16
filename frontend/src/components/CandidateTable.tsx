@@ -2,9 +2,10 @@ import { AreaChart, Area, ResponsiveContainer, YAxis } from "recharts";
 import type { CandidateRow, BacktestEquityPoint } from "../types";
 import { InfoTooltip } from "./InfoTooltip";
 import { TOOLTIPS } from "../constants/tooltips";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, useCallback } from "react";
 import { checkCanPlaceBuyOrder } from "../utils/tradingHours";
 import { SignalBadge as DsSignalBadge } from "../design-system";
+import { useResearchPrefetch } from "../hooks/useResearchPrefetch";
 
 type CandidateTableProps = {
   rows: CandidateRow[];
@@ -15,6 +16,8 @@ type CandidateTableProps = {
 };
 
 export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTicks }: CandidateTableProps) {
+  const { hoverHandlers } = useResearchPrefetch();
+
   if (!rows.length) {
     return (
       <section className="panel table-panel">
@@ -64,6 +67,7 @@ export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbo
                 isSelected={selectedSymbol === row.symbol}
                 onSelect={onSelect}
                 onBuy={onBuy}
+                prefetchProps={hoverHandlers(row.symbol)}
               />
             ))}
           </tbody>
@@ -80,6 +84,7 @@ export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbo
             isSelected={selectedSymbol === row.symbol}
             onSelect={onSelect}
             onBuy={onBuy}
+            prefetchProps={hoverHandlers(row.symbol)}
           />
         ))}
       </div>
@@ -93,12 +98,14 @@ const CandidateCard = memo(({
   isSelected,
   onSelect,
   onBuy,
+  prefetchProps,
 }: {
   row: CandidateRow;
   livePrice?: number;
   isSelected: boolean;
   onSelect: (symbol: string) => void;
   onBuy?: (row: CandidateRow) => void;
+  prefetchProps?: PrefetchProps;
 }) => {
   const distanceToEntry = useMemo(() => {
     if (!livePrice || !row.entryHigh) return null;
@@ -121,6 +128,7 @@ const CandidateCard = memo(({
       tabIndex={0}
       role="button"
       aria-label={`${row.symbol} - ${row.signal} - Score ${row.score.toFixed(1)}`}
+      {...prefetchProps}
     >
       {/* Top row: Rank + Symbol + Signal */}
       <div className="candidate-card__top">
@@ -243,18 +251,26 @@ const CandidateCard = memo(({
   );
 });
 
+type PrefetchProps = {
+  onMouseEnter?: () => void;
+  onFocus?: () => void;
+  onTouchStart?: () => void;
+};
+
 const CandidateTableRow = memo(({ 
   row, 
   livePrice, 
   isSelected, 
   onSelect, 
-  onBuy 
+  onBuy,
+  prefetchProps,
 }: { 
   row: CandidateRow; 
   livePrice?: number; 
   isSelected: boolean; 
   onSelect: (symbol: string) => void; 
   onBuy?: (row: CandidateRow) => void; 
+  prefetchProps?: PrefetchProps;
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -284,6 +300,7 @@ const CandidateTableRow = memo(({
         }}
         style={{ cursor: "pointer", borderBottom: "1px solid var(--border-color)" }}
         tabIndex={0}
+        {...prefetchProps}
       >
         <td className="col-sticky-left" style={{ textAlign: "center", color: "var(--text-muted)" }}>{row.rank ?? "--"}</td>
         <td className="symbol-cell col-sticky-symbol">

@@ -31,6 +31,16 @@ const DEFAULT_JSON_HEADERS = {
   Accept: "application/json",
 } as const;
 
+const IS_DEV = typeof window !== "undefined" && (window as any).__VITE_DEV__;
+
+function apiLog(...args: unknown[]) {
+  if (IS_DEV) console.info(...args);
+}
+
+function apiWarn(...args: unknown[]) {
+  if (IS_DEV) console.warn(...args);
+}
+
 async function fetchWithDiagnostics(
   path: string,
   init: RequestInit | undefined,
@@ -38,11 +48,7 @@ async function fetchWithDiagnostics(
 ): Promise<Response> {
   const url = apiUrl(path);
   const startedAt = performance.now();
-  const payloadPreview = typeof init?.body === "string" ? init.body : init?.body ? "[non-string body]" : "[no body]";
-  console.info(`[api] ${label} -> ${url}`, {
-    method: init?.method ?? "GET",
-    payload: payloadPreview,
-  });
+  apiLog(`[api] ${label} -> ${url}`);
 
   try {
     const fetchInit: RequestInit = {
@@ -55,7 +61,7 @@ async function fetchWithDiagnostics(
     };
     const response = await fetch(url, fetchInit);
     const elapsedMs = Math.round(performance.now() - startedAt);
-    console.info(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
+    apiLog(`[api] ${label} <- ${response.status} ${url} (${elapsedMs}ms)`);
 
     // Global handling for gateway / cold-start style failures
     if ([502, 503, 504, 521, 522, 523, 524].includes(response.status)) {
@@ -65,10 +71,10 @@ async function fetchWithDiagnostics(
   } catch (error) {
     const elapsedMs = Math.round(performance.now() - startedAt);
     if (error instanceof ApiClientError) {
-      console.warn(`[api] ${label} client error at ${url} (${elapsedMs}ms)`, error);
+      apiWarn(`[api] ${label} client error at ${url} (${elapsedMs}ms)`, error);
       throw error;
     }
-    console.warn(`[api] ${label} network error at ${url} (${elapsedMs}ms)`, error);
+    apiWarn(`[api] ${label} network error at ${url} (${elapsedMs}ms)`, error);
     throw mapNetworkError(error, url, label);
   }
 }
@@ -155,6 +161,15 @@ export async function runPresetScreener(
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || "Failed to run screener");
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const body = await response.json();
+    if (body?.status === "scan_in_progress") {
+      throw Object.assign(new Error("SCAN_IN_PROGRESS"), { scanInProgress: true });
+    }
+    throw new Error("Unexpected scanner response format");
   }
 
   if (!response.body) {
@@ -1042,6 +1057,16 @@ export async function fetchUniverses(): Promise<{ name: string; symbols: string[
     },
     { swr: true, ttlMs: 30 * 60 * 1000 },
   );
+}
+
+export async function fetchBatchLight(symbols: string[]): Promise<{ symbols: { symbol: string; ltp: number | null; change_pct: number | null; company_name: string | null }[] }> {
+  const response = await fetchWithDiagnostics("/analysis/symbol/batch-light", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols }),
+  }, "Batch light");
+  if (!response.ok) return { symbols: [] };
+  return response.json();
 }
 
 export async function fetchMarketOverview(): Promise<any> {

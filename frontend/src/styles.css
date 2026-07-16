@@ -1930,6 +1930,57 @@ abbr {
   border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
 }
 
+/* Local notifications (near action buttons) */
+.local-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 8px 0;
+  animation: local-toast-in 200ms ease-out;
+}
+
+.local-toast--success {
+  background: var(--positive-soft, #0a2e1a);
+  border: 1px solid color-mix(in srgb, var(--positive, #22c55e) 40%, transparent);
+  color: var(--positive, #22c55e);
+}
+
+.local-toast--error {
+  background: var(--negative-soft, #2e0a0a);
+  border: 1px solid color-mix(in srgb, var(--negative, #ef4444) 40%, transparent);
+  color: var(--negative, #ef4444);
+}
+
+.local-toast__icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.local-toast--success .local-toast__icon {
+  background: var(--positive, #22c55e);
+  color: #fff;
+}
+
+.local-toast--error .local-toast__icon {
+  background: var(--negative, #ef4444);
+  color: #fff;
+}
+
+@keyframes local-toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .indicator-grid-panel {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -2133,9 +2184,6 @@ abbr {
 
 
 .paper-page,
-.paper-layout,
-.paper-left,
-.paper-right,
 .paper-ticket-grid,
 .paper-header {
   display: grid;
@@ -2159,13 +2207,15 @@ abbr {
   flex-wrap: wrap;
 }
 
-.paper-layout {
-  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+.paper-ticket-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 16px;
   align-items: start;
 }
 
-.paper-left,
-.paper-right,
+.paper-ticket-main,
+.paper-chart-sidebar,
 .paper-tabs-panel {
   min-width: 0;
 }
@@ -2177,11 +2227,61 @@ abbr {
 
 .paper-tabs-panel .table-scroll {
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  /* Custom scrollbar styles */
+  scrollbar-color: var(--border) transparent;
+}
+
+.paper-tabs-panel .table-scroll::-webkit-scrollbar {
+  height: 8px;
+  display: block;
+}
+
+.paper-tabs-panel .table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.paper-tabs-panel .table-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+  min-height: 40px;
+}
+
+.paper-tabs-panel .table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 .paper-tabs-panel .candidate-table {
-  min-width: 980px;
+  min-width: max-content;
+  border-collapse: collapse;
+}
+
+.paper-tabs-panel .candidate-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 5;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.paper-tabs-panel .candidate-table td:first-child,
+.paper-tabs-panel .candidate-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  background: var(--surface);
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+.paper-tabs-panel .candidate-table thead th:first-child {
+  z-index: 7;
 }
 
 .paper-ticket-grid {
@@ -2255,6 +2355,109 @@ abbr {
   font-size: 0.82rem;
 }
 
+/* ── Mobile responsive cards for paper tables ── */
+.paper-cards {
+  display: none;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.paper-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.paper-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.paper-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.paper-card__symbol {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.paper-card__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.paper-card__field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.paper-card__field-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.paper-card__field-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.paper-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.paper-card__actions .button {
+  flex: 1 1 auto;
+  min-height: 40px;
+  justify-content: center;
+  font-size: 0.82rem;
+}
+
+.paper-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.paper-card__pnl-positive { color: var(--positive); }
+.paper-card__pnl-negative { color: var(--negative); }
+
+@media (max-width: 720px) {
+  .paper-data-table {
+    display: none;
+  }
+  .paper-cards {
+    display: grid;
+  }
+}
+
 /* Container queries for detail panel inner grids (sidebar-aware) */
 @container detail-screen (max-width: 1100px) {
   .indicator-grid-panel,
@@ -2295,7 +2498,7 @@ abbr {
   .indicator-grid-panel,
   .tradeplan-grid,
   .score-breakdown,
-  .paper-layout,
+  .paper-ticket-section,
   .broker-helper-grid,
   .scan-prefill-box {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2346,7 +2549,7 @@ abbr {
   .broker-helper-grid,
   .scan-prefill-box,
   .scan-prefill-metrics,
-  .paper-layout {
+  .paper-ticket-section {
     grid-template-columns: 1fr;
   }
 
@@ -3841,10 +4044,33 @@ abbr {
 
 /* ── Responsive table wrapper ── */
 .table-scroll {
-  overflow-x: hidden;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   max-width: 100%;
   min-width: 0;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border) transparent;
+}
+
+.table-scroll::-webkit-scrollbar {
+  height: 8px;
+  display: block;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+  min-height: 40px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 @media (max-width: 768px) {
@@ -5402,7 +5628,7 @@ abbr {
 @media print {
   .paper-header-actions,
   .detail-tabs,
-  .paper-right {
+  .paper-ticket-section {
     display: none !important;
   }
   .daily-analytics {
@@ -5745,6 +5971,111 @@ body {
   min-width: 0;
   box-sizing: border-box;
 }
+
+/* Status cards row — Market Status + Last Scan Completed */
+.status-cards-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(8px, 1.2vw, 16px);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .status-cards-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .status-cards-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.status-card {
+  background: var(--surface);
+  background-image: var(--gradient-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: clamp(12px, 1.5vw, 20px);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.status-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.status-card[data-status="open"] {
+  background: linear-gradient(135deg, var(--positive-soft), var(--surface) 80%);
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.status-card[data-status="closed"] {
+  background: linear-gradient(135deg, var(--negative-soft), var(--surface) 80%);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.status-card__label {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.status-card__value {
+  font-size: clamp(1.1rem, 1.8vw, 1.5rem);
+  font-weight: var(--weight-bold);
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-card[data-status="open"] .status-card__value {
+  color: var(--positive-text);
+}
+
+.status-card[data-status="closed"] .status-card__value {
+  color: var(--negative-text);
+}
+
+.status-card__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.status-card__dot--open {
+  background: var(--positive);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.status-card__dot--closed {
+  background: var(--negative);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+.status-card__subtitle {
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
 .panel--flush {
   padding: 12px;
 }
@@ -5971,9 +6302,6 @@ body {
 .markets-grid-2 {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
 }
-.paper-layout {
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr) !important;
-}
 .paper-page {
   width: 100%;
   max-width: 100%;
@@ -5989,8 +6317,8 @@ body {
 
 /* Breakpoints for scanner / paper */
 @media (max-width: 1200px) {
-  .paper-layout {
-    grid-template-columns: 1fr !important;
+  .paper-ticket-section {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 768px) {
@@ -6526,8 +6854,23 @@ body {
 }
 
 .da-table-scroll {
-  overflow-x: hidden;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.da-table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.da-table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.da-table-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
 }
 
 .da-section {
@@ -7299,5 +7642,190 @@ body {
   .skeleton {
     animation: none;
     background: var(--surface-2);
+  }
+}
+
+/* ===== Swing Decision Dashboard (embedded in Markets) ===== */
+.swing-decision-dashboard {
+  display: grid;
+  gap: clamp(12px, 1.2vw, 20px);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.swing-decision-dashboard__section {
+  margin-top: 14px;
+  min-width: 0;
+}
+
+.swing-section-title {
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+}
+
+.swing-market-status {
+  margin-top: 4px;
+}
+
+.swing-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.swing-controls__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 10px 12px;
+  align-items: end;
+  width: 100%;
+  min-width: 0;
+}
+
+.swing-controls__search {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.swing-control-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.swing-control-field__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.swing-control-field input,
+.swing-control-field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+  background: var(--bg, var(--surface-2, #12161c));
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.swing-control-field input:focus,
+.swing-control-field select:focus {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 1px;
+}
+
+.swing-controls__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.swing-quick-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.scanner-page-hero {
+  margin-bottom: 0;
+}
+
+/* Compact status cards inside scanner header — right-aligned below Run from Markets */
+.scanner-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.status-cards-row--compact {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+}
+
+.status-card--compact {
+  padding: 6px 10px !important;
+  gap: 2px !important;
+  border-radius: var(--radius-md) !important;
+  min-width: auto !important;
+  white-space: nowrap;
+}
+
+.status-card--compact .status-card__label {
+  font-size: 0.6rem !important;
+  letter-spacing: 0.03em !important;
+}
+
+.status-card--compact .status-card__value {
+  font-size: clamp(0.7rem, 0.9vw, 0.8rem) !important;
+  gap: 4px !important;
+}
+
+.status-card--compact .status-card__dot {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+@media (max-width: 640px) {
+  .scanner-header-right {
+    width: 100%;
+  }
+  .status-cards-row--compact {
+    width: 100%;
+    flex-direction: column;
+  }
+  .status-card--compact {
+    width: 100%;
+  }
+}
+
+/* Nested infra panel inside Markets: no extra outer chrome clash */
+.swing-decision-dashboard .infra-panel {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 720px) {
+  .swing-controls__search {
+    grid-column: 1 / -1;
+  }
+  .swing-controls__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .swing-controls__actions .ds-btn {
+    width: 100%;
+  }
+  .swing-quick-actions__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .swing-quick-actions__row .ds-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .swing-controls__grid {
+    grid-template-columns: 1fr;
   }
 }

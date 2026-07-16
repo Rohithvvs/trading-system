@@ -9,6 +9,7 @@ import {
   type ProfilePreferences,
 } from "../utils/profilePrefs";
 import { Card, CardHeader, EmptyState, Button, ConfirmDialog, useToast } from "../design-system";
+import { ListSkeleton } from "../components/Skeleton";
 
 export function WatchlistPage() {
   const { user } = useAuth();
@@ -136,7 +137,9 @@ export function WatchlistPage() {
             ) : null
           }
         />
-        {sorted.length === 0 && !loading ? (
+        {loading ? (
+          <ListSkeleton items={5} />
+        ) : sorted.length === 0 ? (
           <EmptyState
             title="No watchlist"
             description="Add NSE symbols you want to follow, or star them from scanner results."

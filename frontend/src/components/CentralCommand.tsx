@@ -12,7 +12,7 @@ export function CentralCommand() {
     // API call to close position
     // Usually this is submitting an opposite order or using a specific close endpoint
     // For this example, we'll log it or use placePaperOrder
-    console.log("Closing position", position.symbol);
+    console.warn("[paper] close not implemented — stub only", position.symbol);
   };
 
   const handleBuy = async () => {

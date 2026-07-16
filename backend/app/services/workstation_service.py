@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import time as time_module
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..config.settings import ROOT_DIR
+from ..core.response_cache import cache_get, cache_set, cached_async
 from ..models.fyers_token import FyersToken
 from ..models.workstation import RiskSettings, SavedScan, ScanHistorySnapshot, WorkstationAlert
 from ..schemas.workstation import (
@@ -27,6 +29,42 @@ from ..schemas.workstation import (
     UniverseGroup,
 )
 from ..services.fyers_service import FyersService
+from ..utils import get_logger
+
+logger = get_logger("app.workstation")
+
+_FALLBACK_INDICES: dict[str, str] = {
+    "^NSEI": "NIFTY 50",
+    "^NSEBANK": "BANK NIFTY",
+    "^BSESN": "SENSEX",
+    "^INDIAVIX": "India VIX",
+}
+
+_NSE_SYMBOL_TO_FALLBACK = {
+    "NSE:NIFTY50-INDEX": "^NSEI",
+    "NSE:NIFTYBANK-INDEX": "^NSEBANK",
+    "BSE:SENSEX-INDEX": "^BSESN",
+    "NSE:INDIAVIX-INDEX": "^INDIAVIX",
+}
+
+
+async def _fetch_index_from_yfinance(symbol: str) -> dict | None:
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(period="2d")
+        if data.empty:
+            return None
+        last = data.iloc[-1]
+        prev = data.iloc[-2] if len(data) > 1 else last
+        ltp = round(float(last["Close"]), 2)
+        prev_close = round(float(prev["Close"]), 2)
+        change_pct = round(((ltp - prev_close) / prev_close) * 100, 2) if prev_close else None
+        return {"ltp": ltp, "change_pct": change_pct, "source": "YAHOO_FALLBACK"}
+    except Exception as exc:
+        logger.warning("YF_FALLBACK_FAILED | symbol=%s | error=%s", symbol, str(exc))
+        return None
 
 
 class WorkstationService:
@@ -136,21 +174,55 @@ class WorkstationService:
         )
 
     async def market_overview(self) -> MarketOverviewResponse:
-        fyers = FyersService()
-        indices = [
-            await self._market_item(fyers, "NSE:NIFTY50-INDEX", "NIFTY 50"),
-            await self._market_item(fyers, "NSE:NIFTYBANK-INDEX", "BANK NIFTY"),
-            await self._market_item(fyers, "BSE:SENSEX-INDEX", "SENSEX"),
+        cache_key = "workstation_market_overview"
+        cached = cache_get(cache_key)
+        if cached is not None:
+            logger.info("MARKET_OVERVIEW_CACHE_HIT | key=%s", cache_key)
+            return MarketOverviewResponse(**cached)
+
+        logger.info("MARKET_OVERVIEW_CACHE_MISS | key=%s | fetching live", cache_key)
+        fyers = FyersService.shared()
+
+        indices_defs = [
+            ("NSE:NIFTY50-INDEX", "NIFTY 50"),
+            ("NSE:NIFTYBANK-INDEX", "BANK NIFTY"),
+            ("BSE:SENSEX-INDEX", "SENSEX"),
         ]
+
+        indices = []
+        for sym, label in indices_defs:
+            item = await self._market_item(fyers, sym, label)
+            if item.price is None:
+                fallback_sym = _NSE_SYMBOL_TO_FALLBACK.get(sym)
+                if fallback_sym:
+                    fb = await _fetch_index_from_yfinance(fallback_sym)
+                    if fb:
+                        item.price = fb["ltp"]
+                        item.change_pct = fb["change_pct"]
+                        logger.info("MARKET_OVERVIEW_FALLBACK | symbol=%s | source=YAHOO | ltp=%s", sym, fb["ltp"])
+            indices.append(item)
+
         vix = await self._market_item(fyers, "NSE:INDIAVIX-INDEX", "India VIX")
+        if vix.price is None:
+            fb = await _fetch_index_from_yfinance("^INDIAVIX")
+            if fb:
+                vix.price = fb["ltp"]
+                vix.change_pct = fb["change_pct"]
+
         movers = await self._movers_from_latest_scan()
-        return MarketOverviewResponse(
+        gainers = [m for m in movers if m.change_pct is not None and m.change_pct > 0][:5]
+        losers = [m for m in movers if m.change_pct is not None and m.change_pct < 0][-5:][::-1]
+
+        response = MarketOverviewResponse(
             indices=indices,
             vix=vix,
-            top_gainers=movers[:5],
-            top_losers=movers[-5:][::-1],
+            top_gainers=gainers,
+            top_losers=losers,
             updated_at=datetime.now(timezone.utc),
         )
+        cache_set(cache_key, response.model_dump(mode="json"), ttl_seconds=120.0)
+        logger.info("MARKET_OVERVIEW_CACHED | key=%s | ttl=120s", cache_key)
+        return response
 
     async def create_alert(self, payload: AlertCreate) -> AlertItem:
         if payload.alert_type == "PRICE" and not (payload.symbol and payload.condition and payload.target_price):
@@ -266,26 +338,59 @@ class WorkstationService:
         return list(payload.get("shortlisted_symbols") or [])
 
     async def _market_item(self, fyers: FyersService, symbol: str, label: str) -> MarketIndexItem:
-        price = await fyers.fetch_ltp(symbol)
-        return MarketIndexItem(symbol=symbol, label=label, price=round(price, 2) if price else None, change_pct=None, source=fyers.get_ltp_source(symbol))
+        start_t = time_module.time()
+        quote = await fyers.fetch_quote(symbol)
+        elapsed = int((time_module.time() - start_t) * 1000)
+        price = None
+        change_pct = None
+        source = "unknown"
+        if quote:
+            price = round(float(quote.get("ltp", 0)), 2) if quote.get("ltp") else None
+            change_pct = round(float(quote.get("change_pct", 0)), 2) if quote.get("change_pct") else None
+            source = quote.get("source", "unknown")
+            logger.info("MARKET_ITEM_FETCHED | symbol=%s | label=%s | ltp=%s | source=%s | duration_ms=%s", symbol, label, price, source, elapsed)
+        else:
+            logger.warning("MARKET_ITEM_FAILED | symbol=%s | label=%s | duration_ms=%s | quote=None", symbol, label, elapsed)
+        return MarketIndexItem(symbol=symbol, label=label, price=price, change_pct=change_pct, source=source)
 
     async def _movers_from_latest_scan(self) -> list[MarketIndexItem]:
         row = await self.db.scalar(select(ScanHistorySnapshot).order_by(ScanHistorySnapshot.created_at.desc()).limit(1))
         if not row:
+            logger.info("MOVERS_NO_SCAN_HISTORY | no snapshots found")
             return []
         payload = json.loads(row.payload_json)
         stocks = payload.get("all_analyzed_stocks") or payload.get("matches") or []
+        if not stocks:
+            logger.info("MOVERS_EMPTY | scan snapshot has no stock data")
+            return []
+        has_change = any(item.get("change_pct") is not None for item in stocks)
+        if has_change:
+            sorted_rows = sorted(stocks, key=lambda item: float(item.get("change_pct") or 0), reverse=True)
+            result = [
+                MarketIndexItem(
+                    symbol=item.get("symbol", ""),
+                    label=item.get("symbol", ""),
+                    price=float(item.get("close", 0)) if item.get("close") else None,
+                    change_pct=float(item.get("change_pct", 0)) if item.get("change_pct") else None,
+                    source="scan_data",
+                )
+                for item in sorted_rows
+            ]
+            logger.info("MOVERS_FOUND | count=%s | source=scan_data", len(result))
+            return result
         sorted_rows = sorted(stocks, key=lambda item: float(item.get("screener_score") or 0), reverse=True)
-        return [
+        result = [
             MarketIndexItem(
                 symbol=item.get("symbol", ""),
                 label=item.get("symbol", ""),
-                price=item.get("close"),
-                change_pct=float(item.get("screener_score") or 0),
+                price=float(item.get("close", 0)) if item.get("close") else None,
+                change_pct=None,
                 source="latest_scan_score",
             )
             for item in sorted_rows
         ]
+        logger.info("MOVERS_FOUND | count=%s | source=latest_scan_score (no change_pct)", len(result))
+        return result
 
     async def _evaluate_scan_entry_alerts(self, row: ScanHistorySnapshot) -> None:
         current = set(self._history_symbols(row))
@@ -301,7 +406,7 @@ class WorkstationService:
             return
         alerts = await self.db.scalars(select(WorkstationAlert).where(WorkstationAlert.alert_type == "SCAN_ENTRY", WorkstationAlert.status == "ACTIVE")).all()
         for alert in alerts:
-            alert.last_triggered_at = datetime.utcnow()
+            alert.last_triggered_at = datetime.now(timezone.utc)
             alert.last_message = f"New scan entries: {', '.join(new_symbols[:8])}"
         await self.db.commit()
 
@@ -318,7 +423,7 @@ class WorkstationService:
     def _risk_response(self, row: RiskSettings) -> RiskSettingsResponse:
         return RiskSettingsResponse(
             id=row.id,
-            profile=row.profile,  # type: ignore[arg-type]
+            profile=row.profile,
             default_position_size_pct=row.default_position_size_pct,
             max_risk_per_trade_pct=row.max_risk_per_trade_pct,
             updated_at=row.updated_at,
@@ -327,10 +432,10 @@ class WorkstationService:
     def _alert_item(self, row: WorkstationAlert) -> AlertItem:
         return AlertItem(
             id=row.id,
-            alert_type=row.alert_type,  # type: ignore[arg-type]
+            alert_type=row.alert_type,
             name=row.name,
             symbol=row.symbol,
-            condition=row.condition,  # type: ignore[arg-type]
+            condition=row.condition,
             target_price=row.target_price,
             scan_name=row.scan_name,
             status=row.status,

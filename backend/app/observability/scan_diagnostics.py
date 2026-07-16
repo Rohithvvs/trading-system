@@ -497,7 +497,11 @@ def log_scan_environment(
     if token_saved_at:
         try:
             token_saved_dt = datetime.fromisoformat(token_saved_at)
+            if token_saved_dt.tzinfo is None:
+                token_saved_dt = token_saved_dt.replace(tzinfo=timezone.utc)
             startup_dt = datetime.fromisoformat(_PROCESS_START_TIME)
+            if startup_dt.tzinfo is None:
+                startup_dt = startup_dt.replace(tzinfo=timezone.utc)
             if token_saved_dt > startup_dt:
                 logger.warning(f"TOKEN_POSSIBLY_STALE | token_saved_at={token_saved_at} | app_started_at={_PROCESS_START_TIME}")
         except Exception:

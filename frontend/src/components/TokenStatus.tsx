@@ -180,13 +180,7 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
       if (bt) {
         setBrokerMeta(bt);
         if (bt.notes) setNotes(bt.notes);
-        if (bt.token_expiry) {
-          try {
-            setTokenExpiry(new Date(bt.token_expiry).toISOString().slice(0, 16));
-          } catch {
-            /* ignore */
-          }
-        }
+        // Backend auto-extracts expiry from JWT — no auto-fill needed
       }
     } catch {
       // Non-critical background load error
@@ -253,8 +247,8 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
     }
     if (tokenExpiry) {
       const exp = new Date(tokenExpiry);
-      if (Number.isNaN(exp.getTime()) || exp.getTime() < Date.now()) {
-        setError("Expiry must be a valid future date/time");
+      if (Number.isNaN(exp.getTime())) {
+        setError("Invalid expiry date format");
         return;
       }
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -21,6 +21,8 @@ import type {
   SymbolDetail,
 } from "../types";
 import { fetchSymbolDetail } from "../api";
+import { getCached } from "../utils/appCache";
+import { isPrefetched } from "../utils/researchPrefetcher";
 import { ResearchDashboard } from "./ResearchDashboard";
 
 type StockDetailPanelProps = {
@@ -45,29 +47,45 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
   const [symbolDetail, setSymbolDetail] = useState<SymbolDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const fetchAttempted = useRef(false);
 
   useEffect(() => {
     let mounted = true;
     if (!row) return;
-    setSymbolDetail(null);
-    setDetailError(null);
-    setLoadingDetail(true);
-    void fetchSymbolDetail(row.symbol)
+
+    const symbol = row.symbol;
+    const RESEARCH_CACHE_KEY = `research_detail:${symbol}`;
+    const cached = getCached<SymbolDetail>(RESEARCH_CACHE_KEY);
+
+    if (cached) {
+      setSymbolDetail(cached);
+      setLoadingDetail(false);
+      setDetailError(null);
+    } else {
+      setSymbolDetail(null);
+      setDetailError(null);
+      setLoadingDetail(true);
+    }
+
+    if (fetchAttempted.current) return;
+    fetchAttempted.current = true;
+
+    void fetchSymbolDetail(symbol)
       .then((d) => {
         if (!mounted) return;
-        console.info("[detail] symbol_detail normalized", { symbol: row.symbol, detail: d });
         setSymbolDetail(d);
+        setLoadingDetail(false);
       })
       .catch((err) => {
         if (!mounted) return;
-        setDetailError(err?.message ?? String(err));
-      })
-      .finally(() => {
-        if (!mounted) return;
+        if (!cached) {
+          setDetailError(err?.message ?? String(err));
+        }
         setLoadingDetail(false);
       });
     return () => {
       mounted = false;
+      fetchAttempted.current = false;
     };
   }, [row]);
 

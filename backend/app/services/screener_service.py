@@ -26,7 +26,7 @@ from ..utils import get_logger
 from .fyers_service import FyersService, FyersRateLimitError, FyersAuthExpiredError, FyersAuthInvalidError
 from .technical_analysis_service import TechnicalAnalysisService
 from ..core.log_manager import scanner_logger
-from datetime import datetime
+from datetime import datetime, timezone
 from . import candle_store
 from ..observability.scan_diagnostics import (
     get_current_scan, log_symbol_failure, log_data_source_selection,
@@ -36,29 +36,36 @@ from ..observability.scan_diagnostics import (
 MINIMUM_SWING_CANDLES = 220
 
 
-class TokenBucketRateLimiter:
+class AsyncTokenBucketRateLimiter:
     def __init__(self, calls_per_second: float = 5.0):
         self.capacity = calls_per_second
-        self.tokens = calls_per_second
+        self.tokens = float(calls_per_second)
         self.last_refill = time.monotonic()
-        self.lock = threading.Lock()
+        self._lock: asyncio.Lock | None = None
+        self._wait_interval = 1.0 / calls_per_second
 
-    def acquire(self):
-        with self.lock:
-            now = time.monotonic()
-            elapsed = now - self.last_refill
-            self.tokens = min(
-                self.capacity,
-                self.tokens + elapsed * self.capacity
-            )
-            self.last_refill = now
-            if self.tokens >= 1:
-                self.tokens -= 1
-                return
-        time.sleep(1.0 / self.capacity)
-        self.acquire()
+    async def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
-_rate_limiter = TokenBucketRateLimiter(calls_per_second=5.0)
+    async def acquire(self):
+        while True:
+            lock = await self._get_lock()
+            async with lock:
+                now = time.monotonic()
+                elapsed = now - self.last_refill
+                self.tokens = min(
+                    self.capacity,
+                    self.tokens + elapsed * self.capacity,
+                )
+                self.last_refill = now
+                if self.tokens >= 1:
+                    self.tokens -= 1
+                    return
+            await asyncio.sleep(self._wait_interval)
+
+_rate_limiter = AsyncTokenBucketRateLimiter(calls_per_second=5.0)
 
 scanner_metrics = {
     "valid_symbols": 0,
@@ -70,6 +77,9 @@ scanner_metrics = {
 }
 
 class ScreenerService:
+    # Stores the last fetched OHLCV DataFrames keyed by symbol for reuse by orchestrator
+    last_fetched_frames: dict[str, pd.DataFrame] = {}
+
     def __init__(self, fyers_service=None):
         self.fyers_service = fyers_service or FyersService()
         self.technical_service = TechnicalAnalysisService()
@@ -183,7 +193,7 @@ class ScreenerService:
                     self._scan_log.info(
                         "SCAN_ENTRY | symbol=%s | score=0.0 | signal=unknown | confidence=0.0 | timestamp=%s",
                         symbol,
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                     )
                 except Exception:
                     pass
@@ -273,7 +283,7 @@ class ScreenerService:
                     result.screener_score,
                     result.technical_signal,
                     result.technical_score or 0.0,
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                 )
             except Exception:
                 pass
@@ -342,11 +352,11 @@ class ScreenerService:
         # make scan_log available to worker threads
         self._scan_log = scan_log
 
-        def _progress(data) -> None:
+        def _progress(data, percent=None) -> None:
             if progress_callback:
                 try:
                     if isinstance(data, str):
-                        progress_callback({"stage": data, "progress": 0})
+                        progress_callback({"stage": data, "progress": percent or 0})
                     elif isinstance(data, dict):
                         progress_callback(data)
                 except Exception:
@@ -371,7 +381,7 @@ class ScreenerService:
         scan_start_time = time.perf_counter()
         self.logger.info("SCANNER_RUN_STARTED | stage=%s | symbols=%s", stage_name, total_requested)
 
-        print(f"MEMORY_AUDIT stage=scanner_start rss_mb={get_rss_mb():.2f}")
+        self.logger.debug("MEMORY_AUDIT stage=scanner_start rss_mb=%.1f", get_rss_mb())
 
         from .market_data_service import MarketDataService
         from ..config import settings as app_settings
@@ -397,7 +407,7 @@ class ScreenerService:
 
             meta_t0 = time.perf_counter()
             meta = await md_service.get_candle_meta_batch(symbols, "1D")
-            stored_map = await md_service.resolve_stored_symbol_map(symbols, "1D")
+            stored_map = await md_service.resolve_stored_symbol_map(symbols, "1D", meta_result=meta)
             stage_timings["meta_ms"] = (time.perf_counter() - meta_t0) * 1000
 
             _progress({
@@ -413,7 +423,7 @@ class ScreenerService:
             cache_hit_symbols: list[str] = []
             needs_fetch: list[str] = []
             for symbol in symbols:
-                count, latest = meta.get(symbol, (0, None))
+                count, latest, _ = meta.get(symbol, (0, None, None))
                 if MarketDataService.is_daily_cache_fresh_enough(count, latest, required_history):
                     cache_hit_symbols.append(symbol)
                 else:
@@ -481,7 +491,7 @@ class ScreenerService:
                 if symbol in seen_fetch:
                     continue
                 df = symbol_frames.get(symbol)
-                count, latest = meta.get(symbol, (0, None))
+                count, latest, _ = meta.get(symbol, (0, None, None))
                 if (
                     df is not None
                     and not df.empty
@@ -507,7 +517,9 @@ class ScreenerService:
                 async with fyers_sem:
                     t0 = time.perf_counter()
                     try:
-                        count, latest_timestamp = meta.get(symbol, (0, None))
+                        # Acquire rate limiter token to avoid FYERS 429 responses
+                        await _rate_limiter.acquire()
+                        count, latest_timestamp, _ = meta.get(symbol, (0, None, None))
                         async with frames_lock:
                             existing = symbol_frames.get(symbol)
                             if existing is not None and not existing.empty:
@@ -679,31 +691,37 @@ class ScreenerService:
         await fetch_all_symbols()
 
         total_candles_in_frames = sum(len(df) for df in symbol_frames.values())
-        print(f"MEMORY_AUDIT stage=symbol_frames_loaded rss_mb={get_rss_mb():.2f} symbols={len(symbol_frames)} candles={total_candles_in_frames}")
+        self.logger.debug("MEMORY_AUDIT stage=symbol_frames_loaded rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(symbol_frames), total_candles_in_frames)
 
-        # Forward-fill gaps in memory only (do not re-upsert every symbol on each scan — was a major write tax).
+        # Forward-fill gaps in memory — use a single global business-day index for ALL symbols
+        # instead of creating 755 separate pd.date_range calls (was major CPU tax).
         _progress("Building indicator frame...", 55)
         ffill_t0 = time.perf_counter()
         frame_parts = []
+        _all_mins = []
+        _all_maxs = []
+        for df in symbol_frames.values():
+            idx = df.index
+            _all_mins.append(idx.min())
+            _all_maxs.append(idx.max())
+        global_min = min(_all_mins)
+        global_max = max(_all_maxs)
+        full_index = pd.date_range(start=global_min, end=global_max, freq='B')
         for symbol, df in symbol_frames.items():
-            # ffill logic (preserved from original candles_dict builder)
             df = df.sort_index()
-            full_index = pd.date_range(start=df.index.min(), end=df.index.max(), freq='B')
             df = df.reindex(full_index)
             df = df.ffill()
             
-            # Prepare for multi-index frame: add symbol column
             sym_df = df.copy()
             sym_df["symbol"] = symbol
             sym_df.index.name = "timestamp"
             sym_df = sym_df.reset_index().set_index(["timestamp", "symbol"])
             frame_parts.append(sym_df)
-            # Update symbol_frames with the ffilled version for scoring later
             symbol_frames[symbol] = df
         stage_timings["ffill_ms"] = (time.perf_counter() - ffill_t0) * 1000
 
         if not frame_parts:
-            print(f"MEMORY_AUDIT stage=no_valid_frames rss_mb={get_rss_mb():.2f}")
+            self.logger.debug("MEMORY_AUDIT stage=no_valid_frames rss_mb=%.1f", get_rss_mb())
             return results
 
         # Build the single canonical multi-index frame
@@ -712,7 +730,7 @@ class ScreenerService:
         # Release intermediate frame_parts immediately
         del frame_parts
 
-        print(f"MEMORY_AUDIT stage=combined_frame_built rss_mb={get_rss_mb():.2f} symbols={len(symbol_frames)} candles={len(combined_frame)}")
+        self.logger.debug("MEMORY_AUDIT stage=combined_frame_built rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(symbol_frames), len(combined_frame))
 
         # Vectorized Bulk Analysis — pass the pre-built frame directly (no OHLCVPoint conversion)
         _progress("Calculating Technical Indicators...", 58)
@@ -724,7 +742,7 @@ class ScreenerService:
         # Release the combined frame — indicators are extracted, we don't need it anymore
         del combined_frame
 
-        print(f"MEMORY_AUDIT stage=after_bulk_analysis rss_mb={get_rss_mb():.2f} symbols={len(bulk_technical_results)}")
+        self.logger.debug("MEMORY_AUDIT stage=after_bulk_analysis rss_mb=%.1f symbols=%s", get_rss_mb(), len(bulk_technical_results))
 
         # Evaluate scoring using precomputed results (sync CPU work — no per-symbol await overhead)
         _progress("Evaluating strategy conditions...", 62)
@@ -807,6 +825,8 @@ class ScreenerService:
 
         stage_timings["scoring_ms"] = (time.perf_counter() - score_t0) * 1000
 
+        # Store frames for orchestrator reuse (avoids duplicate fetch in run_full)
+        ScreenerService.last_fetched_frames = {s: df.copy() for s, df in symbol_frames.items() if df is not None and not df.empty and len(df) >= MINIMUM_SWING_CANDLES}
         # Release symbol_frames explicitly after scoring loop
         del symbol_frames
 
@@ -855,7 +875,7 @@ class ScreenerService:
             log_pipeline_stage(scan_ctx, "symbol_evaluation", 4, total_requested, len(results), rejected_by_conditions + data_source_failed + data_quality_failed, 0)
         results.sort(key=lambda item: (-item.screener_score, item.symbol))
         
-        print(f"MEMORY_AUDIT stage=scanner_completion rss_mb={get_rss_mb():.2f} symbols={len(results)}")
+        self.logger.debug("MEMORY_AUDIT stage=scanner_completion rss_mb=%.1f symbols=%s", get_rss_mb(), len(results))
         
         duration_ms = int((time.perf_counter() - scan_start_time) * 1000)
         stage_timings["total_ms"] = float(duration_ms)
@@ -918,6 +938,8 @@ class ScreenerService:
         latest_close = candles[-1].close
         sma_50 = float(indicators.get("sma_50", 0.0))
         sma_200 = float(indicators.get("sma_200", 0.0))
+        if sma_50 <= 0 or sma_200 <= 0:
+            return False
         avg_volume = mean(candle.volume for candle in candles[-20:])
         return bool(
             latest_close > sma_50

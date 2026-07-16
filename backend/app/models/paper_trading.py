@@ -133,6 +133,10 @@ class PaperTradeHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
 
+    __table_args__ = (
+        Index("idx_trade_history_account_closed", "account_id", "closed_at"),
+    )
+
 
 class PaperNotification(Base):
     __tablename__ = "paper_trading_notifications"

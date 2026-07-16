@@ -15,9 +15,48 @@ import { MetricCardSkeleton, ListSkeleton } from "../components/Skeleton";
 import { Card, CardHeader, EmptyState, Button, PnL, StatusPill } from "../design-system";
 import { useAuth } from "../hooks/useAuth";
 import type { ProfilePreferences } from "../utils/profilePrefs";
+import { SwingDecisionDashboard } from "../components/swing";
+import type { ScreenerResponse, ThemeMode } from "../types";
+
+type SummaryMetric = {
+  label: string;
+  value: string | number;
+  helper: string;
+  tone?: "default" | "positive" | "warning" | "negative";
+};
 
 type Props = {
   onLoadSavedScan?: (scan: any) => void;
+  screenerResult?: ScreenerResponse | null;
+  isLoading?: boolean;
+  scanError?: string | null;
+  marketStatus?: string;
+  selectedUniverse?: string;
+  timeframe?: string;
+  summaryMetrics?: SummaryMetric[];
+  onRunScanner?: () => void;
+  search?: string;
+  onSearchChange?: (value: string) => void;
+  topN?: number;
+  lookback?: number;
+  universe?: string;
+  universes?: { name: string; count: number }[];
+  onTopNChange?: (value: number) => void;
+  onLookbackChange?: (value: number) => void;
+  onTimeframeChange?: (value: string) => void;
+  onUniverseChange?: (value: string) => void;
+  theme?: ThemeMode;
+  onThemeToggle?: () => void;
+  progressData?: {
+    stage: string;
+    progress: number;
+    current_symbol?: string;
+    worker_id?: number;
+    done?: number;
+    remaining?: number;
+    eta_sec?: number;
+  } | null;
+  scanStartTime?: number | null;
 };
 
 const FRESH_MS = 60_000;
@@ -28,9 +67,31 @@ function isFresh(key: string): boolean {
 }
 
 /**
- * Retail Markets home — cache-first paint, progressive refresh, memoized sections.
+ * Retail Markets home — Market Overview + embedded Swing Decision Dashboard.
+ * Shares scanner state with the Scanner page via props from App.
  */
-export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props) {
+export const MarketsPage = memo(function MarketsPage({
+  onLoadSavedScan,
+  screenerResult = null,
+  isLoading = false,
+  scanError = null,
+  marketStatus = "Closed",
+  timeframe = "1d",
+  summaryMetrics = [],
+  onRunScanner,
+  search = "",
+  onSearchChange,
+  topN = 20,
+  lookback = 180,
+  universe = "NIFTY500",
+  universes = [],
+  onTopNChange,
+  onLookbackChange,
+  onTimeframeChange,
+  onUniverseChange,
+  progressData = null,
+  scanStartTime = null,
+}: Props) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [market, setMarket] = useState<any | null>(() => getCached(CACHE_KEYS.marketOverview));
@@ -45,6 +106,13 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
   const [priceAlert, setPriceAlert] = useState({ name: "", symbol: "", condition: ">=", target_price: "" });
   const mounted = useRef(true);
   const lastLoadAt = useRef(0);
+
+  const handleRunScanner = onRunScanner ?? (() => {});
+  const handleSearchChange = onSearchChange ?? ((_value: string) => {});
+  const handleTopNChange = onTopNChange ?? ((_value: number) => {});
+  const handleLookbackChange = onLookbackChange ?? ((_value: number) => {});
+  const handleTimeframeChange = onTimeframeChange ?? ((_value: string) => {});
+  const handleUniverseChange = onUniverseChange ?? ((_value: string) => {});
 
   const load = useCallback(async (force = false) => {
     const now = Date.now();
@@ -119,20 +187,43 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
     await load(true);
   }, [priceAlert, load]);
 
-  const buyCandidates = latestScan?.buy_candidates ?? [];
-  const watchCandidates = latestScan?.watch_candidates ?? [];
-  const highlights = useMemo(
-    () => [...buyCandidates, ...watchCandidates].slice(0, 8),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [latestScan],
-  );
+  // Prefer live screener state from App when available; fall back to local cache
+  const highlights = useMemo(() => {
+    if (screenerResult) {
+      const buySet = new Set(screenerResult.buy_candidate_symbols ?? []);
+      const watchSet = new Set(screenerResult.watch_candidate_symbols ?? []);
+      const bySymbol = new Map<string, any>();
+      for (const m of screenerResult.matches ?? []) bySymbol.set(m.symbol, m);
+      for (const m of screenerResult.all_analyzed_stocks ?? []) bySymbol.set(m.symbol, m);
+      const ordered = [
+        ...(screenerResult.buy_candidate_symbols ?? []),
+        ...(screenerResult.watch_candidate_symbols ?? []),
+      ];
+      return ordered.slice(0, 8).map((symbol) => {
+        const row = bySymbol.get(symbol);
+        return {
+          symbol,
+          recommendation: buySet.has(symbol) ? "BUY" : watchSet.has(symbol) ? "WATCH" : row?.technical_signal ?? "—",
+          score: row?.screener_score ?? row?.score ?? null,
+        };
+      });
+    }
+    const buyCandidates = latestScan?.buy_candidates ?? [];
+    const watchCandidates = latestScan?.watch_candidates ?? [];
+    return [...buyCandidates, ...watchCandidates].slice(0, 8);
+  }, [screenerResult, latestScan]);
   const lastScanDate = useMemo(() => {
-    if (!latestScan?.last_scan_completed_at) return null;
-    return new Date(latestScan.last_scan_completed_at).toLocaleString("en-IN", {
+    const raw =
+      screenerResult?.last_scan_completed_at ??
+      screenerResult?.scanned_at ??
+      screenerResult?.analysis?.generated_at ??
+      latestScan?.last_scan_completed_at;
+    if (!raw) return null;
+    return new Date(raw).toLocaleString("en-IN", {
       dateStyle: "medium",
       timeStyle: "short",
     });
-  }, [latestScan?.last_scan_completed_at]);
+  }, [screenerResult, latestScan?.last_scan_completed_at]);
 
   const indices = market?.indices ?? [];
   const hasMarket = market && (indices.length > 0 || market.vix);
@@ -144,7 +235,7 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
           <p className="ds-label">Markets</p>
           <h1 className="ds-display">Market overview</h1>
           <p className="ds-muted">
-            Indices, watchlist, and scanner highlights — ready for decisions.
+            Indices, movers, and the swing decision dashboard — ready for decisions.
             {refreshing ? " · Updating…" : ""}
           </p>
         </div>
@@ -153,7 +244,7 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
             Refresh
           </Button>
           <Button variant="trade" onClick={() => navigate("/scanner")}>
-            TRADE
+            Scanner results
           </Button>
         </div>
       </header>
@@ -165,6 +256,7 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
         </Card>
       ) : null}
 
+      {/* ── Market Overview ── */}
       <Card>
         <CardHeader
           label="Indices"
@@ -195,6 +287,30 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
         ) : null}
       </Card>
 
+      {/* ── Swing Decision Dashboard (moved from Scanner) ── */}
+      <SwingDecisionDashboard
+        isLoading={isLoading}
+        marketStatus={marketStatus}
+        search={search}
+        onSearchChange={handleSearchChange}
+        onRunScanner={handleRunScanner}
+        topN={topN}
+        lookback={lookback}
+        timeframe={timeframe}
+        universe={universe}
+        universes={universes}
+        onTopNChange={handleTopNChange}
+        onLookbackChange={handleLookbackChange}
+        onTimeframeChange={handleTimeframeChange}
+        onUniverseChange={handleUniverseChange}
+        screenerResult={screenerResult}
+        summaryMetrics={summaryMetrics}
+        scanError={scanError}
+        progressData={progressData}
+        scanStartTime={scanStartTime}
+      />
+
+      {/* ── Secondary: watchlist, highlights, desk, presets, alerts ── */}
       <div className="markets-grid-2">
         <Card>
           <CardHeader
@@ -237,13 +353,13 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
               </Button>
             }
           />
-          {loading && !latestScan ? (
+          {loading && !latestScan && !screenerResult ? (
             <ListSkeleton items={4} />
           ) : highlights.length === 0 ? (
             <EmptyState
               title="No scanner results"
-              description="Run the scanner to surface BUY and WATCH ideas."
-              primaryAction={{ label: "Run Scanner", onClick: () => navigate("/scanner"), variant: "trade" }}
+              description="Run the scanner above to surface BUY and WATCH ideas."
+              primaryAction={{ label: "Run Scanner", onClick: handleRunScanner, variant: "trade" }}
             />
           ) : (
             <ul className="markets-symbol-list">
@@ -290,7 +406,7 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
           {savedScans.length === 0 ? (
             <EmptyState
               title="No saved scans"
-              description="Save filter setups from the scanner for one-click reuse."
+              description="Save filter setups for one-click reuse."
               primaryAction={{ label: "Open Scanner", onClick: () => navigate("/scanner"), variant: "secondary" }}
             />
           ) : (
@@ -406,17 +522,25 @@ export const MarketsPage = memo(function MarketsPage({ onLoadSavedScan }: Props)
 
 const IndexCard = memo(function IndexCard({ item }: { item: any }) {
   const change = Number(item.change_pct ?? item.change_percent ?? item.pct_change ?? 0);
+  const hasPrice = item.ltp != null || item.price != null;
+  const price = hasPrice
+    ? Number(item.ltp ?? item.price).toLocaleString("en-IN", { maximumFractionDigits: 2 })
+    : null;
+  const label = item.name || item.symbol || "Index";
   return (
     <article className="metric-card markets-index-card">
-      <span>{item.name || item.symbol}</span>
-      <strong>
-        {item.ltp != null
-          ? Number(item.ltp).toLocaleString("en-IN", { maximumFractionDigits: 2 })
-          : item.price != null
-            ? Number(item.price).toLocaleString("en-IN", { maximumFractionDigits: 2 })
-            : "—"}
-      </strong>
-      <PnL value={change} currency={false} percent digits={2} size="sm" />
+      <span>{label}</span>
+      {price !== null ? (
+        <>
+          <strong>{price}</strong>
+          <PnL value={change} currency={false} percent digits={2} size="sm" />
+        </>
+      ) : (
+        <>
+          <strong style={{ color: "var(--text-muted)", fontWeight: 400 }}>—</strong>
+          <span style={{ fontSize: "0.75em", color: "var(--text-muted)" }}>Loading...</span>
+        </>
+      )}
     </article>
   );
 });
@@ -428,7 +552,12 @@ const MoverList = memo(function MoverList({ title, rows }: { title: string; rows
         {title}
       </h3>
       {!rows?.length ? (
-        <p className="ds-muted">No data</p>
+        <div className="ds-muted" style={{ padding: "8px 0" }}>
+          <span>Unavailable — scan data needed</span>
+          <span style={{ display: "block", fontSize: "0.85em", marginTop: 4 }}>
+            Run a scan or connect broker to see movers
+          </span>
+        </div>
       ) : (
         <ul className="markets-symbol-list">
           {rows.slice(0, 5).map((row: any) => (
@@ -455,3 +584,4 @@ export default MarketsPage;
 
 // silence unused import if ProfilePreferences only used for typing elsewhere
 void (0 as unknown as ProfilePreferences);
+void FRESH_MS;

@@ -190,7 +190,7 @@ def place_order(
     try:
         key = payload.idempotency_key or idempotency_key or x_idempotency_key
         if not key and settings.app_env == "test":
-            key = f"test:{payload.symbol}:{payload.side}:{payload.type}:{payload.qty}:{datetime.datetime.utcnow().timestamp()}"
+            key = f"test:{payload.symbol}:{payload.side}:{payload.type}:{payload.qty}:{datetime.datetime.now(timezone.utc).timestamp()}"
         if not key:
             logger.warning("ORDER_IDEMPOTENCY_MISSING | symbol=%s", payload.symbol)
             raise HTTPException(status_code=400, detail="Idempotency-Key header or idempotency_key body field is required.")
@@ -359,10 +359,9 @@ def modify_order(
     order_id: int, 
     payload: PaperOrderUpdateRequest, 
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.modify_order(order_id, payload, idempotency_key=x_idempotency_key)
+        response = service.modify_order(order_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -381,10 +380,9 @@ def delete_order(order_id: int, service: PaperTradingService = Depends(get_servi
 def cancel_order(
     order_id: int, 
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.cancel_order(order_id, idempotency_key=x_idempotency_key)
+        response = service.cancel_order(order_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -394,10 +392,9 @@ def cancel_order(
 def close_position(
     position_id: int, 
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.close_position(position_id, idempotency_key=x_idempotency_key)
+        response = service.close_position(position_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -408,10 +405,9 @@ def update_position(
     position_id: int,
     payload: PaperPositionUpdateRequest,
     service: PaperTradingService = Depends(get_service),
-    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")
 ) -> PaperOrderActionResponse:
     try:
-        response = service.update_position(position_id, payload, idempotency_key=x_idempotency_key)
+        response = service.update_position(position_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
@@ -678,19 +674,19 @@ def put_daily_journal(
 @router.get("/engine-status")
 async def get_engine_status(service: PaperTradingService = Depends(get_service)):
     logger = logging.getLogger("app.http")
-    logger.info("ENGINE_STATUS_REQUESTED | timestamp=%s", datetime.datetime.utcnow().isoformat())
+    logger.info("ENGINE_STATUS_REQUESTED | timestamp=%s", datetime.datetime.now(timezone.utc).isoformat())
     start_time = time.time()
     try:
         status = await service.get_engine_status()
         duration_ms = int((time.time() - start_time) * 1000)
         logger.info(
             "ENGINE_STATUS_RESPONSE | timestamp=%s | response_duration_ms=%s | open_positions=%s | tracked_symbols=%s",
-            datetime.datetime.utcnow().isoformat(),
+            datetime.datetime.now(timezone.utc).isoformat(),
             duration_ms,
             status.get("open_positions", 0),
             status.get("tracked_symbols", 0)
         )
         return JSONResponse(content=sanitize_for_json(status))
     except Exception as e:
-        logger.error("ENGINE_STATUS_FAILED | timestamp=%s | error=%s", datetime.datetime.utcnow().isoformat(), str(e))
+        logger.error("ENGINE_STATUS_FAILED | timestamp=%s | error=%s", datetime.datetime.now(timezone.utc).isoformat(), str(e))
         raise HTTPException(status_code=500, detail="Internal Server Error") from e

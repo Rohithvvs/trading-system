@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # Allow tests to override where logs are written by setting TEST_ARTIFACT_DIR.
@@ -14,7 +14,7 @@ else:
     LOG_DIR = Path(__file__).resolve().parents[3] / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+RUN_ID = os.environ.get("RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 LOG_FILE = LOG_DIR / f"trading_system-{RUN_ID}.log"
 
 

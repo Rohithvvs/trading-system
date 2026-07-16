@@ -2,7 +2,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # Prefer a test-controlled artifacts directory when running tests. Tests set
@@ -18,7 +18,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Per-run identifier used to create timestamped log filenames. Tests may set
 # `RUN_ID` to keep artifacts predictable; otherwise use UTC timestamp.
-RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+RUN_ID = os.environ.get("RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 
 
 def _file_for(filename: str, keep_latest_scan: bool = False) -> Path:

@@ -3,7 +3,7 @@ from sqlalchemy import select, update
 import base64
 import json
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, List
 import os
@@ -38,7 +38,7 @@ def _decode_jwt_expiry(token: str) -> datetime | None:
         exp_ts = payload.get("exp") or payload.get("expires_in")
         if exp_ts is None:
             return None
-        return datetime.utcfromtimestamp(int(exp_ts))
+        return datetime.fromtimestamp(int(exp_ts), tz=timezone.utc)
     except Exception:
         return None
 
@@ -55,13 +55,13 @@ def _clear_token_cache() -> None:
     logger.info("TOKEN_INVALIDATED | Local memory cache cleared")
 
 def has_cached_token() -> bool:
-    return bool(_CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY)
+    return bool(_CACHED_TOKEN and _TOKEN_EXPIRY and datetime.now(timezone.utc) < _TOKEN_EXPIRY)
 
 
 def _set_token_cache(access_token: str, saved_at: datetime | None = None) -> None:
     global _CACHED_TOKEN, _TOKEN_EXPIRY, _TOKEN_SAVED_AT
     _CACHED_TOKEN = access_token
-    _TOKEN_EXPIRY = datetime.utcnow() + _TOKEN_CACHE_TTL
+    _TOKEN_EXPIRY = datetime.now(timezone.utc) + _TOKEN_CACHE_TTL
     if saved_at:
         _TOKEN_SAVED_AT = saved_at
 
@@ -102,7 +102,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         "Token preview    : %s",
         _mask_token(access_token) if access_token else "empty",
     )
-    logger.info("Timestamp (UTC)  : %s", datetime.utcnow().isoformat())
+    logger.info("Timestamp (UTC)  : %s", datetime.now(timezone.utc).isoformat())
 
     try:
         import asyncio
@@ -132,7 +132,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
 
     try:
         async with db.begin():
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             # Step 1: Deactivate existing tokens
             logger.info("STEP 1: Deactivating existing tokens...")
@@ -239,7 +239,7 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
         return hit
 
     row = await get_fyers_token_row(db)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expires_at = None
     expires_in_seconds = None
     token_masked = None
@@ -251,10 +251,10 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
             expires_at = _decode_jwt_expiry(plain)
         if expires_at:
             try:
-                exp = expires_at if expires_at.tzinfo is None else expires_at.replace(tzinfo=None)
+                exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
                 remaining = (exp - now).total_seconds()
             except Exception:
-                remaining = (expires_at - datetime.now(expires_at.tzinfo)).total_seconds() if expires_at.tzinfo else 0
+                remaining = 0
             expires_in_seconds = max(0, int(remaining))
 
     status = {
@@ -288,7 +288,7 @@ async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str,
 
 
 async def get_current_access_token(db: AsyncSession) -> str | None:
-    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.now(timezone.utc) < _TOKEN_EXPIRY:
         logger.info("TOKEN_CACHE_HIT | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
         return _CACHED_TOKEN
 
@@ -318,13 +318,14 @@ async def get_current_access_token(db: AsyncSession) -> str | None:
 
 
 def get_current_access_token_sync() -> tuple[str | None, str]:
-    if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+    now = datetime.now(timezone.utc)
+    if _CACHED_TOKEN and _TOKEN_EXPIRY and now < _TOKEN_EXPIRY:
         logger.info("TOKEN_CACHE_HIT | source=memory_cache | expiry=%s", _TOKEN_EXPIRY.isoformat() if _TOKEN_EXPIRY else "N/A")
         return _CACHED_TOKEN, "cache"
 
     with _TOKEN_LOCK:
-        # Double checked locking
-        if _CACHED_TOKEN and _TOKEN_EXPIRY and datetime.utcnow() < _TOKEN_EXPIRY:
+        now = datetime.now(timezone.utc)
+        if _CACHED_TOKEN and _TOKEN_EXPIRY and now < _TOKEN_EXPIRY:
             logger.info("TOKEN_CACHE_HIT | source=memory_cache | reason=double_check")
             return _CACHED_TOKEN, "cache"
 
@@ -410,7 +411,7 @@ async def exchange_auth_code(auth_code: str, db: AsyncSession) -> dict:
         len(access_token), expires_at.isoformat() if expires_at else "unknown", bool(refresh_token),
     )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     try:
         async with db.begin():
             await db.execute(
@@ -477,8 +478,10 @@ async def get_token_expiry_info(db: AsyncSession) -> dict:
             except Exception:
                 await db.rollback()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
         remaining = (expires_at - now).total_seconds()
         is_expired = remaining <= 0
     else:

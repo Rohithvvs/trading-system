@@ -129,7 +129,7 @@ async def clear_logs_impl(confirm: str | None, days_old: int, db: AsyncSession):
     if days_old == 0:
         stmt = delete(SystemLog)
     else:
-        cutoff = datetime.utcnow() - timedelta(days=days_old)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days_old)
         stmt = delete(SystemLog).where(SystemLog.timestamp < cutoff)
         
     for attempt in range(5):

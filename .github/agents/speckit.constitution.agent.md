@@ -97,6 +97,201 @@ Follow this execution flow:
    - Dates ISO format YYYY-MM-DD.
    - Principles are declarative, testable, and free of vague language ("should" → replace with MUST/SHOULD rationale where appropriate).
 
+7. Brownfield-First Development
+
+Existing architecture MUST be preserved unless an approved specification explicitly authorizes architectural changes.
+
+All implementations MUST:
+
+Extend existing modules instead of replacing them.
+Maintain backward compatibility unless a breaking change is explicitly approved.
+Preserve existing APIs, contracts, and business logic.
+Avoid unnecessary refactoring during feature implementation.
+Use feature flags for high-risk or production-impacting changes whenever possible.
+
+Rationale
+
+The trading platform is an active brownfield project. Stability and incremental evolution are mandatory.
+
+8. Architecture Integrity
+
+Every feature MUST preserve architectural boundaries.
+
+Implementations MUST:
+
+Respect existing layer separation.
+Prevent circular dependencies.
+Keep business logic outside API controllers.
+Preserve module ownership.
+Maintain dependency direction.
+Reuse existing shared components before creating new ones.
+
+No implementation may redesign the system architecture unless explicitly approved in the specification.
+
+Rationale
+
+Maintaining architectural consistency reduces technical debt and prevents long-term degradation.
+
+9. Production Safety
+
+Every production feature MUST include operational safety mechanisms.
+
+Each implementation MUST provide:
+
+Rollback strategy
+Timeout handling
+Error handling
+Retry strategy where appropriate
+Structured logging
+Failure recovery
+Feature flag support for high-risk changes
+
+Production behavior MUST fail safely rather than silently.
+
+Rationale
+
+Production safety is mandatory for a financial application.
+
+10. Comprehensive Testing
+
+Every implemented feature MUST include appropriate automated testing.
+
+Minimum required tests:
+
+Unit Tests
+Integration Tests
+Failure Path Tests
+Edge Case Tests
+Regression Tests (for production bugs)
+
+Existing tests MUST continue passing before feature completion.
+
+No feature may be considered complete without satisfying its defined acceptance criteria.
+
+Rationale
+
+Testing protects existing functionality while enabling safe continuous development.
+
+11. Observability
+
+Every production feature MUST expose sufficient operational visibility.
+
+Implementations MUST include:
+
+Structured logging
+Error reporting
+Performance metrics where appropriate
+Traceable request identifiers
+Business event logging when applicable
+
+Critical failures MUST never occur silently.
+
+Rationale
+
+Operational visibility is essential for diagnosing production issues.
+
+12. AI Development Governance
+
+Specification is the single source of truth.
+
+All AI-assisted development MUST follow this workflow:
+
+Specification before implementation.
+Implementation only within approved specification scope.
+Architecture modifications require explicit approval.
+Generated code requires human review.
+Independent audit MUST be completed before merge.
+AI-generated code MUST never bypass testing requirements.
+
+Each AI tool has a single responsibility:
+
+Spec Kit → Specification generation
+DeepSeek → Feature implementation
+OpenCode → Repository integration
+Grok → Architecture and production audit
+Human Developer → Final approval
+
+Rationale
+
+Clear responsibility boundaries improve consistency and reduce implementation drift.
+
+13. Performance & Scalability
+
+Every feature MUST consider production performance.
+
+Implementations MUST:
+
+Avoid unnecessary database queries.
+Avoid O(n²) algorithms unless justified.
+Use asynchronous patterns where appropriate.
+Prevent blocking operations in async execution paths.
+Batch large operations when practical.
+Reuse caches before introducing new storage.
+
+Performance regressions MUST be identified before merge.
+
+Rationale
+
+Trading systems require predictable performance under increasing workload.
+
+14. Database Governance
+
+Database integrity MUST be preserved.
+
+All database changes MUST:
+
+Use version-controlled migrations.
+Preserve backward compatibility.
+Include required indexes for new query paths.
+Maintain transactional consistency.
+Avoid destructive schema modifications without explicit approval.
+Clearly define data ownership.
+
+No direct production schema modifications are permitted outside approved migrations.
+
+Rationale
+
+Reliable data management is fundamental for trading systems.
+
+15. Definition of Done
+
+A feature SHALL be considered complete only when all of the following conditions are satisfied:
+
+Specification approved.
+Implementation completed.
+Acceptance criteria satisfied.
+Unit and integration tests pass.
+Existing regression tests pass.
+Documentation updated.
+Production audit completed.
+No unresolved Critical or High severity issues remain.
+Required observability added.
+Rollback strategy verified.
+
+Incomplete implementations MUST NOT be merged.
+
+Rationale
+
+Consistent completion criteria improve software quality and release confidence.
+
+16. Non-Negotiable Engineering Rules
+
+The following rules apply to every implementation without exception:
+
+No placeholder implementations.
+No TODO code in production.
+No disabled or skipped tests.
+No duplicated business logic.
+No silent exception handling.
+No breaking API changes without specification approval.
+No undocumented architectural changes.
+No hardcoded secrets or credentials.
+No speculative implementations beyond the approved specification.
+No merge without successful audit and testing.
+
+Rationale
+
+These rules establish the minimum engineering standards for all project contributions.
 7. Write the completed constitution back to `.specify/memory/constitution.md` (overwrite).
 
 8. Output a final summary to the user with:
@@ -165,4 +360,4 @@ Principles:
 6. Responsive UI: Auth screens MUST render correctly on both mobile and laptop 
    viewports using a single shared component set.
 
-Testing: Explicit unit + integration tests required for all auth flows (not "no testing").
+All production features MUST additionally include edge-case testing, failure-path testing, and regression testing where applicable. Existing test suites MUST continue passing before merge.
