@@ -1,0 +1,47 @@
+- name: high-cpu
+  metric_name: cpu_percent
+  condition: gt
+  threshold: 80.0
+  severity: warning
+  message_template: "CPU usage is at {metric_value}% (threshold: {threshold}%)"
+  enabled: true
+
+- name: high-memory
+  metric_name: memory_percent
+  condition: gt
+  threshold: 85.0
+  severity: warning
+  message_template: "Memory usage is at {metric_value}% (threshold: {threshold}%)"
+  enabled: true
+
+- name: critical-cpu
+  metric_name: cpu_percent
+  condition: gt
+  threshold: 95.0
+  severity: critical
+  message_template: "CRITICAL: CPU usage at {metric_value}%"
+  enabled: true
+
+- name: critical-memory
+  metric_name: memory_percent
+  condition: gt
+  threshold: 95.0
+  severity: critical
+  message_template: "CRITICAL: Memory usage at {metric_value}%"
+  enabled: true
+
+- name: high-error-rate
+  metric_name: error_rate_per_sec
+  condition: gt
+  threshold: 5.0
+  severity: critical
+  message_template: "Error rate is {metric_value}/sec (threshold: {threshold}/sec)"
+  enabled: true
+
+- name: high-request-latency
+  metric_name: request_latency_ms
+  condition: gt
+  threshold: 2000.0
+  severity: warning
+  message_template: "Request latency at {metric_value}ms (threshold: {threshold}ms)"
+  enabled: true
