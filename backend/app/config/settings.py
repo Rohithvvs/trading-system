@@ -106,6 +106,20 @@ class Settings(BaseSettings):
     smtp_from: str = Field(default="", alias="SMTP_FROM")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
+    # FEAT-008 realistic trade execution control plane
+    # Master switch; when False, orchestrator forces LEGACY path.
+    feat008_enabled: bool = Field(default=True, alias="FEAT008_ENABLED")
+    # REALISTIC | LEGACY — fill model for primary metrics
+    feat008_execution_model: str = Field(default="REALISTIC", alias="FEAT008_EXECUTION_MODEL")
+    # Whether composite score uses realistic (True) or legacy (False) metrics
+    feat008_composite_uses_realistic: bool = Field(
+        default=True, alias="FEAT008_COMPOSITE_USES_REALISTIC"
+    )
+    # Skip trades that lack a next bar for realistic entry (default True)
+    feat008_skip_on_missing_next_bar: bool = Field(
+        default=True, alias="FEAT008_SKIP_ON_MISSING_NEXT_BAR"
+    )
+
     # FEAT-004: Market regime overlay (disabled by default)
     feat004_enabled: bool = False
     feat004_stage: str = "SHADOW"

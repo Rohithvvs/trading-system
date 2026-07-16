@@ -7645,187 +7645,205 @@ body {
   }
 }
 
-/* ===== Swing Decision Dashboard (embedded in Markets) ===== */
-.swing-decision-dashboard {
+/* ============================================================
+   Diagnostics Dashboard — Sprint 1 observability panels
+   ============================================================ */
+.diagnostics-grid {
   display: grid;
-  gap: clamp(12px, 1.2vw, 20px);
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-4);
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
 
-.swing-decision-dashboard__section {
-  margin-top: 14px;
-  min-width: 0;
-}
-
-.swing-section-title {
-  font-size: 0.95rem;
-  margin: 0 0 10px;
-}
-
-.swing-market-status {
-  margin-top: 4px;
-}
-
-.swing-controls {
+.diagnostics-grid__main,
+.diagnostics-grid__side {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 100%;
+  gap: var(--space-4);
   min-width: 0;
 }
 
-.swing-controls__grid {
+@media (max-width: 768px) {
+  .diagnostics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Metric cards */
+.metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
-  gap: 10px 12px;
-  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: var(--space-3);
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
 
-.swing-controls__search {
-  grid-column: span 2;
-  min-width: 0;
-}
-
-.swing-control-field {
+.metric-card {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;
-}
-
-.swing-control-field__label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.swing-control-field input,
-.swing-control-field select {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: var(--radius-md, 8px);
+  background: var(--surface);
   border: 1px solid var(--border);
-  background: var(--bg, var(--surface-2, #12161c));
+  border-radius: var(--radius-md);
+  padding: 12px;
+  min-width: 0;
+}
+
+.metric-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: var(--weight-semibold);
+}
+
+.metric-value {
+  font-size: 1.05rem;
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
   color: var(--text);
-  font: inherit;
-  font-size: 0.9rem;
 }
 
-.swing-control-field input:focus,
-.swing-control-field select:focus {
-  outline: 2px solid var(--accent, #3b82f6);
-  outline-offset: 1px;
-}
-
-.swing-controls__actions {
+/* Log viewer */
+.log-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
+  margin-bottom: var(--space-3);
 }
 
-.swing-quick-actions__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.scanner-page-hero {
-  margin-bottom: 0;
-}
-
-/* Compact status cards inside scanner header — right-aligned below Run from Markets */
-.scanner-header-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+.log-filters select,
+.log-filters input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.82rem;
   min-width: 0;
 }
 
-.status-cards-row--compact {
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  width: auto;
-  min-width: 0;
+.log-filters input {
+  flex: 1 1 160px;
 }
 
-.status-card--compact {
-  padding: 6px 10px !important;
-  gap: 2px !important;
-  border-radius: var(--radius-md) !important;
-  min-width: auto !important;
+.log-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.log-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: var(--weight-semibold);
+  border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 
-.status-card--compact .status-card__label {
-  font-size: 0.6rem !important;
-  letter-spacing: 0.03em !important;
+.log-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: normal;
+  word-break: break-word;
 }
 
-.status-card--compact .status-card__value {
-  font-size: clamp(0.7rem, 0.9vw, 0.8rem) !important;
-  gap: 4px !important;
+.log-timestamp {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-muted);
 }
 
-.status-card--compact .status-card__dot {
-  width: 6px !important;
-  height: 6px !important;
+.log-source {
+  white-space: nowrap;
+  color: var(--text-secondary);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-@media (max-width: 640px) {
-  .scanner-header-right {
-    width: 100%;
-  }
-  .status-cards-row--compact {
-    width: 100%;
-    flex-direction: column;
-  }
-  .status-card--compact {
-    width: 100%;
-  }
+.log-message {
+  max-width: 400px;
 }
 
-/* Nested infra panel inside Markets: no extra outer chrome clash */
-.swing-decision-dashboard .infra-panel {
+.log-row--error td,
+.log-row--critical td {
+  background: var(--negative-soft);
+}
+
+.log-row--warning td {
+  background: var(--warning-soft);
+}
+
+/* Alerts panel */
+.alert-list {
+  list-style: none;
   margin: 0;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-@media (max-width: 720px) {
-  .swing-controls__search {
-    grid-column: 1 / -1;
-  }
-  .swing-controls__actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .swing-controls__actions .ds-btn {
-    width: 100%;
-  }
-  .swing-quick-actions__row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .swing-quick-actions__row .ds-btn {
-    width: 100%;
-  }
+.alert-item {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-@media (max-width: 480px) {
-  .swing-controls__grid {
-    grid-template-columns: 1fr;
-  }
+.alert-item--critical {
+  border-color: var(--negative);
+  background: var(--negative-soft);
+}
+
+.alert-item--warning {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.alert-item--info {
+  border-color: var(--accent-muted);
+  background: var(--accent-soft);
+}
+
+.alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-message {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+/* Missing badge variants for log levels */
+.ds-badge--debug {
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+.ds-badge--critical {
+  background: var(--negative-soft);
+  color: var(--negative-text);
+  border-color: rgba(239, 68, 68, 0.25);
 }

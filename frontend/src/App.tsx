@@ -58,6 +58,9 @@ const WatchlistPage = lazy(() =>
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage").then((m) => ({ default: m.PerformancePage })),
 );
+const DiagnosticsPage = lazy(() =>
+  import("./pages/Diagnostics").then((m) => ({ default: m.DiagnosticsPage })),
+);
 
 function ViewFallback() {
   return (
@@ -586,6 +589,14 @@ export default function App() {
             element={
               <Suspense fallback={<ViewFallback />}>
                 <PerformancePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/diagnostics"
+            element={
+              <Suspense fallback={<ViewFallback />}>
+                <DiagnosticsPage />
               </Suspense>
             }
           />

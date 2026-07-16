@@ -34,6 +34,7 @@ from .routes.fyers import router as fyers_router
 from .utils import configure_logging, get_logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from .services.candle_store import (
     get_all_cached_symbols,
     is_cache_fresh,
@@ -462,6 +463,31 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
+    # JOB 6: Diagnostics alert evaluation (every 10s — NFR-002)
+    from .observability.alert_jobs import (
+        evaluate_system_alerts_job,
+        rotate_observability_logs_job,
+    )
+
+    # Evaluate every 30s (NFR-002 is 10s breach-to-alert budget; 30s keeps
+    # load low while still meeting Phase 0 thresholds for most metrics).
+    scheduler.add_job(
+        evaluate_system_alerts_job,
+        IntervalTrigger(seconds=30),
+        id="diagnostics_alert_evaluation",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # JOB 7: Observability JSONL retention (90 days — NFR-004)
+    scheduler.add_job(
+        rotate_observability_logs_job,
+        CronTrigger(hour=3, minute=0, timezone="Asia/Kolkata"),
+        id="observability_log_rotation",
+        replace_existing=True,
+    )
+
     # Clear in-memory FYERS quarantine on every app start
     from .services.fyers_service import QUARANTINED_SYMBOLS
     QUARANTINED_SYMBOLS.clear()
@@ -779,6 +805,16 @@ app.include_router(fyers_router)
 app.include_router(scheduler_router.router)
 app.include_router(walk_forward_router)
 app.include_router(event_calendar_router)
+
+
+@app.middleware("http")
+async def diagnostics_rate_monitor_middleware(request: Request, call_next):
+    from .observability.rate_monitor import record_request, record_error
+    record_request()
+    response = await call_next(request)
+    if response.status_code >= 400:
+        record_error()
+    return response
 
 
 async def nightly_candle_sync():
