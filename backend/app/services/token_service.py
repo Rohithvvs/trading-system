@@ -142,33 +142,32 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             # Parse JWT expiry
             expires_at = _decode_jwt_expiry(access_token)
 
-            # Step 2: Ensure ID=1 row exists
-            logger.info("STEP 2: Checking for existing ID=1 row...")
-            row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one_or_none()
-            
+            # Step 2: Upsert ID=1 row (INSERT ... ON CONFLICT avoids race between concurrent saves)
+            logger.info("STEP 2: Upserting ID=1 row...")
             stored = _encrypt_for_storage(access_token)
-            if row:
-                logger.info("STEP 2 RESULT: Found existing row. Updating...")
-                row.access_token = stored
-                row.is_active = True
-                row.status = "active"
-                row.access_token_saved_at = now
-                row.validated_at = now
-                row.expires_at = expires_at
-                db.add(row)
-            else:
-                logger.info("STEP 2 RESULT: No row found. Creating new...")
-                row = FyersToken(
-                    id=1,
-                    access_token=stored,
-                    created_at=now,
-                    is_active=True,
-                    status="active",
-                    access_token_saved_at=now,
-                    validated_at=now,
-                    expires_at=expires_at,
-                )
-                db.add(row)
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = pg_insert(FyersToken).values(
+                id=1,
+                access_token=stored,
+                created_at=now,
+                is_active=True,
+                status="active",
+                access_token_saved_at=now,
+                validated_at=now,
+                expires_at=expires_at,
+            ).on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "access_token": stored,
+                    "is_active": True,
+                    "status": "active",
+                    "access_token_saved_at": now,
+                    "validated_at": now,
+                    "expires_at": expires_at,
+                },
+            )
+            await db.execute(stmt)
+            row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one()
 
             # Step 3: Add history
             logger.info("STEP 3: Adding token history entry...")
@@ -417,7 +416,9 @@ async def exchange_auth_code(auth_code: str, db: AsyncSession) -> dict:
             await db.execute(
                 update(FyersToken).where(FyersToken.is_active == True).values(is_active=False, status="inactive")
             )
-            row = FyersToken(
+            # Upsert ID=1 row (avoids race between concurrent OAuth exchanges)
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = pg_insert(FyersToken).values(
                 id=1,
                 access_token=access_token,
                 created_at=now,
@@ -426,8 +427,19 @@ async def exchange_auth_code(auth_code: str, db: AsyncSession) -> dict:
                 access_token_saved_at=now,
                 validated_at=now,
                 expires_at=expires_at,
+            ).on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "access_token": access_token,
+                    "is_active": True,
+                    "status": "active",
+                    "access_token_saved_at": now,
+                    "validated_at": now,
+                    "expires_at": expires_at,
+                },
             )
-            db.add(row)
+            await db.execute(stmt)
+            row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one()
             masked = _mask_token(access_token)
             history = FyersTokenHistory(
                 access_token_masked=masked,

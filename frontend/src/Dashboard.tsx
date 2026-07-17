@@ -67,6 +67,9 @@ export default function Dashboard() {
   });
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
 
+  // AbortController ref to cancel in-flight scans
+  const scanAbortRef = useState<{ controller: AbortController | null }>({ controller: null })[0];
+
   // WebSocket Live Badge State
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [lastMessageAt, setLastMessageAt] = useState<Date | null>(null);
@@ -74,6 +77,15 @@ export default function Dashboard() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  // Cleanup: abort any in-flight scan on unmount
+  useEffect(() => {
+    return () => {
+      if (scanAbortRef.controller) {
+        scanAbortRef.controller.abort();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     function loadAndApply() {
@@ -234,6 +246,13 @@ export default function Dashboard() {
   }, [screenerResult]);
 
   async function handleRunScanner() {
+    // Cancel any in-flight previous scan
+    if (scanAbortRef.controller) {
+      scanAbortRef.controller.abort();
+    }
+    const controller = new AbortController();
+    scanAbortRef.controller = controller;
+
     setIsLoading(true);
     setError(null);
     setProgressData({
@@ -273,8 +292,12 @@ export default function Dashboard() {
             remaining: update.remaining ?? prev.remaining,
             eta_sec: update.eta_sec ?? prev.eta_sec,
           }));
-        }
+        },
+        controller.signal,
       );
+
+      // Ignore stale result if this scan was cancelled by a newer one
+      if (controller.signal.aborted) return;
 
       console.info("[scanner] storing scanner result", {
         scanned: response.scanned_symbols,
@@ -286,6 +309,9 @@ export default function Dashboard() {
 
       applyScanResult(response, "fresh");
     } catch (requestError: any) {
+      // Ignore errors from cancelled scans
+      if (controller.signal.aborted) return;
+
       console.error("[scanner] scanner request failed", requestError);
       const detail = requestError?.response?.data?.detail || requestError?.detail || null;
 

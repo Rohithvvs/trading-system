@@ -28,7 +28,7 @@ from ..schemas import (
 )
 from ..services.fyers_service import FyersService
 from ..services.screener_service import ScreenerService
-from ..utils import advisory_payload, get_logger
+from ..utils import advisory_payload, get_logger, safe_int
 from .backtest_agent import BacktestAgent
 from .news_analysis_agent import NewsAnalysisAgent
 from .ranking_agent import RankingAgent
@@ -93,7 +93,7 @@ class OrchestratorAgent:
                                             high=float(row["high"]),
                                             low=float(row["low"]),
                                             close=float(row["close"]),
-                                            volume=int(row["volume"]),
+                                            volume=safe_int(row["volume"], symbol=symbol, field="volume"),
                                         )
                                     )
                                 candles_by_mode[mode] = points
@@ -147,7 +147,7 @@ class OrchestratorAgent:
                     candles_dict_by_mode[mode][symbol] = c_map[mode]
                     
         if progress_callback:
-            progress_callback({"stage": "Calculating Technical Indicators...", "progress": 55})
+            progress_callback({"stage": "Calculating Technical Indicators...", "progress": 55, "heartbeat": True})
         # Execute the vectorized bulk technical analysis once
         bulk_technical_results = {}
         for mode in modes:
@@ -155,7 +155,7 @@ class OrchestratorAgent:
             bulk_technical_results[mode] = self.technical_agent.run_bulk(candles_dict_by_mode[mode], mode)
             
         if progress_callback:
-            progress_callback({"stage": "Running AI Pattern Recognition...", "progress": 70})
+            progress_callback({"stage": "Running AI Pattern Recognition...", "progress": 70, "heartbeat": True})
         # Pre-resolve FEAT-004 benchmark ONCE (was called per-symbol before — HUGE bottleneck)
         feat004_config = self._build_feat004_config()
         feat007_config = self._build_feat007_config()
@@ -191,22 +191,47 @@ class OrchestratorAgent:
         # Dispatch Backtest / News / Fundamental agents with bounded concurrency.
         async def run_remaining_agents():
             agent_sem = asyncio.Semaphore(6)
+            completed_count = {"n": 0}
+            total_symbols = len(request.symbols)
 
             async def _one(symbol: str):
                 async with agent_sem:
-                    return await self._analyze_symbol_post_bulk(
-                        symbol,
-                        request,
-                        candles_by_symbol_and_mode[symbol],
-                        bulk_technical_results,
-                        feat004_config=feat004_config,
-                        benchmark_ohlcv=benchmark_ohlcv,
-                        benchmark_failure_reason=benchmark_failure_reason,
-                        benchmark_symbol=benchmark_symbol,
-                        feat007_config=feat007_config,
-                        stock_id=stock_ids.get(symbol),
-                        market_regime=_market_regime,
-                    )
+                    try:
+                        result = await self._analyze_symbol_post_bulk(
+                            symbol,
+                            request,
+                            candles_by_symbol_and_mode[symbol],
+                            bulk_technical_results,
+                            feat004_config=feat004_config,
+                            benchmark_ohlcv=benchmark_ohlcv,
+                            benchmark_failure_reason=benchmark_failure_reason,
+                            benchmark_symbol=benchmark_symbol,
+                            feat007_config=feat007_config,
+                            stock_id=stock_ids.get(symbol),
+                            market_regime=_market_regime,
+                        )
+                    except Exception as exc:
+                        self.logger.error(
+                            "SYMBOL_ANALYSIS_FAILED | symbol=%s | error=%s | skipping",
+                            symbol,
+                            exc,
+                            exc_info=True,
+                        )
+                        result = self._unavailable_analysis_result(symbol, request, candles_by_symbol_and_mode.get(symbol, {}))
+
+                    completed_count["n"] += 1
+                    done = completed_count["n"]
+                    if progress_callback and (done % 5 == 0 or done == total_symbols):
+                        pct = 70 + int(15 * done / max(1, total_symbols))
+                        progress_callback({
+                            "stage": f"Running AI Analysis... ({done}/{total_symbols})",
+                            "progress": min(pct, 85),
+                            "current_symbol": symbol,
+                            "done": done,
+                            "remaining": total_symbols - done,
+                            "total_scoring": total_symbols,
+                        })
+                    return result
 
             return await asyncio.gather(*(_one(symbol) for symbol in request.symbols))
             
@@ -214,7 +239,7 @@ class OrchestratorAgent:
             
 
         if progress_callback:
-            progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85})
+            progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85, "heartbeat": True})
         rankings = self.ranking_agent.run(items)
         self.logger.info(
             "Completed full analysis | analyzed=%s | best_swing=%s | best_intraday=%s",
@@ -231,14 +256,12 @@ class OrchestratorAgent:
 
     def run_partial(self, request: AnalysisRequest) -> AnalysisResponse:
         items = [self._analyze_symbol(symbol, request) for symbol in request.symbols]
-        if progress_callback:
-            progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85})
         rankings = self.ranking_agent.run(items)
         return AnalysisResponse(items=items, rankings=rankings, disclaimer=advisory_payload())
 
     async def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         if progress_callback:
-            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 10})
+            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 10, "heartbeat": True})
         self.logger.info(
             "Starting screener flow | top_n=%s | mode=%s | lookback=%s | custom_symbol_count=%s",
             request.top_n,
@@ -267,7 +290,7 @@ class OrchestratorAgent:
         stopped_at_stage: str | None = None
 
         if progress_callback:
-            progress_callback({"stage": "Loading Market Universe...", "progress": 20})
+            progress_callback({"stage": "Loading Market Universe...", "progress": 20, "heartbeat": True})
         universes = await self._prioritized_universes()
         self.logger.info(
             "Universe scan plan | stages=%s | stage_list=%s",
@@ -356,7 +379,7 @@ class OrchestratorAgent:
         progress_callback=None,
     ) -> ScreenerResponse:
         if progress_callback:
-            progress_callback({"stage": "Fetching Historical OHLCV Data...", "progress": 40})
+            progress_callback({"stage": "Fetching Historical OHLCV Data...", "progress": 40, "heartbeat": True})
         screener_results = await self.screener_service.screen_symbols_swing(
             source_universe,
             lookback_window=request.timeframe.lookback_window,
@@ -440,7 +463,7 @@ class OrchestratorAgent:
                                 high=float(row["high"]),
                                 low=float(row["low"]),
                                 close=float(row["close"]),
-                                volume=int(row["volume"]),
+                                volume=safe_int(row["volume"], symbol=sym, field="volume"),
                             ))
                         if len(points) >= 220:
                             prefetched_candles[sym] = {AM.swing: points}

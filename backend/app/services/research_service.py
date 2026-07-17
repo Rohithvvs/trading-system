@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..utils import get_logger
+from ..utils import get_logger, safe_int
 from .llm_service import LLMService
 from .research_cache import research_cache
 
@@ -152,7 +152,7 @@ class ResearchService:
                         "high": float(p.high),
                         "low": float(p.low),
                         "close": float(p.close),
-                        "volume": int(p.volume or 0),
+                        "volume": safe_int(p.volume or 0, field="volume"),
                     }
                 )
             elif isinstance(p, dict):
@@ -163,7 +163,7 @@ class ResearchService:
                         "high": float(p.get("high", 0)),
                         "low": float(p.get("low", 0)),
                         "close": float(p.get("close", 0)),
-                        "volume": int(p.get("volume") or 0),
+                        "volume": safe_int(p.get("volume") or 0, field="volume"),
                     }
                 )
         df = pd.DataFrame(rows).dropna(subset=["close"])
@@ -287,7 +287,7 @@ class ResearchService:
                 obv_trend = "rising" if obv_series.iloc[-1] > obv_series.iloc[-10] else "falling"
 
         avg_vol_20 = _safe_float(volume.tail(20).mean(), 0) if len(volume) else None
-        cur_vol = int(volume.iloc[-1]) if len(volume) else None
+        cur_vol = safe_int(volume.iloc[-1], field="volume") if len(volume) else None
         vol_ratio = None
         if cur_vol is not None and avg_vol_20:
             vol_ratio = _safe_float(cur_vol / avg_vol_20, 2)

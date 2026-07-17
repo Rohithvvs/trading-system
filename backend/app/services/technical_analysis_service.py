@@ -8,7 +8,7 @@ from ta.trend import EMAIndicator, MACD, SMAIndicator
 from ta.volume import VolumeWeightedAveragePrice
 
 from ..schemas import AnalysisMode, OHLCVPoint, TechnicalAnalysisResult
-from ..utils import get_logger
+from ..utils import get_logger, safe_int
 import os
 
 try:
@@ -68,6 +68,11 @@ class TechnicalAnalysisService:
 
         if frame.empty:
             return {}
+
+        # NaN safety: fill NaN in all OHLCV columns before indicator calculations
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in frame.columns:
+                frame[col] = frame[col].fillna(0)
 
         frame.set_index(["timestamp", "symbol"], inplace=True)
         frame.sort_index(inplace=True)

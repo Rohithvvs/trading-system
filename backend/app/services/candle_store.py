@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 from sqlalchemy import text
 from ..db.session import AsyncSessionLocal
+from ..utils import safe_int
 
 logger = logging.getLogger("candle_store")
 
@@ -60,7 +61,7 @@ async def store_candles(symbol: str, df: pd.DataFrame, resolution: str = "1D"):
             "h": float(row["high"]),
             "l": float(row["low"]),
             "c": float(row["close"]),
-            "v": int(row["volume"]),
+            "v": safe_int(row["volume"], symbol=symbol, field="volume"),
             "f": fetched_at
         })
 
@@ -83,8 +84,8 @@ async def store_candles(symbol: str, df: pd.DataFrame, resolution: str = "1D"):
         await db.execute(query, rows)
         await db.commit()
 
-async def load_candles(symbol: str, from_date: str | datetime | None = None, resolution: str = "1D"):
-    """Load cached candles for a symbol. Returns pandas DataFrame or list[dict]."""
+async def load_candles(symbol: str, from_date: str | datetime | None = None, resolution: str = "1D") -> pd.DataFrame:
+    """Load cached candles for a symbol. Always returns a pandas DataFrame."""
     async with AsyncSessionLocal() as db:
         if from_date:
             if isinstance(from_date, str):
@@ -96,17 +97,18 @@ async def load_candles(symbol: str, from_date: str | datetime | None = None, res
                 {"s": symbol, "r": resolution, "fd": from_date}
             )
             rows = res.mappings().all()
-            return [
+            data = [
                 {
                     "date": row["date"].split(' ')[0] if isinstance(row["date"], str) else row["date"].strftime("%Y-%m-%d"),
                     "open": float(row["open"]),
                     "high": float(row["high"]),
                     "low": float(row["low"]),
                     "close": float(row["close"]),
-                    "volume": int(row["volume"])
+                    "volume": safe_int(row["volume"], symbol=symbol, field="volume")
                 }
                 for row in rows
             ]
+            return pd.DataFrame(data)
         else:
             res = await db.execute(
                 text("SELECT date, open, high, low, close, volume FROM market_data.candles WHERE symbol = :s AND resolution = :r ORDER BY date ASC"),
@@ -120,7 +122,7 @@ async def load_candles(symbol: str, from_date: str | datetime | None = None, res
                     "high": float(row["high"]),
                     "low": float(row["low"]),
                     "close": float(row["close"]),
-                    "volume": int(row["volume"]),
+                    "volume": safe_int(row["volume"], symbol=symbol, field="volume"),
                 }
                 for row in rows
             ]
@@ -250,7 +252,7 @@ async def load_all_cached_candles(symbols: list[str], resolution: str = "1D") ->
             "high": float(row["high"]),
             "low": float(row["low"]),
             "close": float(row["close"]),
-            "volume": int(row["volume"]),
+            "volume": safe_int(row["volume"], symbol=row["symbol"], field="volume"),
         })
 
     return {

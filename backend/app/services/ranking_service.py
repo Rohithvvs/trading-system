@@ -6,7 +6,8 @@ from ..utils import advisory_payload
 
 class RankingService:
     def rank(self, items: list[StockAnalysisResult]) -> RankingsResponse:
-        scored = sorted(items, key=lambda item: (-item.recommendation.score, item.symbol))
+        import math
+        scored = sorted(items, key=lambda item: (0.0 if math.isnan(item.recommendation.score) else -item.recommendation.score, item.symbol))
         rankings: list[RankingItem] = []
 
         for index, item in enumerate(scored, start=1):

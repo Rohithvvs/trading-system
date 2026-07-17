@@ -21,6 +21,20 @@ _lock = threading.Lock()
 _store: dict[str, tuple[float, Any]] = {}
 
 DEFAULT_TTL_SECONDS = 300.0  # 5 minutes
+_SWEEP_INTERVAL = 60.0  # sweep every 60 seconds
+_last_sweep: float = 0.0
+
+
+def _evict_expired() -> None:
+    """Periodic sweep to remove expired entries from the cache."""
+    global _last_sweep
+    now = time.monotonic()
+    if now - _last_sweep < _SWEEP_INTERVAL:
+        return
+    _last_sweep = now
+    expired = [k for k, v in _store.items() if now > v[0]]
+    for k in expired:
+        _store.pop(k, None)
 
 
 def cache_get(key: str) -> Any | None:
@@ -38,6 +52,7 @@ def cache_get(key: str) -> Any | None:
 def cache_set(key: str, value: Any, ttl_seconds: float = DEFAULT_TTL_SECONDS) -> None:
     with _lock:
         _store[key] = (time.monotonic() + ttl_seconds, value)
+        _evict_expired()
 
 
 def cache_invalidate(prefix: str | None = None) -> None:

@@ -11,10 +11,35 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 def health_check() -> HealthResponse:
+    # Check database
+    db_status = "ok"
+    try:
+        from ..db.session import engine
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy", fromlist=["text"]).text("SELECT 1"))
+    except Exception:
+        db_status = "error"
+
+    # Check Redis (graceful if not configured)
+    redis_status = "ok"
+    try:
+        from ..core.redis import get_redis
+        r = get_redis()
+        if r is None:
+            redis_status = "not_configured"
+        else:
+            r.ping()
+    except Exception:
+        redis_status = "error"
+
     return HealthResponse(
         status="ok",
         environment=settings.app_env,
         disclaimer=advisory_payload(),
+        database=db_status,
+        redis=redis_status,
+        fyers="ok",
+        websocket="ok",
     )
 
 

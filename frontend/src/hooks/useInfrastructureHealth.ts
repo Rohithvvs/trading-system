@@ -40,8 +40,10 @@ export function useInfrastructureHealth() {
     let activeController: AbortController | null = null;
 
     async function pingHealth() {
-      activeController = new AbortController();
-      const timeoutId = window.setTimeout(() => activeController?.abort(), REQUEST_TIMEOUT_MS);
+      const controller = new AbortController();
+      activeController = controller;
+      // Capture controller locally to avoid stale reference in timeout callback
+      const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       const startedAt = performance.now();
 
       try {
@@ -50,7 +52,7 @@ export function useInfrastructureHealth() {
           method: "GET",
           credentials: "include",
           headers: { "Cache-Control": "no-cache", Accept: "application/json" },
-          signal: activeController.signal,
+          signal: controller.signal,
         });
 
         const latencyMs = Math.round(performance.now() - startedAt);
@@ -61,7 +63,7 @@ export function useInfrastructureHealth() {
 
         const renderOk = response.ok;
         const dbOk = healthData?.database === "ok" || healthData?.database === "connected" || latencyMs < 2000;
-        const redisOk = healthData?.redis === "ok" || healthData?.redis === "connected";
+        const redisOk = healthData?.redis === "ok" || healthData?.redis === "connected" || healthData?.redis === "not_configured";
         const fyersOk = healthData?.fyers === "ok" || healthData?.fyers === "connected";
         const wsOk = healthData?.websocket === "ok" || healthData?.websocket === "connected";
 
@@ -69,7 +71,7 @@ export function useInfrastructureHealth() {
         const services: ServiceStatus[] = [
           { label: "Render Server", key: "render", status: renderOk ? "active" : "offline", meta: renderOk ? `${latencyMs}ms` : undefined },
           { label: "Neon Database", key: "db", status: dbOk ? "active" : latencyMs > 3000 ? "waking" : "offline", meta: dbOk ? `${latencyMs}ms` : undefined },
-          { label: "Redis Cache", key: "redis", status: redisOk ? "active" : latencyMs > 3000 ? "waking" : "sleeping", meta: redisOk ? "cached" : undefined },
+          { label: "Redis Cache", key: "redis", status: healthData?.redis === "not_configured" ? "active" : redisOk ? "active" : latencyMs > 3000 ? "waking" : "sleeping", meta: healthData?.redis === "not_configured" ? "n/a" : redisOk ? "cached" : undefined },
           { label: "Market Feed", key: "feed", status: fyersOk ? "active" : "connecting", meta: fyersOk ? "streaming" : "connecting..." },
           { label: "FYERS API", key: "fyers", status: fyersOk ? "active" : "offline", meta: fyersOk ? "authenticated" : undefined },
           { label: "Scanner Workers", key: "scanner", status: wsOk ? "active" : "sleeping", meta: wsOk ? "ready" : undefined },

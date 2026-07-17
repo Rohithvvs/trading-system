@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - handled via fallback
 
 from ..config import settings
 from ..schemas import AnalysisMode, OHLCVPoint
-from ..utils import get_logger
+from ..utils import get_logger, safe_int
 from ..core.log_manager import fyers_logger
 from ..observability.scan_diagnostics import (
     get_current_scan, log_fyers_request, log_fyers_response,
@@ -177,6 +177,8 @@ class FyersService:
     _ltp_source_cache: dict[str, str] = {}
     _ltp_locks: dict[str, "asyncio.Lock"] = {}
     _ltp_cache: dict[str, tuple[dict, float]] = {}
+    _CACHE_EVICT_INTERVAL = 300  # seconds between eviction sweeps
+    _cache_last_evict: float = 0.0
     _network_pool = __import__("concurrent.futures").futures.ThreadPoolExecutor(
         max_workers=max(50, _history_concurrency() * 3),
         thread_name_prefix="fyers_net",
@@ -187,6 +189,28 @@ class FyersService:
     _CLIENT_CACHE_MAX = 4
     _shared_instance: "FyersService | None" = None
     _shared_lock = threading.Lock()
+
+    @classmethod
+    def _evict_stale_caches(cls) -> None:
+        """Periodic sweep to remove expired entries from unbounded caches."""
+        now = time.time()
+        if now - cls._cache_last_evict < cls._CACHE_EVICT_INTERVAL:
+            return
+        cls._cache_last_evict = now
+
+        # Evict expired OHLCV cache entries (TTL 300s)
+        expired_keys = [k for k, v in cls._ohlcv_cache.items() if now >= v[2]]
+        for k in expired_keys:
+            cls._ohlcv_cache.pop(k, None)
+            cls._ohlcv_source_cache.pop(k, None)
+            cls._ohlcv_thread_locks.pop(k, None)
+
+        # Evict expired LTP cache entries (TTL 30s) and their locks
+        expired_ltp = [k for k, v in cls._ltp_cache.items() if now - v[1] >= 60.0]
+        for k in expired_ltp:
+            cls._ltp_cache.pop(k, None)
+            cls._ltp_source_cache.pop(k, None)
+            cls._ltp_locks.pop(k, None)
 
     def __init__(self) -> None:
         self.logger = get_logger("app.fyers")
@@ -310,13 +334,18 @@ class FyersService:
 
             # 5. YFinance fallback when FYERS unavailable or fails
             try:
+                import math
                 import yfinance as yf
                 clean = symbol.replace("NSE:", "").replace("BSE:", "").replace("-INDEX", "").replace("-EQ", "")
                 yf_sym = f"{clean}.NS" if not clean.endswith(".NS") else clean
                 ticker = yf.Ticker(yf_sym)
                 data = ticker.history(period="2d")
                 if not data.empty:
-                    ltp = round(float(data["Close"].iloc[-1]), 2)
+                    raw_ltp = data["Close"].iloc[-1]
+                    if math.isnan(float(raw_ltp)):
+                        self.logger.warning("YFINANCE_LTP_NAN | symbol=%s | source=YFINANCE_FALLBACK", symbol)
+                        return None
+                    ltp = round(float(raw_ltp), 2)
                     try:
                         fyers_logger.info("QUOTES | symbol=%s | ltp=%s | source=YFINANCE_FALLBACK", symbol, ltp)
                     except Exception:
@@ -851,7 +880,7 @@ class FyersService:
                             high=float(row[2]),
                             low=float(row[3]),
                             close=float(row[4]),
-                            volume=int(row[5]),
+                            volume=safe_int(row[5], symbol=symbol, field="volume"),
                         )
                     )
                 return parsed[-points:]
@@ -873,7 +902,7 @@ class FyersService:
                             "high": float(row[2]),
                             "low": float(row[3]),
                             "close": float(row[4]),
-                            "volume": int(row[5]),
+                            "volume": safe_int(row[5], symbol=symbol, field="volume"),
                         }
                     )
                 if new_rows:
@@ -905,7 +934,7 @@ class FyersService:
                         "high": float(row[2]),
                         "low": float(row[3]),
                         "close": float(row[4]),
-                        "volume": int(row[5]),
+                        "volume": safe_int(row[5], symbol=symbol, field="volume"),
                     }
                 if deduped_rows:
                     all_rows = [deduped_rows[key] for key in sorted(deduped_rows)]
@@ -955,7 +984,7 @@ class FyersService:
                     high=float(row["high"]),
                     low=float(row["low"]),
                     close=float(row["close"]),
-                    volume=int(row["volume"]),
+                    volume=safe_int(row["volume"], symbol=symbol, field="volume"),
                 )
             )
         return parsed[-points:]
@@ -1011,7 +1040,7 @@ class FyersService:
                                 high=float(row["high"]),
                                 low=float(row["low"]),
                                 close=float(row["close"]),
-                                volume=int(row["volume"]),
+                                volume=safe_int(row["volume"], symbol=symbol, field="volume"),
                             )
                         )
                     self._ohlcv_source_cache[cache_key] = "CANDLE_CACHE_DB"
@@ -1054,7 +1083,7 @@ class FyersService:
                             "high": float(p.high),
                             "low": float(p.low),
                             "close": float(p.close),
-                            "volume": int(p.volume),
+                            "volume": safe_int(p.volume, symbol=symbol, field="volume"),
                         }
                         for p in fetched
                     ]
@@ -1084,6 +1113,7 @@ class FyersService:
         candles: list[OHLCVPoint],
         source: str,
     ) -> None:
+        self._evict_stale_caches()
         cached = FyersService._ohlcv_cache.get(cache_key)
         if not cached or lookback_window >= cached[0]:
             FyersService._ohlcv_cache[cache_key] = (lookback_window, candles, time.time() + 300.0)
@@ -1208,7 +1238,7 @@ class FyersService:
                         high=float(row["High"]),
                         low=float(row["Low"]),
                         close=float(row["Close"]),
-                        volume=int(row["Volume"]),
+                        volume=safe_int(row["Volume"], symbol=symbol, field="volume"),
                     )
                 )
             self.logger.info("YFINANCE SUCCESS | symbol=%s | candles=%s", symbol, len(parsed))
@@ -1338,7 +1368,7 @@ class FyersService:
                             high=float(row[2]),
                             low=float(row[3]),
                             close=float(row[4]),
-                            volume=int(row[5]),
+                            volume=safe_int(row[5], symbol=symbol, field="volume"),
                         )
                     )
                 self.logger.info(

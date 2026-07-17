@@ -140,7 +140,8 @@ export async function runPresetScreener(
   timeframe: TimeframeConfig,
   symbols: string[],
   topN: number,
-  onProgress?: (update: ScannerProgressUpdate) => void
+  onProgress?: (update: ScannerProgressUpdate) => void,
+  signal?: AbortSignal,
 ): Promise<ScreenerResponse> {
   console.info("[scanner] runPresetScreener called", {
     mode,
@@ -156,6 +157,7 @@ export async function runPresetScreener(
       "Accept": "text/event-stream",
     },
     body: JSON.stringify({ mode, timeframe, symbols, top_n: topN }),
+    signal,
   }, "Scanner request");
 
   if (!response.ok) {
@@ -180,17 +182,34 @@ export async function runPresetScreener(
   const decoder = new TextDecoder();
   let buffer = "";
   let payload: ScreenerResponse | null = null;
+  // Server sends heartbeat every 5s. Allow 180s gap before declaring stall.
+  // This gives generous headroom for slow proxy buffering + long processing stages.
+  const STREAM_STALL_TIMEOUT_MS = 180_000;
 
   while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    let result: ReadableStreamReadResult<Uint8Array>;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const id = setTimeout(() => reject(new Error("Scanner stream stalled — no data for 180s")), STREAM_STALL_TIMEOUT_MS);
+        if (signal) signal.addEventListener("abort", () => clearTimeout(id), { once: true });
+      });
+      result = await Promise.race([reader.read(), timeoutPromise]);
+    } catch (err: any) {
+      if (signal?.aborted) throw new Error("Scan cancelled");
+      throw err;
+    }
+    if (result.done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+    buffer += decoder.decode(result.value, { stream: true });
     const events = buffer.split('\n\n');
     buffer = events.pop() || "";
 
     for (const event of events) {
       if (!event.trim()) continue;
+
+      // SSE comment lines (starting with ':') are keepalive heartbeats — ignore them
+      // but their arrival resets the stall timeout via the reader.read() race above
+      if (event.trim().startsWith(':')) continue;
 
       const eventMatch = event.match(/event:\s*(.*?)\n/);
       const dataMatch = event.match(/data:\s*(.*)/);
@@ -204,6 +223,9 @@ export async function runPresetScreener(
         const data = JSON.parse(dataRaw);
         
         if (eventType === "progress") {
+          // Heartbeat events still reset the stall timer (via data arrival),
+          // but only update UI for real progress events or heartbeat status
+          if (data.heartbeat && !data.stage) continue;
           if (onProgress) {
             onProgress({
               stage: data.stage || "Scanning...",

@@ -24,7 +24,7 @@ class JsonlStore:
         self.category_dir.mkdir(parents=True, exist_ok=True)
 
     def _current_path(self) -> Path:
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return self.category_dir / f"{date_str}.jsonl"
 
     def _path_for_date(self, date_str: str) -> Path:
@@ -164,7 +164,7 @@ class JsonlStore:
         return sorted(self.category_dir.glob("*.jsonl"), reverse=True)
 
     def archive_older_than(self, days: int) -> int:
-        cutoff = datetime.utcnow().timestamp() - days * 86400
+        cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
         archived = 0
         archive_dir = self.category_dir / "archive"
         archive_dir.mkdir(exist_ok=True)

@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import OperationalError
 from ..db.session import engine, AsyncSessionLocal
 from ..models.market_data import HistoricalCandle
-from ..utils import get_logger
+from ..utils import get_logger, safe_int
 
 logger = get_logger("app.market_data")
 
@@ -157,7 +157,7 @@ class MarketDataService:
                 "high": float(row["high"]),
                 "low": float(row["low"]),
                 "close": float(row["close"]),
-                "volume": int(row["volume"])
+                "volume": safe_int(row["volume"], symbol=symbol, field="volume")
             })
 
         # 3. PostgreSQL Batching: Chunk the batches to 900
@@ -248,7 +248,7 @@ class MarketDataService:
                             "sleep_time_s": sleep_time
                         }
                     )
-                    time.sleep(sleep_time)
+                    await asyncio.sleep(sleep_time)
                 else:
                     logger.exception(
                         "candle_upsert_failed",
@@ -302,7 +302,7 @@ class MarketDataService:
                 if col in df.columns:
                     df[col] = df[col].astype(float)
             if "volume" in df.columns:
-                df["volume"] = df["volume"].astype(int)
+                df["volume"] = df["volume"].apply(lambda v: safe_int(v, symbol=symbol, field="volume"))
         return df
 
     @staticmethod
@@ -512,7 +512,7 @@ class MarketDataService:
                 for col in ("open", "high", "low", "close"):
                     df[col] = df[col].astype(float)
                 if "volume" in df.columns:
-                    df["volume"] = df["volume"].astype(int)
+                    df["volume"] = df["volume"].apply(lambda v: safe_int(v, symbol=db_symbol, field="volume"))
                 for universe_symbol in db_to_universe.get(db_symbol, [db_symbol]):
                     frames[universe_symbol] = df
         return frames

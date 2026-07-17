@@ -14,6 +14,9 @@ from backend.scripts.import_stocks_master import import_csv
 asyncio.run(import_csv(str(root / 'ind_nifty500list.csv'), 'NIFTY500'))
 " || echo "Stocks master import step finished (data may already exist or will be seeded on app start)"
     startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
+      - key: PYTHONUNBUFFERED
+        value: "1"
