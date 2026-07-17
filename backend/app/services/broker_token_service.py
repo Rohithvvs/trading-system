@@ -89,12 +89,16 @@ async def get_token(db: AsyncSession, user_id: UUID, broker: str = "FYERS") -> d
         )
     ).first()
     if not row:
+        logger.info("BROKER_TOKEN_GET_NOT_FOUND | user=%s broker=%s query_params=[user_id=%s, broker=%s]",
+                     str(user_id)[:8], broker, user_id, broker)
         return {
             "exists": False,
             "broker": broker,
             "connection_status": "Disconnected",
             "token_masked": None,
         }
+    logger.info("BROKER_TOKEN_GET_FOUND | user=%s broker=%s row_id=%d masked=%s",
+                str(user_id)[:8], broker, row.id, row.token_masked)
     view = _public_view(row)
     view["exists"] = True
     return view
@@ -184,12 +188,17 @@ async def save_token(
 ) -> dict[str, Any]:
     broker = (broker or "FYERS").upper().strip()
     if broker not in SUPPORTED_BROKERS:
+        logger.warning("BROKER_TOKEN_SAVE_UNSUPPORTED | user=%s broker=%s", str(user_id)[:8], broker)
         return {"status": "error", "message": f"Unsupported broker: {broker}"}
     token = (access_token or "").strip()
     if not token:
+        logger.warning("BROKER_TOKEN_SAVE_EMPTY | user=%s broker=%s", str(user_id)[:8], broker)
         return {"status": "error", "message": "Access token cannot be empty"}
     if len(token) < 10:
+        logger.warning("BROKER_TOKEN_SAVE_TOO_SHORT | user=%s broker=%s len=%d", str(user_id)[:8], broker, len(token))
         return {"status": "error", "message": "Access token is too short"}
+
+    logger.info("BROKER_TOKEN_SAVE_START | user=%s broker=%s token_len=%d validate=%s", str(user_id)[:8], broker, len(token), validate)
 
     # Prevent obvious duplicates: same masked token already active for user+broker
     # Short fixed mask only (never hundreds of '*'); hard-cap for schema safety
@@ -204,13 +213,13 @@ async def save_token(
         )
     ).first()
     if existing and existing.token_masked == masked and existing.encrypted_token:
-        # Same mask — still allow update of meta / re-encrypt
-        pass
+        logger.info("BROKER_TOKEN_SAVE_DUPLICATE_MASK | user=%s broker=%s masked=%s - allowing re-encrypt", str(user_id)[:8], broker, masked)
 
     expires_at = token_expiry or _decode_jwt_expiry(token)
     if expires_at is not None and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at is not None and expires_at < _now():
+        logger.warning("BROKER_TOKEN_SAVE_EXPIRED | user=%s broker=%s expiry=%s", str(user_id)[:8], broker, expires_at)
         return {"status": "error", "message": "Token expiry is in the past"}
 
     last_error = None
@@ -218,13 +227,15 @@ async def save_token(
     if validate and broker == "FYERS":
         ok, reason = await _validate_fyers(token)
         if not ok:
+            logger.warning("BROKER_TOKEN_SAVE_VALIDATION_FAILED | user=%s broker=%s reason=%s", str(user_id)[:8], broker, reason)
             return {"status": "error", "message": reason or "Token validation failed"}
+        logger.info("BROKER_TOKEN_SAVE_VALIDATION_OK | user=%s broker=%s", str(user_id)[:8], broker)
     elif validate and broker != "FYERS":
-        # Non-FYERS: length/format check only
         pass
 
     now = _now()
     enc_token = encrypt_secret(token)
+    logger.info("BROKER_TOKEN_SAVE_ENCRYPTED | user=%s broker=%s enc_token_len=%d", str(user_id)[:8], broker, len(enc_token) if enc_token else 0)
     enc_key = encrypt_secret(api_key.strip()) if api_key and api_key.strip() else None
     enc_secret = encrypt_secret(api_secret.strip()) if api_secret and api_secret.strip() else None
 
@@ -238,6 +249,7 @@ async def save_token(
     ).first()
 
     if row:
+        logger.info("BROKER_TOKEN_SAVE_UPDATING | user=%s broker=%s row_id=%d", str(user_id)[:8], broker, row.id)
         row.encrypted_token = enc_token
         if enc_key is not None:
             row.encrypted_api_key = enc_key
@@ -252,6 +264,7 @@ async def save_token(
         row.token_masked = masked
         row.updated_at = now
     else:
+        logger.info("BROKER_TOKEN_SAVE_INSERTING | user=%s broker=%s", str(user_id)[:8], broker)
         row = BrokerToken(
             user_id=user_id,
             broker=broker,
@@ -272,14 +285,17 @@ async def save_token(
 
     if broker == "FYERS":
         await _mirror_to_fyers_tokens(db, token, expires_at)
+        logger.info("BROKER_TOKEN_SAVE_MIRRORED | user=%s broker=%s", str(user_id)[:8], broker)
 
     await db.commit()
+    logger.info("BROKER_TOKEN_SAVE_COMMITTED | user=%s broker=%s", str(user_id)[:8], broker)
     await db.refresh(row)
     logger.info(
-        "BROKER_TOKEN_SAVED | user=%s broker=%s masked=%s",
+        "BROKER_TOKEN_SAVED | user=%s broker=%s masked=%s row_id=%d",
         str(user_id)[:8],
         broker,
         masked,
+        row.id,
     )
     view = _public_view(row)
     return {
