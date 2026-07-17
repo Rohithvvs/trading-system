@@ -45,7 +45,7 @@ from ..schemas.paper_trading import (
     RecommendationPrefillResponse,
 )
 from ..services.fyers_service import FyersService
-from ..utils import get_logger
+from ..utils import get_logger, safe_int
 from ..core.log_manager import trading_logger
 from ..utils.money import as_float, dec, q_pnl, q_price, q_qty
 from ..observability.metrics import DUPLICATE_EXECUTIONS, ORDER_EXECUTIONS
@@ -1243,7 +1243,7 @@ class PaperTradingService:
                         high_val = float(row["High"]) if isinstance(row["High"], (int, float)) else float(row["High"].iloc[0])
                         low_val = float(row["Low"]) if isinstance(row["Low"], (int, float)) else float(row["Low"].iloc[0])
                         close_val = float(row["Close"]) if isinstance(row["Close"], (int, float)) else float(row["Close"].iloc[0])
-                        vol_val = int(row["Volume"]) if isinstance(row["Volume"], (int, float)) else int(row["Volume"].iloc[0])
+                        vol_val = safe_int(row["Volume"], field="volume") if isinstance(row["Volume"], (int, float)) else safe_int(row["Volume"].iloc[0], field="volume")
                         candles.append(OHLCVPoint(
                             timestamp=dt, open=open_val, high=high_val,
                             low=low_val, close=close_val, volume=vol_val,

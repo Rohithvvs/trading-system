@@ -6,6 +6,7 @@ from .json_sanitize import (
     sanitize_for_json,
 )
 from .logger import configure_logging, get_logger
+from .safe_convert import safe_float, safe_int, sanitize_ohlcv_row, sanitize_volume
 
 __all__ = [
     "advisory_payload",
@@ -14,5 +15,9 @@ __all__ = [
     "configure_logging",
     "find_non_jsonable",
     "get_logger",
+    "safe_float",
+    "safe_int",
     "sanitize_for_json",
+    "sanitize_ohlcv_row",
+    "sanitize_volume",
 ]

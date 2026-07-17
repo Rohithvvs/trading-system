@@ -185,13 +185,14 @@ class CandleReconciliationService:
                     
                     if candle_rows:
                         from ..schemas import OHLCVPoint
+                        from ..utils import safe_int
                         fetched = []
                         for row in candle_rows:
                             if len(row) < 6: continue
                             fetched.append(
                                 OHLCVPoint(
                                     timestamp=self.fyers_service._parse_timestamp(row[0]),
-                                    open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]), volume=int(row[5]),
+                                    open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]), volume=safe_int(row[5], symbol=symbol, field="volume"),
                                 )
                             )
                         if fetched:

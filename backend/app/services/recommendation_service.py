@@ -71,6 +71,10 @@ class RecommendationService:
         # Actually, let's normalize raw scores to 100:
         raw_tech = technical_score # 0 to 100
         raw_backtest = min(max((best_backtest.total_return * 4) if best_backtest and best_backtest.trade_count >= 5 else 0.0, -20.0), 100.0) # -20 to 100
+        # Guard against NaN propagation from backtest or other sources
+        import math
+        if math.isnan(raw_backtest):
+            raw_backtest = 0.0
         raw_news = sentiment_score * 100 # -100 to 100
         raw_fund = fundamental_score * 100 # -100 to 100
         

@@ -18,7 +18,7 @@ from ..schemas import (
 )
 import logging
 
-from ..utils import sanitize_for_json
+from ..utils import sanitize_for_json, safe_int
 from ..services import candle_store
 from ..utils import get_logger
 from fastapi import HTTPException
@@ -113,15 +113,50 @@ async def screener_full(payload: ScreenerRequest):
         )
 
     async def event_stream():
-        while True:
-            msg = await q.get()
-            if "status" in msg and msg["status"] in ("complete", "error"):
-                yield f"event: result\ndata: {json.dumps(msg)}\n\n"
-                break
-            else:
-                yield f"event: progress\ndata: {json.dumps(msg)}\n\n"
+        """SSE generator with server-side heartbeat to prevent proxy timeouts.
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+        Yields keepalive comments every 5 seconds when no progress data is
+        available, ensuring the connection is never considered idle by
+        Reverse proxies (Render, Vercel, nginx, Cloudflare).
+        """
+        import time as _time
+        last_yield_time = _time.monotonic()
+        HEARTBEAT_INTERVAL = 5.0
+
+        while True:
+            try:
+                # Wait for queue data with a short timeout to allow heartbeat
+                msg = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_INTERVAL)
+                # Got real data — yield it
+                if "status" in msg and msg["status"] in ("complete", "error"):
+                    # Add elapsed time for diagnostics
+                    if "elapsed_sec" not in msg:
+                        msg["elapsed_sec"] = round(_time.monotonic() - last_yield_time, 1)
+                    yield f"event: result\ndata: {json.dumps(msg)}\n\n"
+                    break
+                else:
+                    # Ensure progress events have a heartbeat timestamp
+                    if "heartbeat" not in msg:
+                        msg["heartbeat"] = True
+                    yield f"event: progress\ndata: {json.dumps(msg)}\n\n"
+                    last_yield_time = _time.monotonic()
+            except asyncio.TimeoutError:
+                # No data for HEARTBEAT_INTERVAL seconds — send keepalive
+                yield f": heartbeat {_time.time():.0f}\n\n"
+                last_yield_time = _time.monotonic()
+
+    response = StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control",
+        },
+    )
+    return response
 
 
 @router.get("/symbol/{symbol}/detail")
@@ -301,7 +336,7 @@ def _build_technical_extras(symbol: str, item, ohlcv: list) -> dict:
                     "high": float(point.high),
                     "low": float(point.low),
                     "close": float(point.close),
-                    "volume": int(point.volume),
+                    "volume": safe_int(point.volume, field="volume"),
                 }
                 for point in ohlcv
             ]

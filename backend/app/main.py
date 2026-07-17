@@ -976,7 +976,12 @@ async def automated_screening_job():
                     market_open = mkt["is_open"]
                     market_session = mkt["status"].lower().replace("_", "-")
                 except Exception:
-                    ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                    mkt = None
+                    market_open = False
+                    market_session = "unknown"
+
+                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                if mkt is None:
                     market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
                     if ist_now.weekday() >= 5:
                         market_session = "closed"

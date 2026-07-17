@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import AsyncIterator
 
 from sqlalchemy import text
@@ -21,6 +22,8 @@ class SingletonLease:
     name: str
     acquired: bool
     _session: AsyncSession | None = None
+    _acquired_at: float = field(default_factory=time.monotonic)
+    _max_lease_seconds: float = 300.0  # 5-minute safety TTL
 
     async def release(self) -> None:
         if self._session is not None:
@@ -37,8 +40,11 @@ class SingletonLease:
             self._session = None
         self.acquired = False
 
+    def is_expired(self) -> bool:
+        return (time.monotonic() - self._acquired_at) > self._max_lease_seconds
 
-async def acquire_singleton_lease(name: str) -> SingletonLease:
+
+async def acquire_singleton_lease(name: str, max_lease_seconds: float = 300.0) -> SingletonLease:
     session = AsyncSessionLocal()
     # Ensure it's PostgreSQL
     if session.bind and session.bind.dialect.name != "postgresql":
@@ -50,7 +56,7 @@ async def acquire_singleton_lease(name: str) -> SingletonLease:
         if not acquired:
             await session.close()
             return SingletonLease(name=name, acquired=False)
-        return SingletonLease(name=name, acquired=True, _session=session)
+        return SingletonLease(name=name, acquired=True, _session=session, _max_lease_seconds=max_lease_seconds)
     except Exception:
         await session.close()
         raise

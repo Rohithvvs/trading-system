@@ -22,7 +22,7 @@ def get_rss_mb():
     return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
 from ..schemas import AnalysisMode, OHLCVPoint, ScreenerConditionResult
-from ..utils import get_logger
+from ..utils import get_logger, safe_int
 from .fyers_service import FyersService, FyersRateLimitError, FyersAuthExpiredError, FyersAuthInvalidError
 from .technical_analysis_service import TechnicalAnalysisService
 from ..core.log_manager import scanner_logger
@@ -42,11 +42,14 @@ class AsyncTokenBucketRateLimiter:
         self.tokens = float(calls_per_second)
         self.last_refill = time.monotonic()
         self._lock: asyncio.Lock | None = None
+        self._lock_owner_loop: asyncio.AbstractEventLoop | None = None
         self._wait_interval = 1.0 / calls_per_second
 
     async def _get_lock(self) -> asyncio.Lock:
-        if self._lock is None:
+        loop = asyncio.get_running_loop()
+        if self._lock is None or self._lock_owner_loop is not loop:
             self._lock = asyncio.Lock()
+            self._lock_owner_loop = loop
         return self._lock
 
     async def acquire(self):
@@ -77,8 +80,10 @@ scanner_metrics = {
 }
 
 class ScreenerService:
-    # Stores the last fetched OHLCV DataFrames keyed by symbol for reuse by orchestrator
+    # Stores the last fetched OHLCV DataFrames keyed by symbol for reuse by orchestrator.
+    # Capped at 500 entries to prevent unbounded memory growth.
     last_fetched_frames: dict[str, pd.DataFrame] = {}
+    _LAST_FRAMES_MAX = 500
 
     def __init__(self, fyers_service=None):
         self.fyers_service = fyers_service or FyersService()
@@ -331,7 +336,7 @@ class ScreenerService:
                 high=float(high_val),
                 low=float(low_val),
                 close=float(close_val),
-                volume=int(vol_val)
+                volume=safe_int(vol_val, symbol=symbol, field="volume")
             ))
             
         return points
@@ -711,6 +716,10 @@ class ScreenerService:
             df = df.sort_index()
             df = df.reindex(full_index)
             df = df.ffill()
+            # Back-fill any remaining NaN at the start (symbol had no data for earliest dates)
+            df = df.bfill()
+            # Final safety: fill any remaining NaN with 0 to prevent int(NaN) crashes
+            df = df.fillna(0)
             
             sym_df = df.copy()
             sym_df["symbol"] = symbol
@@ -732,12 +741,25 @@ class ScreenerService:
 
         self.logger.debug("MEMORY_AUDIT stage=combined_frame_built rss_mb=%.1f symbols=%s candles=%s", get_rss_mb(), len(symbol_frames), len(combined_frame))
 
+        # NaN safety: ensure all OHLCV values are finite before indicator calculation
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in combined_frame.columns:
+                nan_count = combined_frame[col].isna().sum()
+                if nan_count > 0:
+                    self.logger.warning("NAN_CLEANUP | column=%s | nan_count=%s | replacing_with_zero", col, nan_count)
+                    combined_frame[col] = combined_frame[col].fillna(0)
+
         # Vectorized Bulk Analysis — pass the pre-built frame directly (no OHLCVPoint conversion)
         _progress("Calculating Technical Indicators...", 58)
         self.logger.info("STEP 2/8 | Stage=%s | Run vectorized analyze_bulk on entire universe", stage_name)
         ind_t0 = time.perf_counter()
+        # Emit heartbeat before the heavy vectorized computation (no yield needed —
+        # the progress callback enqueues into the asyncio.Queue which the SSE generator
+        # reads every 5 seconds via the heartbeat_sender task)
+        _progress({"stage": "Calculating Technical Indicators...", "progress": 58, "heartbeat": True})
         bulk_technical_results = self.technical_service.analyze_bulk_from_frame(combined_frame, AnalysisMode.swing)
         stage_timings["indicators_ms"] = (time.perf_counter() - ind_t0) * 1000
+        _progress({"stage": "Indicators complete", "progress": 60, "heartbeat": True})
 
         # Release the combined frame — indicators are extracted, we don't need it anymore
         del combined_frame
@@ -787,7 +809,7 @@ class ScreenerService:
                     high=float(row["high"]),
                     low=float(row["low"]),
                     close=float(row["close"]),
-                    volume=int(row["volume"]),
+                    volume=safe_int(row["volume"], symbol=symbol, field="volume"),
                 ))
 
             try:
@@ -808,7 +830,7 @@ class ScreenerService:
                 ))
 
             if progress_callback:
-                if (idx + 1) % 20 == 0 or idx == 0:
+                if (idx + 1) % 10 == 0 or idx == 0 or (idx + 1) == total_requested:
                     pct = 62 + int(8 * (idx + 1) / max(1, total_requested))
                     remaining = total_requested - (idx + 1)
                     elapsed = time.perf_counter() - scan_start_time
@@ -826,7 +848,12 @@ class ScreenerService:
         stage_timings["scoring_ms"] = (time.perf_counter() - score_t0) * 1000
 
         # Store frames for orchestrator reuse (avoids duplicate fetch in run_full)
-        ScreenerService.last_fetched_frames = {s: df.copy() for s, df in symbol_frames.items() if df is not None and not df.empty and len(df) >= MINIMUM_SWING_CANDLES}
+        new_frames = {s: df.copy() for s, df in symbol_frames.items() if df is not None and not df.empty and len(df) >= MINIMUM_SWING_CANDLES}
+        # Cap memory: keep only the most recent _LAST_FRAMES_MAX entries
+        if len(new_frames) > ScreenerService._LAST_FRAMES_MAX:
+            sorted_items = sorted(new_frames.items(), key=lambda kv: len(kv[1]), reverse=True)
+            new_frames = dict(sorted_items[:ScreenerService._LAST_FRAMES_MAX])
+        ScreenerService.last_fetched_frames = new_frames
         # Release symbol_frames explicitly after scoring loop
         del symbol_frames
 

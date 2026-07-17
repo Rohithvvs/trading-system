@@ -14,7 +14,73 @@ logger = logging.getLogger("app.services.scan_execution_service")
 import uuid
 from ..services.lock_service import DistributedLockService, LockAcquisitionError
 
+
+class _ScanState:
+    """Thread-safe scan state shared between the scan task and heartbeat sender."""
+    def __init__(self):
+        self.stage: str = "Initializing..."
+        self.progress: int = 0
+        self.current_symbol: str = ""
+        self.done: int = 0
+        self.remaining: int = 0
+        self.total: int = 0
+
+    def update(self, **kwargs):
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
+
+    def snapshot(self) -> dict:
+        return {
+            "stage": self.stage,
+            "progress": self.progress,
+            "current_symbol": self.current_symbol,
+            "done": self.done,
+            "remaining": self.remaining,
+            "total": self.total,
+        }
+
+
+# Global scan state — only one scan runs at a time (distributed lock enforces this)
+_scan_state = _ScanState()
+
 class ScanExecutionService:
+
+    _active_scan_start: float | None = None
+    _active_scan_stage: str = "Initializing..."
+
+    @staticmethod
+    async def _heartbeat_sender(progress_queue: asyncio.Queue | None, scan_id: str):
+        """Background task that emits heartbeat progress events every 5 seconds.
+
+        This ensures the SSE stream is never idle for more than 5 seconds,
+        preventing frontend stall detection and proxy read timeouts.
+        """
+        import time as _time
+        start = _time.monotonic()
+
+        while True:
+            await asyncio.sleep(5.0)
+            if progress_queue is None:
+                break
+            elapsed = int(_time.monotonic() - start)
+            state = _scan_state.snapshot()
+            msg = {
+                "status": "heartbeat",
+                "stage": state["stage"],
+                "progress": state["progress"],
+                "heartbeat": True,
+                "elapsed": elapsed,
+                "scan_id": scan_id,
+                "current_symbol": state["current_symbol"],
+                "done": state["done"],
+                "remaining": state["remaining"],
+            }
+            try:
+                progress_queue.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
+
     @staticmethod
     async def execute_scan(payload: ScreenerRequest, progress_queue: asyncio.Queue | None, trigger_source: str = "ui"):
         scan_id = str(uuid.uuid4())
@@ -27,10 +93,21 @@ class ScanExecutionService:
             
         logger.info("SCAN_LOCK_ACQUIRED | trigger_source=%s | scan_id=%s | lock_owner=%s | timestamp=%s", trigger_source, scan_id, lock.worker_id, time.time())
         lock.start_heartbeat()
-        asyncio.create_task(ScanExecutionService._run_scan_task(payload, progress_queue, trigger_source, scan_id, lock))
+
+        ScanExecutionService._active_scan_start = time.perf_counter()
+        ScanExecutionService._active_scan_stage = "Starting scan..."
+
+        # Start background heartbeat to keep SSE stream alive
+        heartbeat_task = asyncio.create_task(
+            ScanExecutionService._heartbeat_sender(progress_queue, scan_id)
+        )
+
+        asyncio.create_task(
+            ScanExecutionService._run_scan_task(payload, progress_queue, trigger_source, scan_id, lock, heartbeat_task)
+        )
 
     @staticmethod
-    async def _run_scan_task(payload: ScreenerRequest, progress_queue: asyncio.Queue | None, trigger_source: str, scan_id: str, lock: DistributedLockService):
+    async def _run_scan_task(payload: ScreenerRequest, progress_queue: asyncio.Queue | None, trigger_source: str, scan_id: str, lock: DistributedLockService, heartbeat_task: asyncio.Task | None = None):
         start_t = time.perf_counter()
         scan_status = "FAILED"
         error_type = None
@@ -46,6 +123,16 @@ class ScanExecutionService:
                 payload.timeframe.lookback_window,
                 payload.timeframe.swing,
                 len(payload.symbols),
+            )
+
+            # Initialize shared scan state for heartbeat tracking
+            _scan_state.update(
+                stage="Loading universe...",
+                progress=0,
+                current_symbol="",
+                done=0,
+                remaining=len(payload.symbols),
+                total=len(payload.symbols),
             )
 
             import datetime
@@ -73,6 +160,16 @@ class ScanExecutionService:
             def progress_callback(update_dict: dict):
                 if progress_queue is not None:
                     loop.call_soon_threadsafe(progress_queue.put_nowait, update_dict)
+                # Update shared state for heartbeat sender
+                if isinstance(update_dict, dict):
+                    _scan_state.update(
+                        stage=update_dict.get("stage", _scan_state.stage),
+                        progress=update_dict.get("progress", _scan_state.progress),
+                        current_symbol=update_dict.get("current_symbol", _scan_state.current_symbol),
+                        done=update_dict.get("done", _scan_state.done),
+                        remaining=update_dict.get("remaining", _scan_state.remaining),
+                        total=update_dict.get("total_scoring", update_dict.get("total_fetch", _scan_state.total)),
+                    )
 
             try:
                 # Check Redis cache first
@@ -158,6 +255,17 @@ class ScanExecutionService:
                 if progress_queue is not None:
                     await progress_queue.put({"status": "error", "message": str(e)})
         finally:
+            # Cancel heartbeat sender
+            if heartbeat_task and not heartbeat_task.done():
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+
+            ScanExecutionService._active_scan_start = None
+            ScanExecutionService._active_scan_stage = "Idle"
+
             if duration_ms == 0:
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
             logger.info(

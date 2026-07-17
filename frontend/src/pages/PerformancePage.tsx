@@ -169,19 +169,22 @@ const SummaryRow = memo(function SummaryRow({
 });
 
 const AnalyticsSection = memo(function AnalyticsSection({ analytics }: { analytics: any }) {
-  const hasWinRate = analytics.win_rate != null;
+  const winRate = analytics.win_rate ?? analytics.win_rate_pct;
+  const hasWinRate = winRate != null;
   const hasTotalTrades = analytics.total_trades != null;
   const hasProfitFactor = analytics.profit_factor != null;
   const hasDrawdown = analytics.max_drawdown != null;
 
   if (!hasWinRate && !hasTotalTrades && !hasProfitFactor && !hasDrawdown) return null;
 
+  const isWinRatePositive = winRate > 1 ? Number(winRate) >= 50 : Number(winRate) >= 0.5;
+
   return (
     <Card>
       <CardHeader label="Stats" title="Trading summary" />
       <div className="perf-analytics">
         {hasWinRate ? (
-          <StatCard label="Win rate" value={formatWinRate(analytics.win_rate)} tone={Number(analytics.win_rate) >= 0.5 ? "positive" : "negative"} />
+          <StatCard label="Win rate" value={formatWinRate(winRate)} tone={isWinRatePositive ? "positive" : "negative"} />
         ) : null}
         {hasTotalTrades ? (
           <StatCard label="Total trades" value={analytics.total_trades} />
