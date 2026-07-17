@@ -15,7 +15,6 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
-    # checkfirst=True is the PostgreSQL-safe equivalent of "CREATE TABLE IF NOT EXISTS"
     op.create_table(
         "event_calendar",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
@@ -39,7 +38,6 @@ def upgrade() -> None:
                   server_default=sa.text("NOW()"), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True
     )
 
     op.create_table(
@@ -55,7 +53,6 @@ def upgrade() -> None:
         sa.Column("warnings", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True
     )
 
     op.create_table(
@@ -72,7 +69,6 @@ def upgrade() -> None:
         sa.Column("skipped_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("error_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("notes", sa.Text(), nullable=True),
-        checkfirst=True
     )
 
 def downgrade() -> None:

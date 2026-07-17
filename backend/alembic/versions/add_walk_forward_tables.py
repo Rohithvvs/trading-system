@@ -15,7 +15,6 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
-    # checkfirst=True is the PostgreSQL-safe equivalent of "CREATE TABLE IF NOT EXISTS"
     op.create_table(
         "walk_forward_summary",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
@@ -45,7 +44,6 @@ def upgrade() -> None:
         sa.Column("verdict", sa.String(length=20), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()"), index=True),
-        checkfirst=True
     )
 
     op.create_table(
@@ -62,7 +60,6 @@ def upgrade() -> None:
         sa.Column("engine_version", sa.String(length=10), nullable=False, server_default="1.0.0"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()"), index=True),
-        checkfirst=True
     )
 
 def downgrade() -> None:

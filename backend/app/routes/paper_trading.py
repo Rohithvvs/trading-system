@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Backgroun
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
+from datetime import timezone
 import logging
 import time
 from zoneinfo import ZoneInfo

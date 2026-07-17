@@ -30,7 +30,6 @@ def upgrade() -> None:
                   server_default=sa.text("NOW()"), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True,
     )
 
     op.create_table(
@@ -57,7 +56,6 @@ def upgrade() -> None:
                   server_default=sa.text("NOW()"), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True,
     )
 
     op.create_table(
@@ -71,7 +69,6 @@ def upgrade() -> None:
         sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()"), index=True),
-        checkfirst=True,
     )
 
     op.create_table(
@@ -88,7 +85,6 @@ def upgrade() -> None:
                   server_default=sa.text("NOW()"), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True,
     )
 
     op.create_table(
@@ -108,7 +104,6 @@ def upgrade() -> None:
                   server_default=sa.text("NOW()"), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True,
     )
 
     op.create_table(
@@ -126,7 +121,6 @@ def upgrade() -> None:
                   server_default=sa.text("NOW()"), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("NOW()")),
-        checkfirst=True,
     )
 
 

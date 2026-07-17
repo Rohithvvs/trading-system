@@ -98,11 +98,13 @@ async def get_broker_token(
     user: User = Depends(get_current_user),
 ):
     """Return masked token metadata for the logged-in user (never plaintext)."""
+    logger.info("BROKER_TOKEN_GET_REQUEST | user_id=%s broker=%s", user.id, broker)
     try:
         data = await _with_db_retry(lambda db: bts.get_token(db, user.id, broker=broker))
+        logger.info("BROKER_TOKEN_GET_RESPONSE | user_id=%s broker=%s exists=%s", user.id, broker, data.get("exists"))
         return _ok(data)
     except Exception as exc:
-        logger.error("Failed to fetch broker token: %s", exc, exc_info=True)
+        logger.error("BROKER_TOKEN_GET_EXCEPTION | user_id=%s broker=%s error=%s", user.id, broker, exc, exc_info=True)
         return _error("Unable to load token information.", 500)
 
 
@@ -124,6 +126,10 @@ async def create_broker_token(
     user: User = Depends(get_current_user),
 ):
     """Validate (optional), encrypt, and save broker token for current user."""
+    logger.info(
+        "BROKER_TOKEN_SAVE_REQUEST | user_id=%s broker=%s validate=%s token_len=%d",
+        user.id, payload.broker, payload.run_validation, len(payload.access_token) if payload.access_token else 0,
+    )
     try:
         result = await _with_db_retry(
             lambda db: bts.save_token(
@@ -139,13 +145,20 @@ async def create_broker_token(
             )
         )
         if result.get("status") == "error":
+            logger.warning(
+                "BROKER_TOKEN_SAVE_FAILED | user_id=%s broker=%s reason=%s",
+                user.id, payload.broker, result.get("message"),
+            )
             return _error(result.get("message") or "Unable to save broker token.")
-        # Prefer stable client message; keep extra fields from service (token meta).
         response_data = dict(result)
         response_data["message"] = result.get("message") or "Token saved successfully."
+        logger.info(
+            "BROKER_TOKEN_SAVE_SUCCESS | user_id=%s broker=%s masked=%s",
+            user.id, payload.broker, result.get("token", {}).get("token_masked"),
+        )
         return _ok(response_data)
     except Exception as exc:
-        logger.error("Failed to save broker token: %s", exc, exc_info=True)
+        logger.error("BROKER_TOKEN_SAVE_EXCEPTION | user_id=%s broker=%s error=%s", user.id, payload.broker, exc, exc_info=True)
         return _error("Unable to save broker token.", 500)
 
 
