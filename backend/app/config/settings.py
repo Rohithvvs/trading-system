@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 from functools import cached_property
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
+
+_logger = logging.getLogger("app.config")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 
@@ -153,15 +156,36 @@ class Settings(BaseSettings):
     feat008_composite_uses_realistic: bool = True
     feat008_skip_on_missing_next_bar: bool = True
 
+    # Convention (config-contract Specs): use Field(...) for defaults/constraints; env names
+    # are UPPER_SNAKE via alias (same pattern as FEAT-008). Values are NON-BINDING until a
+    # later spec wires consumers — do not treat flags as proof of runtime behavior.
+    #
     # FEAT-024A Spec 1 (004-execution-costs-config): configuration contract only.
-    # These fields are loaded from env (COSTS_ENABLED, SLIPPAGE_BPS, COMMISSION_FIXED,
-    # COMMISSION_PERCENT) but are NON-BINDING until later FEAT-024A specs wire consumers.
-    # Do not treat costs_enabled=True as evidence that costs are applied at runtime.
+    # Loaded from env but NON-BINDING until later FEAT-024A specs wire consumers.
     # Separate from FEAT-008 / backtest_service cost profiles (slippage_rate, brokerage_rate).
-    costs_enabled: bool = True
-    slippage_bps: float = 5.0
-    commission_fixed: float = 0.50
-    commission_percent: float = 0.001
+    costs_enabled: bool = Field(default=True, alias="COSTS_ENABLED")
+    slippage_bps: float = Field(default=5.0, alias="SLIPPAGE_BPS")
+    commission_fixed: float = Field(default=0.50, alias="COMMISSION_FIXED")
+    commission_percent: float = Field(default=0.001, alias="COMMISSION_PERCENT")
+
+    # FEAT-024B Spec 1 (005-portfolio-config): configuration contract only.
+    # Loaded from env (PORTFOLIO_*) but NON-BINDING until later FEAT-024B specs wire consumers.
+    # Do not treat portfolio_simulation_enabled=True as evidence that multi-asset portfolio
+    # simulation, sizing, or cash accounting runs.
+    # Dual source of truth (intentional Spec 1): BacktestService hardcoded equity 100000.0
+    # and run(position_sizing_pct=...) remain authoritative for single-asset backtests.
+    portfolio_simulation_enabled: bool = Field(default=False, alias="PORTFOLIO_SIMULATION_ENABLED")
+    portfolio_max_concurrent_positions: int = Field(default=5, ge=1, alias="PORTFOLIO_MAX_CONCURRENT_POSITIONS")
+    portfolio_max_position_pct: float = Field(default=20.0, gt=0.0, le=100.0, alias="PORTFOLIO_MAX_POSITION_PCT")
+    portfolio_minimum_trade_value: float = Field(default=1000.0, ge=0.0, alias="PORTFOLIO_MINIMUM_TRADE_VALUE")
+    # Effectively a constant in Spec 1: default False and validator rejects True (NSE/BSE).
+    portfolio_allow_fractional_shares: bool = Field(
+        default=False,
+        alias="PORTFOLIO_ALLOW_FRACTIONAL_SHARES",
+        description="Must remain False for Indian Cash Equity whole-share delivery (Spec 1).",
+    )
+    portfolio_reserve_cash_enabled: bool = Field(default=False, alias="PORTFOLIO_RESERVE_CASH_ENABLED")
+    portfolio_starting_capital: float = Field(default=100000.0, ge=1000.0, alias="PORTFOLIO_STARTING_CAPITAL")
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
@@ -184,12 +208,33 @@ class Settings(BaseSettings):
         cleaned = str(v).strip().upper()
         if cleaned in {"REALISTIC", "LEGACY"}:
             return cleaned
-        import logging
-        logging.getLogger("app.config").warning(
+        _logger.warning(
             "Unknown execution_model %r – normalising to REALISTIC.  Valid: %s",
             v, ["REALISTIC", "LEGACY"],
         )
         return "REALISTIC"
+
+    @field_validator("portfolio_simulation_enabled")
+    @classmethod
+    def _warn_portfolio_simulation_non_binding(cls, v: bool) -> bool:
+        # Audit M1 / hardening: flag is loadable but has no runtime consumers in Spec 1.
+        if v is True:
+            _logger.warning(
+                "portfolio_simulation_enabled=True is NON-BINDING in FEAT-024B Spec 1 "
+                "(005-portfolio-config): multi-asset portfolio simulation, position sizing, "
+                "and cash accounting are not wired yet. BacktestService single-asset paths "
+                "remain unchanged."
+            )
+        return v
+
+    @field_validator("portfolio_allow_fractional_shares")
+    @classmethod
+    def _validate_fractional_shares(cls, v: bool) -> bool:
+        if v is True:
+            raise ValueError(
+                "Fractional shares are not allowed for Indian Cash Equity swing trading."
+            )
+        return v
 
     @cached_property
     def cors_origins(self) -> list[str]:
@@ -275,4 +320,23 @@ class Settings(BaseSettings):
             return []
         return list(dict.fromkeys(symbols))
 
+    def log_portfolio_config_snapshot(self) -> None:
+        """Emit non-secret portfolio config for ops (Spec 1 NON-BINDING contract)."""
+        _logger.info(
+            "Portfolio config loaded (FEAT-024B Spec 1 NON-BINDING): "
+            "simulation_enabled=%s max_concurrent_positions=%s max_position_pct=%s "
+            "minimum_trade_value=%s allow_fractional_shares=%s reserve_cash_enabled=%s "
+            "starting_capital=%s | dual-source: BacktestService still uses its own "
+            "hardcoded equity and position_sizing_pct",
+            self.portfolio_simulation_enabled,
+            self.portfolio_max_concurrent_positions,
+            self.portfolio_max_position_pct,
+            self.portfolio_minimum_trade_value,
+            self.portfolio_allow_fractional_shares,
+            self.portfolio_reserve_cash_enabled,
+            self.portfolio_starting_capital,
+        )
+
+
 settings = Settings()
+settings.log_portfolio_config_snapshot()
