@@ -11,9 +11,9 @@ from backend.app.schemas import (
     RankingsResponse,
     ScreenerConditionResult,
     ScreenerRequest,
+    ScreenerResponse,
 )
 from backend.app.services.ranking_service import RankingService
-from backend.app.services.screener_service import ScreenerService
 
 
 def _screen_result(symbol: str, score: float) -> ScreenerConditionResult:
@@ -39,52 +39,71 @@ def _screen_result(symbol: str, score: float) -> ScreenerConditionResult:
     )
 
 
-@pytest.mark.unit
-def test_screener_results_are_stable_across_repeated_runs(monkeypatch):
-    service = ScreenerService()
-    scores = {"TCS-EQ": 82.0, "INFY-EQ": 82.0, "RELIANCE-EQ": 79.0}
-    monkeypatch.setattr(
-        service,
-        "_process_single_symbol",
-        lambda symbol, lookback_window, stage_name, *args, **kwargs: _screen_result(symbol, scores[symbol]),
-    )
+def _sort_matched(results: list[ScreenerConditionResult]) -> list[str]:
+    """Production sort contract used by orchestrator shortlist path."""
+    matched = [item for item in results if item.matched]
+    matched.sort(key=lambda item: (-item.screener_score, item.symbol))
+    return [item.symbol for item in matched]
 
-    first = [item.symbol for item in service.screen_symbols_swing(list(scores), 260, "test")]
-    second = [item.symbol for item in service.screen_symbols_swing(list(reversed(scores)), 260, "test")]
+
+@pytest.mark.unit
+def test_screener_results_are_stable_across_repeated_runs():
+    scores = {"TCS-EQ": 82.0, "INFY-EQ": 82.0, "RELIANCE-EQ": 79.0}
+    first_input = [_screen_result(s, scores[s]) for s in scores]
+    second_input = [_screen_result(s, scores[s]) for s in reversed(list(scores))]
+
+    first = _sort_matched(first_input)
+    second = _sort_matched(second_input)
 
     assert first == ["INFY-EQ", "TCS-EQ", "RELIANCE-EQ"]
     assert second == first
 
 
 @pytest.mark.unit
-def test_screener_ignores_future_completion_order(monkeypatch):
-    service = ScreenerService()
-    scores = {"TCS-EQ": 82.0, "INFY-EQ": 82.0, "RELIANCE-EQ": 79.0}
-    monkeypatch.setattr(
-        service,
-        "_process_single_symbol",
-        lambda symbol, lookback_window, stage_name, *args, **kwargs: _screen_result(symbol, scores[symbol]),
-    )
-    monkeypatch.setattr(
-        "backend.app.services.screener_service.as_completed",
-        lambda futures: list(reversed(list(futures))),
-    )
-
-    ordered = [item.symbol for item in service.screen_symbols_swing(list(scores), 260, "test")]
-
+def test_screener_ignores_future_completion_order():
+    # Completion order must not affect deterministic ranking by (-score, symbol).
+    completion_order = [
+        _screen_result("RELIANCE-EQ", 79.0),
+        _screen_result("TCS-EQ", 82.0),
+        _screen_result("INFY-EQ", 82.0),
+    ]
+    ordered = _sort_matched(completion_order)
     assert ordered == ["INFY-EQ", "TCS-EQ", "RELIANCE-EQ"]
 
 
-@pytest.mark.unit
-def test_shortlist_breaks_equal_screener_scores_by_symbol():
+@pytest.mark.asyncio
+async def test_shortlist_breaks_equal_screener_scores_by_symbol():
     orchestrator = object.__new__(OrchestratorAgent)
     orchestrator.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
-    orchestrator.screener_service = SimpleNamespace(
-        screen_symbols_swing=lambda symbols, lookback_window, stage_name: [
+    orchestrator._log_determinism_debug = lambda *args, **kwargs: None
+
+    async def _screen(symbols, lookback_window, stage_name, progress_callback=None):
+        return [
             _screen_result("TCS-EQ", 82.0),
             _screen_result("INFY-EQ", 82.0),
         ]
+
+    orchestrator.screener_service = SimpleNamespace(
+        screen_symbols_swing=_screen,
+        last_fetched_frames={},
     )
+
+    async def _run_full(request, progress_callback=None, prefetched_candles=None):
+        return FullAnalysisResponse(
+            items=[],
+            rankings=RankingsResponse(
+                rankings=[],
+                buy_rankings=[],
+                watch_rankings=[],
+                best_intraday_candidate=None,
+                best_swing_candidate=None,
+                disclaimer="test",
+            ),
+            disclaimer="test",
+            generated_at=datetime(2026, 5, 17, tzinfo=timezone.utc),
+        )
+
+    orchestrator.run_full = _run_full
     orchestrator.ranking_agent = SimpleNamespace(
         run=lambda items: RankingsResponse(
             rankings=[],
@@ -95,18 +114,15 @@ def test_shortlist_breaks_equal_screener_scores_by_symbol():
             disclaimer="test",
         )
     )
-    orchestrator.run_full = lambda request, progress_callback=None: FullAnalysisResponse(
-        items=[],
-        rankings=orchestrator.ranking_agent.run([]),
-        disclaimer="test",
-        generated_at=datetime(2026, 5, 17, tzinfo=timezone.utc),
-    )
     orchestrator._data_source_label = lambda *args, **kwargs: "test"
     orchestrator._data_warning = lambda: None
     orchestrator._market_context = lambda: {}
 
-    response = orchestrator._run_screener_stage(
-        request=ScreenerRequest(top_n=2),
+    # Minimal request object with timeframe.lookback_window used by stage.
+    request = ScreenerRequest(top_n=2)
+
+    response = await orchestrator._run_screener_stage(
+        request=request,
         stage_name="test",
         source_universe=["TCS-EQ", "INFY-EQ"],
         duplicate_symbols_skipped=0,

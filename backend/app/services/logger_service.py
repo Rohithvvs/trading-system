@@ -108,9 +108,12 @@ class LoggingService:
         self._shutting_down = False
         self._environment = os.getenv("ENVIRONMENT", os.getenv("APP_ENV", "DEV")).upper()
         self._fallback_path = Path(__file__).resolve().parents[2] / "fallback_logs.jsonl"
+        # Module logger for internal failures (avoid attribute errors in persist paths).
+        import logging
+        self.logger = logging.getLogger("app.logging_service")
 
     @property
-    async def queue(self) -> asyncio.Queue[dict[str, Any]]:
+    def queue(self) -> asyncio.Queue[dict[str, Any]]:
         return self._queue
 
     async def start(self) -> None:
@@ -133,7 +136,7 @@ class LoggingService:
 
     async def flush_now(self) -> None:
         while not self._queue.empty():
-            batch = self._drain_batch(DB_BATCH_SIZE)
+            batch = await self._drain_batch(DB_BATCH_SIZE)
             if not batch:
                 break
             await self._persist_batch(batch)
@@ -189,7 +192,7 @@ class LoggingService:
             if LOGGER_QUEUE_DEPTH:
                 LOGGER_QUEUE_DEPTH.set(self._queue.qsize())
         except asyncio.QueueFull:
-            self._write_fallback(entry)
+            self._write_fallback_sync(entry)
 
         self._broadcast(entry)
 
@@ -240,13 +243,17 @@ class LoggingService:
         if bound_loop is not None and bound_loop is not current_loop and self._queue.empty():
             self._queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 
-    async def _write_fallback(self, entry: dict[str, Any]) -> None:
+    def _write_fallback_sync(self, entry: dict[str, Any]) -> None:
+        """Synchronous fallback writer — safe from sync log() and async persist error paths."""
         try:
             self._fallback_path.parent.mkdir(parents=True, exist_ok=True)
             with self._fallback_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(entry, default=_json_default) + "\n")
+                handle.write(json.dumps(entry, default=str) + "\n")
         except Exception as exc:
             print(f"[LoggingService] fallback write failed: {exc}")
+
+    async def _write_fallback(self, entry: dict[str, Any]) -> None:
+        self._write_fallback_sync(entry)
 
     async def _flush_worker(self) -> None:
         while True:
@@ -259,7 +266,7 @@ class LoggingService:
             except asyncio.CancelledError:
                 break
 
-            batch = [first, *self._drain_batch(DB_BATCH_SIZE - 1)]
+            batch = [first, *(await self._drain_batch(DB_BATCH_SIZE - 1))]
             await self._persist_batch(batch)
             for _ in batch:
                 self._queue.task_done()
@@ -277,9 +284,9 @@ class LoggingService:
         try:
             await self._async_persist(entries)
         except Exception as e:
-            self.logger.error(f"Failed to async persist log batch: {e}")
+            self.logger.error("Failed to async persist log batch: %s", e)
             for entry in entries:
-                self._write_fallback(entry)
+                self._write_fallback_sync(entry)
 
     async def _async_persist(self, entries: list[dict[str, Any]]) -> None:
         from ..db.session import AsyncSessionLocal

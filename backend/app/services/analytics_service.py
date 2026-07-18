@@ -4,10 +4,11 @@ import asyncio
 from datetime import datetime, timedelta, timezone, date
 
 from sqlalchemy import select
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.analysis import AnalysisHistory, StrategyPerformanceLog
 from ..models.stock import WatchedStock
+from ..schemas import AnalysisMode
 from ..services.fyers_service import FyersService
 from ..utils import get_logger
 
