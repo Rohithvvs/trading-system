@@ -1,8 +1,12 @@
 from sqlalchemy import select, update
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
+import os
+import secrets
+import time
+from typing import Optional
 
 from ..db import get_db
 from ..schemas import FyersTokenCreate
@@ -11,6 +15,134 @@ from ..services import token_service
 
 router = APIRouter(prefix="/api/token", tags=["token"])
 logger = logging.getLogger("app.token")
+
+
+def _require_scheduler_secret(
+    request: Request,
+    x_scheduler_secret: Optional[str],
+) -> None:
+    """Same secret gate as POST /scheduler/daily-scan (for server cron jobs)."""
+    source_ip = request.client.host if request.client else "unknown"
+    timestamp = time.time()
+    expected_secret = os.environ.get("SCHEDULER_SECRET")
+
+    if x_scheduler_secret is None:
+        logger.warning(
+            "TOKEN_GENERATE_AUTH_FAILURE | reason=missing_header | source_ip=%s | timestamp=%s",
+            source_ip,
+            timestamp,
+        )
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if expected_secret is None or not secrets.compare_digest(
+        x_scheduler_secret, expected_secret
+    ):
+        logger.warning(
+            "TOKEN_GENERATE_AUTH_FAILURE | reason=invalid_secret_or_unconfigured | source_ip=%s | timestamp=%s",
+            source_ip,
+            timestamp,
+        )
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+@router.post("/generate")
+async def generate_access_token_route(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    x_scheduler_secret: Optional[str] = Header(
+        default=None, alias="X-Scheduler-Secret"
+    ),
+):
+    """Cron-safe Fyers access-token generation + DB persist.
+
+    Fully automated (OTP → TOTP → PIN → auth_code → access_token → Neon).
+    No browser / captcha. Requires header ``X-Scheduler-Secret`` matching
+    env ``SCHEDULER_SECRET`` (same as ``POST /scheduler/daily-scan``).
+
+    Never returns the raw access token — only masked preview + monitoring fields.
+    """
+    _require_scheduler_secret(request, x_scheduler_secret)
+    source_ip = request.client.host if request.client else "unknown"
+    logger.info(
+        "TOKEN_GENERATE_ACCEPTED | trigger_source=cron | endpoint=/api/token/generate | source_ip=%s",
+        source_ip,
+    )
+
+    try:
+        result = await token_service.generate_and_persist_fyers_token(db)
+    except Exception as exc:
+        # Map known generator failures; never leak raw token material.
+        from fyers_token import FyersAuthError, FyersConfigError, FyersConnectionError
+
+        err_type = type(exc).__name__
+        err_msg = str(exc)
+        # Truncate/redact-ish for API clients
+        if len(err_msg) > 240:
+            err_msg = err_msg[:240] + "..."
+        logger.warning(
+            "TOKEN_GENERATE_FAILED | error_type=%s | error=%s",
+            err_type,
+            err_msg,
+        )
+
+        if isinstance(exc, FyersConfigError):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "Failed",
+                    "error_type": err_type,
+                    "message": err_msg,
+                },
+            ) from exc
+        if isinstance(exc, FyersAuthError):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "status": "Failed",
+                    "error_type": err_type,
+                    "message": err_msg,
+                },
+            ) from exc
+        if isinstance(exc, (FyersConnectionError, TimeoutError)):
+            raise HTTPException(
+                status_code=504,
+                detail={
+                    "status": "Failed",
+                    "error_type": err_type,
+                    "message": err_msg,
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "Failed",
+                "error_type": err_type,
+                "message": err_msg or "Token generation failed",
+            },
+        ) from exc
+
+    # Enrich with connection status (no raw token).
+    try:
+        status = await token_service.get_token_status(db)
+    except Exception:
+        status = {}
+
+    body = {
+        "status": result.get("status") or "Success",
+        "saved_at": result.get("saved_at"),
+        "token_preview": result.get("token_preview"),
+        "connection_status": status.get("connection_status"),
+        "access_token_active": status.get("access_token_active"),
+        "expires_at": status.get("expires_at"),
+        "message": "Fyers access token generated and stored",
+    }
+    logger.info(
+        "TOKEN_GENERATE_SUCCESS | status=%s | preview=%s | connection=%s",
+        body.get("status"),
+        body.get("token_preview"),
+        body.get("connection_status"),
+    )
+    return JSONResponse(content=body, status_code=200)
 
 
 @router.post("/save-access-token")
@@ -101,16 +233,24 @@ async def token_history(limit: int = Query(50, ge=1, le=500), db: AsyncSession =
 
 @router.get("/diagnostic")
 async def token_diagnostic(db: AsyncSession = Depends(get_db)):
-    
-    from ..models import FyersToken
+    """Ops diagnostic — no raw token material. Uses same status model as /api/token/status."""
     from ..db.session import engine
 
-    row = (await db.scalars(select(FyersToken).filter(FyersToken.is_active == True).order_by(FyersToken.created_at.desc()))).first()
+    try:
+        status = await token_service.get_token_status(db)
+    except Exception as exc:
+        logger.exception("Failed to load token diagnostic: %s", exc)
+        raise HTTPException(status_code=500, detail="Unable to load token diagnostic.")
+
     return {
-        "db_url": str(engine.url),
-        "token_row_exists": row is not None,
-        "token_is_set": bool(row and row.access_token),
+        # Never expose full DATABASE_URL credentials in logs/UI — host/driver only when possible
+        "db_url": str(engine.url).split("@")[-1] if "@" in str(engine.url) else str(engine.url).split("://")[0],
+        "token_row_exists": status.get("status") not in (None, "no_token", "no_row"),
+        "token_is_set": bool(status.get("access_token_active")),
         "token_preview": None,  # never expose raw/encrypted token material
-        "token_status": row.status if row else "no_row",
-        "token_saved_at": str(row.access_token_saved_at) if (row and row.access_token_saved_at) else None,
+        "token_status": status.get("status") or "no_row",
+        "connection_status": status.get("connection_status"),
+        "last_error": status.get("last_error"),
+        "token_saved_at": status.get("access_token_saved_at"),
+        "automation_metrics": status.get("automation_metrics"),
     }

@@ -190,7 +190,7 @@ def test_save_token_success(client, db_session, monkeypatch):
         assert new_token is not None
         decrypted = _decrypt_from_storage(new_token.access_token)
         assert decrypted == plaintext
-        assert new_token.status == "active"
+        assert new_token.status == "Success"
 
         history = (
             db_session.query(FyersTokenHistory)
@@ -198,6 +198,6 @@ def test_save_token_success(client, db_session, monkeypatch):
             .first()
         )
         assert history is not None
-        assert history.status == "active"
+        assert history.status == "Success"
         assert plaintext not in (history.access_token_masked or "")
         assert "*" in (history.access_token_masked or "")

@@ -21,6 +21,7 @@ import {
 } from "../../api";
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
+import { isFyersTokenUsable } from "../../utils/tokenStatus";
 import {
   initialsFromName,
   loadProfilePrefs,
@@ -317,7 +318,7 @@ export function UserProfilePage({ onNavigate, retailMode = false }: Props) {
   const memberSince = profile?.created_at
     ? new Date(profile.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—";
-  const fyersConnected = token?.status === "active" || token?.valid === true || String(token?.status || "").toLowerCase() === "active";
+  const fyersConnected = isFyersTokenUsable(token);
   const googleConnected = String(provider).toLowerCase() === "google";
 
   const completion = useMemo(() => {

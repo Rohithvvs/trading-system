@@ -140,7 +140,7 @@ async def _mirror_to_fyers_tokens(db: AsyncSession, access_token: str, expires_a
     if row:
         row.access_token = encrypted
         row.is_active = True
-        row.status = "active"
+        row.status = "Success"  # unified with automation monitoring status (Sprint 4)
         row.access_token_saved_at = now
         row.validated_at = now
         row.expires_at = expires_at
@@ -153,16 +153,17 @@ async def _mirror_to_fyers_tokens(db: AsyncSession, access_token: str, expires_a
                 access_token=encrypted,
                 created_at=now,
                 is_active=True,
-                status="active",
+                status="Success",
                 access_token_saved_at=now,
                 validated_at=now,
                 expires_at=expires_at,
+                last_error=None,
             )
         )
     history = FyersTokenHistory(
         access_token_masked=_mask_token(access_token),
         saved_at=now,
-        status="active",
+        status="Success",
         note="Saved via Capital / broker token API",
     )
     db.add(history)

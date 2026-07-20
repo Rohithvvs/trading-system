@@ -53,7 +53,7 @@ def test_save_access_token_writes_token_and_history(client, db_session, artifact
     # Sync session may hold a stale snapshot; expire so we see the async commit.
     db_session.expire_all()
     token_row = assert_token_stored(db_session)
-    assert token_row["status"] == "active"
+    assert token_row["status"] == "Success"
     assert row_count(db_session, "fyers_token_history") == 1
 
     status = client.get("/api/token/status")

@@ -195,7 +195,9 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
                     access_token=stored,
                     created_at=now,
                     is_active=True,
-                    status="active",
+                    # Unified monitoring status (Sprint 4): Success | Failed | inactive
+                    status="Success",
+                    last_error=None,
                     access_token_saved_at=now,
                     validated_at=now,
                     expires_at=expires_at,
@@ -204,7 +206,8 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             else:
                 row.access_token = stored
                 row.is_active = True
-                row.status = "active"
+                row.status = "Success"
+                row.last_error = None  # clear automation/job failure when UI save succeeds
                 row.access_token_saved_at = now
                 row.validated_at = now
                 row.expires_at = expires_at
@@ -216,7 +219,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
             history = FyersTokenHistory(
                 access_token_masked=masked,
                 saved_at=now,
-                status="active",
+                status="Success",
                 note="Manual save via UI",
             )
             db.add(history)
@@ -272,10 +275,49 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         return {"status": "error", "message": "Unable to save access token."}
 
 
+def _has_usable_stored_token(row: FyersToken | None) -> bool:
+    """True when ciphertext is present (empty first-run failure placeholder is not usable)."""
+    if row is None:
+        return False
+    raw = row.access_token
+    return bool(raw and str(raw).strip())
+
+
+def _derive_connection_status(
+    *,
+    row_status: str | None,
+    has_token: bool,
+    expires_in_seconds: int | None,
+) -> str:
+    """Unify UI-save (active/inactive) and automation (Success/Failed) for consumers.
+
+    - active / Success → Connected (or Expired)
+    - Failed with prior token still stored → Connected (or Expired) so trading UI is not false-red
+    - no token / inactive / missing → Disconnected
+    """
+    if not has_token:
+        return "Disconnected"
+    st = (row_status or "").strip().lower()
+    if st in ("inactive", "no_token"):
+        return "Disconnected"
+    # active | success | failed-with-token | other non-empty with token
+    if expires_in_seconds is not None and expires_in_seconds <= 0:
+        return "Expired"
+    if expires_in_seconds is not None and expires_in_seconds < 3600:
+        return "Expiring Soon"
+    if st in ("active", "success", "failed") or has_token:
+        return "Connected"
+    return "Disconnected"
+
+
 async def get_token_status(db: AsyncSession) -> dict[str, Any]:
     """
     DB-only token status. Does NOT call FYERS.
     Cached in-process for 5 minutes to avoid repeated DB hits on every page navigation.
+
+    Additive Sprint 4 fields (non-breaking):
+      - connection_status: normalized Connected/Expired/Disconnected
+      - automation_metrics: in-process job counters (success/failure totals)
     """
     from ..core.response_cache import cache_get, cache_set
 
@@ -283,40 +325,71 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
     hit = cache_get(cache_key)
     if hit is not None:
         logger.info("TOKEN_STATUS_CACHE_HIT | source=memory")
+        # Always refresh live automation counters (cheap, not from DB).
+        hit = dict(hit)
+        hit["automation_metrics"] = get_token_automation_metrics()
         return hit
 
+    # Prefer active token; fall back to singleton id=1 so Failed/inactive monitoring is visible.
     row = await get_fyers_token_row(db)
+    if row is None:
+        row = (
+            await db.scalars(select(FyersToken).where(FyersToken.id == 1))
+        ).first()
     now = datetime.now(timezone.utc)
     expires_at = None
     expires_in_seconds = None
     token_masked = None
-    if row:
+    has_token = _has_usable_stored_token(row)
+    if row and has_token:
         plain = _decrypt_from_storage(row.access_token)
-        token_masked = _mask_token(plain) if plain else _mask_token("stored")
-        expires_at = row.expires_at
-        if expires_at is None and plain:
-            expires_at = _decode_jwt_expiry(plain)
-        if expires_at:
-            try:
-                exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
-                remaining = (exp - now).total_seconds()
-            except Exception:
-                remaining = 0
-            expires_in_seconds = max(0, int(remaining))
+        # Treat decrypt failure as inactive for consumers
+        if not plain or not str(plain).strip():
+            has_token = False
+        else:
+            token_masked = _mask_token(plain)
+            expires_at = row.expires_at
+            if expires_at is None:
+                expires_at = _decode_jwt_expiry(plain)
+            if expires_at:
+                try:
+                    exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+                    remaining = (exp - now).total_seconds()
+                except Exception:
+                    remaining = 0
+                expires_in_seconds = max(0, int(remaining))
+    elif row and row.access_token:
+        # Non-empty garbage / undecryptable — still mask for UI without claiming active
+        token_masked = _mask_token("stored")
+
+    row_status = row.status if row else "no_token"
+    connection_status = _derive_connection_status(
+        row_status=row_status,
+        has_token=has_token,
+        expires_in_seconds=expires_in_seconds,
+    )
 
     status = {
-        "access_token_active": bool(row and row.access_token),
+        "access_token_active": has_token,
         "access_token_saved_at": row.access_token_saved_at.isoformat() if row and row.access_token_saved_at else None,
         "validated_at": getattr(row, 'validated_at', None).isoformat() if row and getattr(row, 'validated_at', None) else None,
         "expires_at": expires_at.isoformat() if expires_at else None,
         "expires_in_seconds": expires_in_seconds,
-        "status": row.status if row else "no_token",
+        "status": row_status,
+        "connection_status": connection_status,
         "last_error": row.last_error if row else None,
         "token_masked": token_masked,
+        "automation_metrics": get_token_automation_metrics(),
         # Never include full access_token
     }
-    cache_set(cache_key, status, ttl_seconds=300.0)
-    logger.info("TOKEN_STATUS_CACHE_MISS | source=database | status=%s", status.get("status"))
+    # Cache DB-derived fields without freezing metrics forever
+    cache_payload = {k: v for k, v in status.items() if k != "automation_metrics"}
+    cache_set(cache_key, cache_payload, ttl_seconds=300.0)
+    logger.info(
+        "TOKEN_STATUS_CACHE_MISS | source=database | status=%s | connection_status=%s",
+        status.get("status"),
+        connection_status,
+    )
     return status
 
 
@@ -500,39 +573,44 @@ async def exchange_auth_code(auth_code: str, db: AsyncSession) -> dict:
 
     now = datetime.now(timezone.utc)
     try:
+        # Dialect-safe upsert (SQLite tests + Postgres prod) — no Postgres-only ON CONFLICT.
         async with db.begin():
             await db.execute(
-                update(FyersToken).where(FyersToken.is_active == True).values(is_active=False, status="inactive")
+                update(FyersToken)
+                .where(FyersToken.is_active == True)  # noqa: E712
+                .values(is_active=False, status="inactive")
             )
-            # Upsert ID=1 row (avoids race between concurrent OAuth exchanges)
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            stmt = pg_insert(FyersToken).values(
-                id=1,
-                access_token=access_token,
-                created_at=now,
-                is_active=True,
-                status="active",
-                access_token_saved_at=now,
-                validated_at=now,
-                expires_at=expires_at,
-            ).on_conflict_do_update(
-                index_elements=["id"],
-                set_={
-                    "access_token": access_token,
-                    "is_active": True,
-                    "status": "active",
-                    "access_token_saved_at": now,
-                    "validated_at": now,
-                    "expires_at": expires_at,
-                },
-            )
-            await db.execute(stmt)
-            row = (await db.scalars(select(FyersToken).filter(FyersToken.id == 1))).one()
+            stored = _encrypt_for_storage(access_token)
+            row = (
+                await db.scalars(select(FyersToken).where(FyersToken.id == 1))
+            ).first()
+            if row is None:
+                row = FyersToken(
+                    id=1,
+                    access_token=stored,
+                    created_at=now,
+                    is_active=True,
+                    status="Success",
+                    last_error=None,
+                    access_token_saved_at=now,
+                    validated_at=now,
+                    expires_at=expires_at,
+                )
+                db.add(row)
+            else:
+                row.access_token = stored
+                row.is_active = True
+                row.status = "Success"
+                row.last_error = None
+                row.access_token_saved_at = now
+                row.validated_at = now
+                row.expires_at = expires_at
+            await db.flush()
             masked = _mask_token(access_token)
             history = FyersTokenHistory(
                 access_token_masked=masked,
                 saved_at=now,
-                status="active",
+                status="Success",
                 note="Auto-generated via FYERS OAuth",
             )
             db.add(history)
@@ -615,4 +693,288 @@ def get_fyers_auth_url() -> str:
         "state": "fyers_auth",
     })
     return f"https://api.fyers.in/api/v2/validate-auth?{params}"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4 automation hardening + ops improvements
+# ---------------------------------------------------------------------------
+# Bound external generation so the job cannot hang indefinitely (edge: network).
+# Bound DB commits so pool stalls surface as timeouts rather than silent hangs.
+_TOKEN_GEN_TIMEOUT_SEC = float(os.getenv("FYERS_TOKEN_JOB_TIMEOUT_SEC", "180") or "180")
+_DB_WRITE_TIMEOUT_SEC = float(os.getenv("FYERS_TOKEN_DB_WRITE_TIMEOUT_SEC", "30") or "30")
+_LAST_ERROR_MAX_LEN = 2000
+# Non-nullable access_token: empty string is intentional so access_token_active stays False.
+_NO_TOKEN_PLACEHOLDER = ""
+
+# Lightweight in-process counters (process-local; not a distributed metrics backend).
+_JOB_METRICS_LOCK = threading.Lock()
+_JOB_METRICS: dict[str, Any] = {
+    "success_total": 0,
+    "failure_total": 0,
+    "last_outcome": None,
+    "last_elapsed_ms": None,
+    "last_error_type": None,
+    "last_at": None,
+}
+
+
+def get_token_automation_metrics() -> dict[str, Any]:
+    """Snapshot of in-process automation job counters (for ops / status API)."""
+    with _JOB_METRICS_LOCK:
+        return dict(_JOB_METRICS)
+
+
+def _record_job_metric(
+    outcome: str,
+    *,
+    elapsed_ms: int | None = None,
+    error_type: str | None = None,
+) -> None:
+    with _JOB_METRICS_LOCK:
+        if outcome == "Success":
+            _JOB_METRICS["success_total"] = int(_JOB_METRICS["success_total"]) + 1
+        else:
+            _JOB_METRICS["failure_total"] = int(_JOB_METRICS["failure_total"]) + 1
+        _JOB_METRICS["last_outcome"] = outcome
+        _JOB_METRICS["last_elapsed_ms"] = elapsed_ms
+        _JOB_METRICS["last_error_type"] = error_type
+        _JOB_METRICS["last_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def mask_access_token_preview(token: str | None) -> str | None:
+    """Public helper for CLI/UI previews — never returns full secret material."""
+    return _mask_token(token)
+
+
+def _truncate_error_message(exc: BaseException) -> str:
+    """Cap last_error size to protect the DB column and log sinks (no secrets expected)."""
+    msg = str(exc).strip() if str(exc).strip() else exc.__class__.__name__
+    if len(msg) > _LAST_ERROR_MAX_LEN:
+        return msg[: _LAST_ERROR_MAX_LEN - 3] + "..."
+    return msg
+
+
+async def _invalidate_token_status_cache() -> None:
+    try:
+        from ..core.response_cache import cache_invalidate
+        cache_invalidate("token_status")
+    except Exception:
+        pass
+
+
+async def _rollback_quietly(db: AsyncSession) -> None:
+    try:
+        if db.in_transaction():
+            await db.rollback()
+    except Exception:
+        pass
+
+
+async def _commit_with_timeout(db: AsyncSession) -> None:
+    """Commit with a hard timeout so DB unavailability does not hang the job."""
+    import asyncio
+
+    timeout = max(1.0, _DB_WRITE_TIMEOUT_SEC)
+    await asyncio.wait_for(db.commit(), timeout=timeout)
+
+
+async def _load_singleton_for_update(db: AsyncSession) -> FyersToken | None:
+    """Load id=1 with row lock when the dialect supports it (Postgres)."""
+    try:
+        return (
+            await db.scalars(
+                select(FyersToken).where(FyersToken.id == 1).with_for_update()
+            )
+        ).first()
+    except Exception:
+        return (
+            await db.scalars(select(FyersToken).where(FyersToken.id == 1))
+        ).first()
+
+
+async def _record_generation_failure(db: AsyncSession, exc: BaseException) -> None:
+    """Update monitoring fields on failure without wiping a prior valid token.
+
+    Uses plain commit (no nested ``begin()``) so caller-owned sessions work.
+    On DB unavailability: logs ERROR and returns — original job exception still propagates.
+    """
+    now = datetime.now(timezone.utc)
+    err_text = _truncate_error_message(exc)
+    try:
+        await _rollback_quietly(db)
+        row = await _load_singleton_for_update(db)
+
+        if row is None:
+            # Placeholder only — no prior credential to preserve.
+            # Empty access_token keeps get_current_access_token / access_token_active false.
+            row = FyersToken(
+                id=1,
+                access_token=_NO_TOKEN_PLACEHOLDER,
+                status="Failed",
+                last_error=err_text,
+                access_token_saved_at=now,
+                is_active=False,
+                created_at=now,
+            )
+            db.add(row)
+        else:
+            # Preserve access_token and is_active so trading can keep using last good token.
+            row.status = "Failed"
+            row.last_error = err_text
+            row.access_token_saved_at = now
+            # Never activate a missing/placeholder credential on failure.
+            if not row.access_token:
+                row.is_active = False
+
+        await _commit_with_timeout(db)
+        await _invalidate_token_status_cache()
+        logger.warning(
+            "TOKEN_PERSISTENCE_JOB | outcome=Failed | monitoring_persisted=true | error_type=%s | last_error=%s | metrics=%s",
+            type(exc).__name__,
+            err_text,
+            get_token_automation_metrics(),
+        )
+    except Exception as db_err:
+        logger.error(
+            "TOKEN_PERSISTENCE_JOB | outcome=Failed | monitoring_persisted=false | "
+            "error_type=%s | db_error_type=%s | db_error=%s | metrics=%s",
+            type(exc).__name__,
+            type(db_err).__name__,
+            db_err,
+            get_token_automation_metrics(),
+            exc_info=True,
+        )
+        await _rollback_quietly(db)
+
+
+async def generate_and_persist_fyers_token(db: AsyncSession) -> dict[str, Any]:
+    """Generate a Fyers access token and persist it with monitoring fields.
+
+    Success (single atomic commit — FR-007):
+      - encrypts token via project crypto
+      - upserts singleton ``fyers_tokens.id=1``
+      - ``status="Success"``, ``last_error=NULL``, ``access_token_saved_at=now``
+      - history note identifies automation (not UI)
+
+    Failure:
+      - records ``status="Failed"`` + ``last_error`` without wiping prior token
+      - re-raises the original exception for CLI/orchestrator exit codes
+
+    Does **not** re-validate against live FYERS (generation is authoritative).
+    Does **not** use the UI manual-save path (avoids validation + wrong history note).
+    """
+    import asyncio
+    from fyers_token import generate_fyers_access_token
+
+    job_started = datetime.now(timezone.utc)
+    logger.info(
+        "TOKEN_PERSISTENCE_JOB | outcome=start | gen_timeout_sec=%s | db_write_timeout_sec=%s | started_at=%s",
+        _TOKEN_GEN_TIMEOUT_SEC,
+        _DB_WRITE_TIMEOUT_SEC,
+        job_started.isoformat(),
+    )
+    try:
+        # Sync generator off the event loop; retry policy lives inside the generator.
+        # Hard timeout prevents indefinite hang if broker/network stalls beyond retry budget.
+        gen_timeout = max(5.0, _TOKEN_GEN_TIMEOUT_SEC)
+        try:
+            token = await asyncio.wait_for(
+                asyncio.to_thread(generate_fyers_access_token),
+                timeout=gen_timeout,
+            )
+        except asyncio.TimeoutError as te:
+            raise TimeoutError(
+                f"Token generation exceeded {gen_timeout:.0f}s job timeout"
+            ) from te
+
+        if not token or not str(token).strip():
+            raise RuntimeError("Token generation returned an empty access token")
+
+        now = datetime.now(timezone.utc)
+        stored = _encrypt_for_storage(str(token))
+        expires_at = _decode_jwt_expiry(str(token))
+        masked = _mask_token(str(token))
+
+        # Ensure a clean transaction boundary for the atomic write.
+        await _rollback_quietly(db)
+
+        # Single transaction: deactivate peers, upsert id=1 with Success, history.
+        row = await _load_singleton_for_update(db)
+
+        await db.execute(
+            update(FyersToken)
+            .where(FyersToken.is_active == True, FyersToken.id != 1)  # noqa: E712
+            .values(is_active=False, status="inactive")
+        )
+
+        if row is None:
+            row = FyersToken(
+                id=1,
+                access_token=stored,
+                created_at=now,
+                is_active=True,
+                status="Success",
+                last_error=None,
+                access_token_saved_at=now,
+                validated_at=now,
+                expires_at=expires_at,
+            )
+            db.add(row)
+        else:
+            row.access_token = stored
+            row.is_active = True
+            row.status = "Success"
+            row.last_error = None
+            row.access_token_saved_at = now
+            row.validated_at = now
+            row.expires_at = expires_at
+
+        db.add(
+            FyersTokenHistory(
+                access_token_masked=masked,
+                saved_at=now,
+                status="Success",
+                note="Automated headless token generation",
+            )
+        )
+        await _commit_with_timeout(db)
+
+        # Cache only after durable commit (no cache write on failed persist).
+        _set_token_cache(str(token), now)
+        await _invalidate_token_status_cache()
+
+        elapsed_ms = int((datetime.now(timezone.utc) - job_started).total_seconds() * 1000)
+        _record_job_metric("Success", elapsed_ms=elapsed_ms)
+        logger.info(
+            "TOKEN_PERSISTENCE_JOB | outcome=Success | monitoring_persisted=true | "
+            "elapsed_ms=%s | token_preview=%s | saved_at=%s | metrics=%s",
+            elapsed_ms,
+            masked,
+            now.isoformat(),
+            get_token_automation_metrics(),
+        )
+        return {
+            "status": "Success",
+            # ISO string keeps CLI/logs/JSON consumers safe (datetime is not JSON-native).
+            "saved_at": now.isoformat(),
+            "token_preview": masked,
+        }
+
+    except Exception as exc:
+        elapsed_ms = int((datetime.now(timezone.utc) - job_started).total_seconds() * 1000)
+        _record_job_metric(
+            "Failed",
+            elapsed_ms=elapsed_ms,
+            error_type=type(exc).__name__,
+        )
+        # Expected job failures are WARNING; DB write issues log ERROR inside helper.
+        logger.warning(
+            "TOKEN_PERSISTENCE_JOB | outcome=Failed | error_type=%s | error=%s | elapsed_ms=%s",
+            type(exc).__name__,
+            _truncate_error_message(exc),
+            elapsed_ms,
+        )
+        await _record_generation_failure(db, exc)
+        raise
+
 

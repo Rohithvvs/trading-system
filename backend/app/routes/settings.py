@@ -119,7 +119,7 @@ async def validate_and_save_token(
     """Validate a FYERS access token against the broker API, then persist it.
 
     • On **success**: deactivate all previous tokens, save the new one as
-      ``status='active'``, log via ``LoggingService``, return ``200``.
+      ``status='Success'``, log via ``LoggingService``, return ``200``.
     • On **failure**: log a masked error, return ``400`` with details.
     """
     raw_token = payload.access_token.strip()
@@ -172,7 +172,7 @@ async def validate_and_save_token(
     new_row = FyersToken(
         access_token=_encrypt_for_storage(raw_token),
         is_active=True,
-        status="active",
+        status="Success",  # unified with automation monitoring status (Sprint 4)
         created_at=now,
         expires_at=expires_at,
         access_token_saved_at=now,
@@ -184,7 +184,7 @@ async def validate_and_save_token(
     history_entry = FyersTokenHistory(
         access_token_masked=masked,
         saved_at=now,
-        status="active",
+        status="Success",
         note="Validated with FYERS broker and saved",
     )
     db.add(history_entry)
