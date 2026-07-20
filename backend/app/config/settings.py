@@ -187,6 +187,12 @@ class Settings(BaseSettings):
     portfolio_reserve_cash_enabled: bool = Field(default=False, alias="PORTFOLIO_RESERVE_CASH_ENABLED")
     portfolio_starting_capital: float = Field(default=100000.0, ge=1000.0, alias="PORTFOLIO_STARTING_CAPITAL")
 
+    # FEAT-011 Spec 1 (Shadow Infrastructure Foundation): configuration contract
+    shadow_mode_enabled: bool = Field(default=False, alias="SHADOW_MODE_ENABLED")
+    shadow_mode_stage: str = Field(default="SHADOW", alias="SHADOW_MODE_STAGE")
+    shadow_mode_ruleset: str = Field(default="experimental_v1", alias="SHADOW_MODE_RULESET")
+    shadow_mode_persistence_enabled: bool = Field(default=False, alias="SHADOW_MODE_PERSISTENCE_ENABLED")
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
         env_file_encoding='utf-8',
@@ -213,6 +219,37 @@ class Settings(BaseSettings):
             v, ["REALISTIC", "LEGACY"],
         )
         return "REALISTIC"
+
+    @field_validator("shadow_mode_stage", mode="before")
+    @classmethod
+    def _validate_shadow_mode_stage(cls, v: str | None) -> str:
+        if v is None or not str(v).strip():
+            return "SHADOW"
+        cleaned = str(v).strip().upper()
+        if cleaned in {"OFF", "SHADOW", "ACTIVE"}:
+            return cleaned
+        raise ValueError(f"Invalid shadow_mode_stage: {v}. Valid options: OFF, SHADOW, ACTIVE")
+
+    @field_validator("shadow_mode_persistence_enabled")
+    @classmethod
+    def _warn_shadow_persistence_non_binding(cls, v: bool) -> bool:
+        # Audit M3: flag is loadable but IShadowStore writes are not wired in Spec 1.
+        if v is True:
+            _logger.warning(
+                "shadow_mode_persistence_enabled=True is NON-BINDING in FEAT-011 Spec 1 "
+                "(006-shadow-infra-foundation): shadow comparison DB writes are not wired yet. "
+                "IShadowStore persistence lands in a later specification."
+            )
+        return v
+
+    def is_shadow_hook_enabled(self) -> bool:
+        """Return True when the orchestrator shadow hook should run.
+
+        Requires the master toggle and a non-OFF stage. Stage ACTIVE is accepted
+        for forward-compat but Spec 1 still only constructs context / invokes a
+        registered executor without affecting production recommendations.
+        """
+        return bool(self.shadow_mode_enabled) and self.shadow_mode_stage != "OFF"
 
     @field_validator("portfolio_simulation_enabled")
     @classmethod
@@ -337,6 +374,29 @@ class Settings(BaseSettings):
             self.portfolio_starting_capital,
         )
 
+    def log_shadow_config_snapshot(self) -> None:
+        """Emit non-secret shadow config for ops (Spec 1)."""
+        _logger.info(
+            "Shadow config loaded: "
+            "enabled=%s stage=%s ruleset=%s persistence_enabled=%s hook_active=%s",
+            self.shadow_mode_enabled,
+            self.shadow_mode_stage,
+            self.shadow_mode_ruleset,
+            self.shadow_mode_persistence_enabled,
+            self.is_shadow_hook_enabled(),
+        )
+        if self.shadow_mode_stage == "ACTIVE":
+            _logger.warning(
+                "shadow_mode_stage=ACTIVE is reserved for future execution activation; "
+                "Spec 1 still isolates shadow work from production scoring and API responses."
+            )
+        if self.shadow_mode_persistence_enabled:
+            _logger.warning(
+                "shadow_mode_persistence_enabled=True is NON-BINDING in Spec 1 "
+                "(no shadow DB writes yet)."
+            )
+
 
 settings = Settings()
 settings.log_portfolio_config_snapshot()
+settings.log_shadow_config_snapshot()

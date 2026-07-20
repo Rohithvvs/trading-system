@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 import json
 import os
@@ -23,6 +24,7 @@ from ..schemas import (
     ScreenerStageSummary,
     ScreenerRequest,
     ScreenerResponse,
+    ShadowExecutionContext,
     StockAnalysisResult,
     TechnicalAnalysisResult,
 )
@@ -35,6 +37,13 @@ from .ranking_agent import RankingAgent
 from .recommendation_agent import RecommendationAgent
 from .technical_analysis_agent import TechnicalAnalysisAgent
 from .fundamental_analysis_agent import FundamentalAnalysisAgent
+
+# Spec §5: dedicated shadow observability stream (FEAT-011 Spec 1).
+shadow_logger = get_logger("app.shadow_executor")
+
+# Hardening (audit M4): bound shadow executor latency on the request path.
+# Spec 5 may move execution off-thread; until then never wait indefinitely.
+_SHADOW_EXECUTOR_TIMEOUT_SECONDS = 5.0
 
 
 class OrchestratorAgent:
@@ -1025,6 +1034,72 @@ class OrchestratorAgent:
             sector_overlay=sector_overlay,
             market_regime=market_regime
         )
+
+        # FEAT-011 Spec 1: Shadow Execution Context hook
+        # Gate: master toggle AND stage != OFF (ACTIVE is reserved but still isolated).
+        if settings.is_shadow_hook_enabled():
+            try:
+                import asyncio
+
+                executor = getattr(self, "shadow_executor", None)
+                # Avoid deep-copy overhead when no executor is registered (audit L2).
+                if executor is None:
+                    shadow_logger.warning(
+                        "Shadow executor is enabled but no ruleset executor is registered "
+                        "for ruleset %r | symbol=%s. Gracefully skipping.",
+                        settings.shadow_mode_ruleset,
+                        symbol,
+                    )
+                else:
+                    candles_list = self._primary_candle_set(candles_by_mode)
+
+                    # FR-007: deep-copy all mutable snapshot fields so experimental
+                    # logic cannot mutate production recommendation / market inputs.
+                    shadow_ctx = ShadowExecutionContext(
+                        symbol=symbol,
+                        candles=copy.deepcopy(candles_list),
+                        technical_results=copy.deepcopy(technical_results),
+                        sentiment_score=sentiment_score,
+                        fundamental_result=copy.deepcopy(fundamental_result),
+                        backtests=copy.deepcopy(backtests) if backtests else [],
+                        production_recommendation=copy.deepcopy(recommendation),
+                        production_challenger_recommendation=copy.deepcopy(
+                            challenger_recommendation
+                        ),
+                        scan_date=datetime.now(timezone.utc),
+                    )
+
+                    try:
+                        shadow_res = await asyncio.wait_for(
+                            executor.execute_shadow(shadow_ctx),
+                            timeout=_SHADOW_EXECUTOR_TIMEOUT_SECONDS,
+                        )
+                    except TimeoutError:
+                        # Hardening M4: timeout must not fail production path.
+                        shadow_logger.warning(
+                            "Shadow mode hook timed out after %.1fs | symbol=%s | ruleset=%s. "
+                            "Degrading gracefully.",
+                            _SHADOW_EXECUTOR_TIMEOUT_SECONDS,
+                            symbol,
+                            settings.shadow_mode_ruleset,
+                        )
+                    else:
+                        shadow_logger.info(
+                            "Shadow execution succeeded | symbol=%s | ruleset=%s",
+                            symbol,
+                            shadow_res.ruleset_name,
+                        )
+            except Exception as shadow_exc:
+                # Log full traceback for ops; never re-raise into production pipeline.
+                shadow_logger.warning(
+                    "Shadow mode hook failed with exception: %s | symbol=%s | ruleset=%s. "
+                    "Degrading gracefully.",
+                    shadow_exc,
+                    symbol,
+                    settings.shadow_mode_ruleset,
+                    exc_info=True,
+                )
+
         self.logger.info(
             "Completed symbol analysis | symbol=%s | recommendation=%s | confidence=%s | score=%s | challenger=%s | market_regime=%s",
             symbol,

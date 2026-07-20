@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AnalysisMode(str, Enum):
@@ -330,3 +330,52 @@ class ScreenerResponse(BaseModel):
     scan_stages: list[ScreenerStageSummary] = Field(default_factory=list)
     stopped_at_stage: str | None = None
     duplicate_symbols_skipped: int = 0
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class ShadowExecutionContext(BaseModel):
+    """Immutable production snapshot for experimental evaluation (FR-007)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    candles: list[OHLCVPoint]
+    technical_results: list[TechnicalAnalysisResult]
+    sentiment_score: float
+    fundamental_result: FundamentalAnalysisResult | None = None
+    backtests: list[BacktestResult] = Field(default_factory=list)
+    production_recommendation: FinalRecommendation
+    production_challenger_recommendation: FinalRecommendation | None = None
+    scan_date: datetime = Field(default_factory=_utc_now)
+
+
+class ShadowExecutionResult(BaseModel):
+    """Immutable shadow run output DTO."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ruleset_name: str
+    score: float
+    action: str
+    reasoning: list[str] = Field(default_factory=list)
+    executed_at: datetime = Field(default_factory=_utc_now)
+
+
+class ShadowComparisonLog(BaseModel):
+    """Immutable production-vs-shadow comparison record (persistence later)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    scan_date: datetime
+    ruleset_name: str
+    production_action: str
+    production_score: float
+    shadow_action: str
+    shadow_score: float
+    score_delta: float
+    is_mismatch: bool
+

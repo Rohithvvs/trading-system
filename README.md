@@ -103,5 +103,20 @@ The log file includes messages for:
   7. RecommendationAgent decides BUY / WATCH / REJECT
   8. Rank BUY and WATCH separately
 
+## Shadow Mode Configuration (FEAT-011 Spec 1)
+
+The shadow infrastructure foundation is configured via environment variables loading into global `Settings` (`backend/app/config/settings.py`):
+
+- `SHADOW_MODE_ENABLED`: `bool` (default `False`) — Master toggle for the orchestrator shadow hook.
+- `SHADOW_MODE_STAGE`: `str` (default `"SHADOW"`) — Lifecycle stage. Valid values: `OFF`, `SHADOW`, `ACTIVE` (validated case-insensitively). The hook runs only when enabled **and** stage is not `OFF`. `ACTIVE` is reserved for future execution activation; Spec 1 still isolates shadow work from production scoring/API responses.
+- `SHADOW_MODE_RULESET`: `str` (default `"experimental_v1"`) — Name of the experimental ruleset identity used when a concrete executor is registered later.
+- `SHADOW_MODE_PERSISTENCE_ENABLED`: `bool` (default `False`) — **Non-binding in Spec 1.** Reserved for future `IShadowStore` database writes; setting this to `True` logs a warning and does not persist shadow comparisons yet.
+
+Shadow observability:
+
+- Logger: `app.shadow_executor`
+- Registered audit actions: `shadow.execution.start`, `shadow.execution.complete`, `shadow.discrepancy.detected` (see `backend/app/governance/audit.py`)
+
+
 
 
