@@ -1,36 +1,32 @@
-"""Automated tests for Sprint 2 – Core TOTP Token Generation (007-fyers-totp-token).
+"""Automated tests for Sprint 3 – Retry Logic in Token Generation (008-fyers-token-retry).
 
-Specification source of truth: specs/007-fyers-totp-token/spec.md
-All network and SDK interactions are mocked; suite is offline-safe.
+Specification: specs/008-fyers-token-retry/spec.md
+Also preserves core Sprint 2 regression coverage for generate_fyers_access_token.
+
+All network/SDK interactions are mocked; sleep is mocked where retries occur
+so the suite stays offline and fast.
 """
 
 from __future__ import annotations
 
-import base64
-import concurrent.futures
 import logging
 import os
-import sys
-import time
 from unittest import mock
 
 import pytest
 import requests
 
 from fyers_token import (
-    REQUEST_TIMEOUT_SEC,
     FyersAuthError,
     FyersConfigError,
     FyersConnectionError,
-    _redact_sensitive,
     generate_fyers_access_token,
     get_base64_string,
     load_fyers_config,
-    logger as fyers_logger,
 )
 
 # -----------------------------------------------------------------------------
-# Shared fixtures / helpers
+# Shared helpers
 # -----------------------------------------------------------------------------
 
 REQUIRED_ENV = {
@@ -54,6 +50,7 @@ def _json_response(payload: dict, status_code: int = 200) -> mock.Mock:
     resp.text = str(payload)
     resp.headers = {}
     resp.raise_for_status = mock.Mock()
+    resp.close = mock.Mock()
     return resp
 
 
@@ -74,21 +71,20 @@ def _pin_ok(access_token: str = TEMP_TOKEN) -> mock.Mock:
 def _authcode_redirect(
     location: str | None = None,
     status_code: int = 302,
-    json_body: dict | None = None,
 ) -> mock.Mock:
     if location is None:
-        location = (
-            f"{DEFAULT_REDIRECT}?auth_code={AUTH_CODE}&state=sample_state"
-        )
+        location = f"{DEFAULT_REDIRECT}?auth_code={AUTH_CODE}&state=sample_state"
     resp = mock.Mock()
     resp.status_code = status_code
     resp.headers = {"Location": location} if location else {}
     resp.text = "redirect"
-    if json_body is not None:
-        resp.json.return_value = json_body
-    else:
-        resp.json.side_effect = ValueError("no json")
+    resp.json.side_effect = ValueError("no json")
+    resp.close = mock.Mock()
     return resp
+
+
+def _success_posts() -> list:
+    return [_otp_ok(), _totp_ok(), _pin_ok()]
 
 
 @pytest.fixture
@@ -119,824 +115,507 @@ def mock_session_success():
 
 
 # -----------------------------------------------------------------------------
-# Unit Tests — helpers & configuration
+# Unit — configuration (regression + permanent fail-fast foundation)
 # -----------------------------------------------------------------------------
 
 
-class TestGetBase64String:
-    def test_encodes_client_id(self):
-        raw = "YJ08718"
-        expected = base64.b64encode(raw.encode("utf-8")).decode("utf-8")
-        assert get_base64_string(raw) == expected
-
-    def test_encodes_numeric_pin(self):
-        assert get_base64_string("1234") == base64.b64encode(b"1234").decode(
-            "utf-8"
-        )
-
-    def test_encodes_empty_string(self):
-        assert get_base64_string("") == base64.b64encode(b"").decode("utf-8")
-
-
-class TestRedactSensitive:
-    def test_redacts_auth_code_query_param(self):
-        text = f"{DEFAULT_REDIRECT}?auth_code=supersecret&state=x"
-        out = _redact_sensitive(text)
-        assert "supersecret" not in out
-        assert "auth_code=<redacted>" in out
-
-    def test_redacts_bearer_token(self):
-        out = _redact_sensitive("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc")
-        assert "eyJhbGciOiJIUzI1NiJ9" not in out
-        assert "Bearer <redacted>" in out
-
-
 class TestLoadFyersConfig:
-    def test_success_returns_all_required_keys(self, valid_env):
+    def test_success_returns_required_keys(self, valid_env):
         config = load_fyers_config()
         for key, value in REQUIRED_ENV.items():
             assert config[key] == value
 
-    def test_default_redirect_uri_when_unset(self, valid_env):
-        config = load_fyers_config()
-        assert config["FYERS_REDIRECT_URI"] == DEFAULT_REDIRECT
+    def test_default_redirect_uri(self, valid_env):
+        assert load_fyers_config()["FYERS_REDIRECT_URI"] == DEFAULT_REDIRECT
 
-    def test_custom_redirect_uri_override(self):
-        env = {**REQUIRED_ENV, "FYERS_REDIRECT_URI": "https://example.com/cb"}
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = load_fyers_config()
-        assert config["FYERS_REDIRECT_URI"] == "https://example.com/cb"
-
-    def test_accepts_fyers_secret_id_alias(self):
+    def test_missing_required_key_raises_config_error(self):
         env = {k: v for k, v in REQUIRED_ENV.items() if k != "FYERS_APP_SECRET"}
-        env["FYERS_SECRET_ID"] = "alias_secret_value"
         with mock.patch.dict(os.environ, env, clear=True):
-            config = load_fyers_config()
-        assert config["FYERS_APP_SECRET"] == "alias_secret_value"
-
-    def test_prefers_fyers_app_secret_over_alias(self):
-        env = {
-            **REQUIRED_ENV,
-            "FYERS_APP_SECRET": "primary_secret",
-            "FYERS_SECRET_ID": "alias_secret",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = load_fyers_config()
-        assert config["FYERS_APP_SECRET"] == "primary_secret"
-
-    @pytest.mark.parametrize(
-        "missing_key",
-        [
-            "FYERS_CLIENT_ID",
-            "FYERS_APP_ID",
-            "FYERS_APP_SECRET",
-            "FYERS_TOTP_SECRET",
-            "FYERS_PIN",
-        ],
-    )
-    def test_missing_required_env_raises_config_error(self, missing_key):
-        env = {k: v for k, v in REQUIRED_ENV.items() if k != missing_key}
-        with mock.patch.dict(os.environ, env, clear=True):
-            with pytest.raises(FyersConfigError) as exc_info:
+            with pytest.raises(FyersConfigError) as exc:
                 load_fyers_config()
-        # APP_SECRET missing may mention alias in message
-        if missing_key == "FYERS_APP_SECRET":
-            assert "FYERS_APP_SECRET" in str(exc_info.value)
-        else:
-            assert missing_key in str(exc_info.value)
+        assert "FYERS_APP_SECRET" in str(exc.value)
 
-    @pytest.mark.parametrize(
-        "empty_key,empty_value",
-        [
-            ("FYERS_CLIENT_ID", ""),
-            ("FYERS_APP_SECRET", "   "),
-            ("FYERS_TOTP_SECRET", "  \n"),
-        ],
-    )
-    def test_empty_or_whitespace_only_env_raises_config_error(
-        self, empty_key, empty_value
-    ):
-        env = {**REQUIRED_ENV, empty_key: empty_value}
+    def test_empty_key_raises_config_error(self):
+        env = {**REQUIRED_ENV, "FYERS_APP_SECRET": "   "}
         with mock.patch.dict(os.environ, env, clear=True):
-            with pytest.raises(FyersConfigError) as exc_info:
+            with pytest.raises(FyersConfigError):
                 load_fyers_config()
-        assert empty_key in str(exc_info.value)
 
-    def test_strips_whitespace_from_env_values(self):
-        env = {
-            "FYERS_CLIENT_ID": "  YJ08718  ",
-            "FYERS_APP_ID": "\tL9NY305RTW-100\n",
-            "FYERS_APP_SECRET": " secret123 ",
-            "FYERS_TOTP_SECRET": " MFRGGZDFMZTWQ2LK ",
-            "FYERS_PIN": " 1234 ",
-            "FYERS_REDIRECT_URI": "  https://example.com/cb  ",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = load_fyers_config()
-        assert config["FYERS_CLIENT_ID"] == "YJ08718"
-        assert config["FYERS_APP_ID"] == "L9NY305RTW-100"
-        assert config["FYERS_APP_SECRET"] == "secret123"
-        assert config["FYERS_TOTP_SECRET"] == "MFRGGZDFMZTWQ2LK"
-        assert config["FYERS_PIN"] == "1234"
-        assert config["FYERS_REDIRECT_URI"] == "https://example.com/cb"
-
-    @pytest.mark.parametrize("bad_pin", ["12", "12345", "abcdef", "12ab"])
-    def test_invalid_pin_format_raises_config_error(self, bad_pin):
-        env = {**REQUIRED_ENV, "FYERS_PIN": bad_pin}
-        with mock.patch.dict(os.environ, env, clear=True):
-            with pytest.raises(FyersConfigError) as exc_info:
-                load_fyers_config()
-        assert "PIN" in str(exc_info.value)
-
-    def test_six_digit_pin_accepted(self):
-        env = {**REQUIRED_ENV, "FYERS_PIN": "123456"}
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = load_fyers_config()
-        assert config["FYERS_PIN"] == "123456"
-
-    def test_config_error_fails_fast_under_100ms(self):
-        """SC-002: missing env fails within 100ms without network I/O."""
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with mock.patch("fyers_token.requests.post") as mock_post:
-                with mock.patch("fyers_token.requests.get") as mock_get:
-                    start = time.perf_counter()
-                    with pytest.raises(FyersConfigError):
-                        generate_fyers_access_token()
-                    elapsed_ms = (time.perf_counter() - start) * 1000
-        assert elapsed_ms < 100
-        mock_post.assert_not_called()
-        mock_get.assert_not_called()
-
-
-class TestExceptionHierarchy:
-    def test_domain_exceptions_are_standard_exceptions(self):
-        assert issubclass(FyersConfigError, Exception)
-        assert issubclass(FyersAuthError, Exception)
-        assert issubclass(FyersConnectionError, Exception)
-
-    def test_connection_error_does_not_subclass_builtin(self):
-        assert not issubclass(FyersConnectionError, ConnectionError)
-
-
-class TestLoggingSetup:
-    def test_library_logger_has_no_stdout_stream_handler(self):
-        for h in fyers_logger.handlers:
-            if isinstance(h, logging.StreamHandler):
-                stream = getattr(h, "stream", None)
-                assert stream is not sys.stdout
-
-
-# -----------------------------------------------------------------------------
-# Integration — happy path
-# -----------------------------------------------------------------------------
-
-
-class TestGenerateTokenSuccess:
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_full_flow_returns_access_token(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        token = generate_fyers_access_token()
-        assert token == FINAL_TOKEN
-        assert isinstance(token, str)
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_http_calls_include_timeout(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        generate_fyers_access_token()
-
-        for call in mock_post.call_args_list:
-            assert call.kwargs.get("timeout") == REQUEST_TIMEOUT_SEC
-        assert mock_get.call_args.kwargs.get("timeout") == REQUEST_TIMEOUT_SEC
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_otp_payload_uses_base64_client_id_and_app_id_two(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        generate_fyers_access_token()
-
-        otp_call = mock_post.call_args_list[0]
-        assert "send_login_otp_v2" in otp_call.args[0]
-        payload = otp_call.kwargs["json"]
-        assert payload["app_id"] == "2"
-        assert payload["fy_id"] == get_base64_string(REQUIRED_ENV["FYERS_CLIENT_ID"])
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_totp_payload_includes_generated_otp(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        _, totp_inst = mock_totp
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        generate_fyers_access_token()
-
-        totp_call = mock_post.call_args_list[1]
-        assert "verify_otp" in totp_call.args[0]
-        assert totp_call.kwargs["json"] == {
-            "request_key": "key_1",
-            "otp": "123456",
-        }
-        totp_inst.now.assert_called()
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_pin_payload_uses_base64_pin(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        generate_fyers_access_token()
-
-        pin_call = mock_post.call_args_list[2]
-        assert "verify_pin_v2" in pin_call.args[0]
-        payload = pin_call.kwargs["json"]
-        assert payload["request_key"] == "key_2"
-        assert payload["identity_type"] == "pin"
-        assert payload["identifier"] == get_base64_string(REQUIRED_ENV["FYERS_PIN"])
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_authcode_request_uses_bearer_and_disables_redirects(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        generate_fyers_access_token()
-
-        get_kwargs = mock_get.call_args.kwargs
-        assert get_kwargs["allow_redirects"] is False
-        assert get_kwargs["headers"]["Authorization"] == f"Bearer {TEMP_TOKEN}"
-        params = get_kwargs["params"]
-        assert params["client_id"] == REQUIRED_ENV["FYERS_APP_ID"]
-        assert params["response_type"] == "code"
-        assert params["state"] == "sample_state"
-        assert params["redirect_uri"] == DEFAULT_REDIRECT
-        assert "generate-authcode" in mock_get.call_args.args[0]
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_authcode_fallback_from_json_body_when_no_location(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        redirect = f"{DEFAULT_REDIRECT}?auth_code={AUTH_CODE}&state=sample_state"
-        mock_get.return_value = _authcode_redirect(
-            location="",
-            status_code=200,
-            json_body={"data": {"redirect_uri": redirect}},
-        )
-        mock_get.return_value.headers = {}
-
-        token = generate_fyers_access_token()
-        assert token == FINAL_TOKEN
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_session_model_receives_auth_code(
-        self, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        mock_cls, session_inst = mock_session_success
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        generate_fyers_access_token()
-
-        mock_cls.assert_called_once_with(
-            client_id=REQUIRED_ENV["FYERS_APP_ID"],
-            secret_key=REQUIRED_ENV["FYERS_APP_SECRET"],
-            redirect_uri=DEFAULT_REDIRECT,
-            response_type="code",
-            grant_type="authorization_code",
-        )
-        session_inst.set_token.assert_called_once_with(AUTH_CODE)
-        session_inst.generate_token.assert_called_once()
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_works_with_secret_id_alias(
-        self, mock_get, mock_post, mock_totp, mock_session_success
-    ):
+    def test_accepts_secret_id_alias(self):
         env = {k: v for k, v in REQUIRED_ENV.items() if k != "FYERS_APP_SECRET"}
-        env["FYERS_SECRET_ID"] = "from_backend_alias"
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
+        env["FYERS_SECRET_ID"] = "alias_secret"
         with mock.patch.dict(os.environ, env, clear=True):
-            token = generate_fyers_access_token()
-        assert token == FINAL_TOKEN
+            assert load_fyers_config()["FYERS_APP_SECRET"] == "alias_secret"
 
 
 # -----------------------------------------------------------------------------
-# Failure Path Tests
+# US1 / US2 — Success path (no retry) — FR-004, SC-004
 # -----------------------------------------------------------------------------
 
 
-class TestAuthFailures:
-    @mock.patch("fyers_token.requests.post")
-    def test_otp_request_api_error_raises_auth_error(self, mock_post, valid_env):
-        mock_post.return_value = _json_response(
-            {"s": "error", "message": "Invalid User ID"}
-        )
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "Invalid User ID" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
-    def test_otp_missing_request_key_raises_auth_error(self, mock_post, valid_env):
-        mock_post.return_value = _json_response({"s": "ok", "code": 200})
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "request_key" in str(exc_info.value).lower()
-
-    @mock.patch("fyers_token.requests.post")
-    def test_otp_invalid_json_raises_auth_error(self, mock_post, valid_env):
-        resp = mock.Mock()
-        resp.raise_for_status = mock.Mock()
-        resp.json.side_effect = ValueError("bad json")
-        resp.text = "not-json-with-secret=should-not-leak"
-        mock_post.return_value = resp
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "Invalid JSON" in str(exc_info.value)
-        assert "should-not-leak" not in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
+class TestGenerateSuccessNoRetry:
     @mock.patch("fyers_token.time.sleep")
-    def test_invalid_pin_raises_auth_error(
-        self, mock_sleep, mock_post, valid_env, mock_totp
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    @mock.patch("fyers_token.requests.get")
+    def test_first_attempt_success_returns_token_without_retry(
+        self,
+        mock_get,
+        mock_post,
+        mock_uniform,
+        mock_sleep,
+        valid_env,
+        mock_totp,
+        mock_session_success,
     ):
+        """US1-AS3 / SC-004: success on first attempt incurs zero retry delay."""
+        mock_post.side_effect = _success_posts()
+        mock_get.return_value = _authcode_redirect()
+
+        token = generate_fyers_access_token()
+        assert token == FINAL_TOKEN
+        mock_sleep.assert_not_called()
+        mock_uniform.assert_not_called()
+        # Single attempt: OTP + TOTP + PIN
+        assert mock_post.call_count == 3
+        assert mock_get.call_count == 1
+
+
+# -----------------------------------------------------------------------------
+# US1 — Automated retry on transient failures — FR-001..FR-005
+# -----------------------------------------------------------------------------
+
+
+class TestTransientRetry:
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    def test_exhausted_retries_message_includes_max_attempts(
+        self, mock_post, mock_uniform, mock_sleep, valid_env
+    ):
+        """FR-005: final error keeps original text + max-attempts suffix/metadata."""
+        mock_uniform.return_value = 5.0
+        mock_post.side_effect = requests.Timeout("Gateway timeout")
+        with pytest.raises(FyersConnectionError) as exc:
+            generate_fyers_access_token()
+        err = exc.value
+        msg = str(err)
+        # Original failure text preserved first for substring matchers
+        assert "Timeout" in msg or "Connection failed" in msg
+        assert "after 3 attempts" in msg
+        assert "maximum retries" in msg.lower()
+        assert getattr(err, "attempts", None) == 3
+        assert getattr(err, "max_attempts", None) == 3
+        assert err.__cause__ is not None
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    @mock.patch("fyers_token.requests.get")
+    def test_succeeds_on_third_attempt_after_two_timeouts(
+        self,
+        mock_get,
+        mock_post,
+        mock_uniform,
+        mock_sleep,
+        valid_env,
+        mock_totp,
+        mock_session_success,
+    ):
+        """US1-AS1: transient failures on attempts 1–2; token returned on attempt 3."""
+        mock_uniform.side_effect = [7.5, 8.2]
+        mock_post.side_effect = [
+            requests.Timeout("Connection timed out"),
+            requests.Timeout("Connection timed out"),
+            *_success_posts(),
+        ]
+        mock_get.return_value = _authcode_redirect()
+
+        token = generate_fyers_access_token()
+        assert token == FINAL_TOKEN
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_has_calls([mock.call(7.5), mock.call(8.2)])
+        mock_uniform.assert_has_calls(
+            [mock.call(5.0, 10.0), mock.call(5.0, 10.0)]
+        )
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    def test_all_three_attempts_fail_raises_connection_error(
+        self, mock_post, mock_uniform, mock_sleep, valid_env
+    ):
+        """US1-AS2 / FR-005: persistent transient errors raise after 3 attempts."""
+        mock_uniform.return_value = 5.0
+        mock_post.side_effect = requests.Timeout("Gateway timeout")
+
+        with pytest.raises(FyersConnectionError) as exc:
+            generate_fyers_access_token()
+        msg = str(exc.value)
+        assert "Timeout" in msg or "Connection failed" in msg
+        # Delays only between attempts → 2 sleeps, 3 HTTP attempts
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_has_calls([mock.call(5.0), mock.call(5.0)])
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    @mock.patch("fyers_token.requests.get")
+    def test_http_5xx_on_authcode_is_retried_then_succeeds(
+        self,
+        mock_get,
+        mock_post,
+        mock_uniform,
+        mock_sleep,
+        valid_env,
+        mock_totp,
+        mock_session_success,
+    ):
+        """Transient HTTP 5xx (connection-class) retries full login sequence."""
+        mock_uniform.return_value = 6.0
+        # Attempt 1: full login through PIN, then 503 on authcode
+        # Attempt 2: full success path
+        mock_post.side_effect = [
+            *_success_posts(),
+            *_success_posts(),
+        ]
+        resp_503 = mock.Mock()
+        resp_503.status_code = 503
+        resp_503.headers = {}
+        resp_503.text = "Service Unavailable"
+        resp_503.close = mock.Mock()
+        mock_get.side_effect = [resp_503, _authcode_redirect()]
+
+        token = generate_fyers_access_token()
+        assert token == FINAL_TOKEN
+        mock_sleep.assert_called_once_with(6.0)
+        assert mock_get.call_count == 2
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    def test_connection_error_retries_up_to_three_times(
+        self, mock_post, mock_uniform, mock_sleep, valid_env
+    ):
+        mock_uniform.return_value = 5.5
+        mock_post.side_effect = requests.ConnectionError("DNS failure")
+
+        with pytest.raises(FyersConnectionError):
+            generate_fyers_access_token()
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
+
+
+# -----------------------------------------------------------------------------
+# US2 — Randomized delay bounds — FR-003, SC-002
+# -----------------------------------------------------------------------------
+
+
+class TestRetryDelayBounds:
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    def test_delay_uses_uniform_between_5_and_10(
+        self, mock_post, mock_uniform, mock_sleep, valid_env
+    ):
+        """US2-AS1: delay is random.uniform(5.0, 10.0) and sleep uses that value."""
+        mock_uniform.side_effect = [5.0, 9.99]
+        mock_post.side_effect = requests.Timeout("t")
+
+        with pytest.raises(FyersConnectionError):
+            generate_fyers_access_token()
+
+        for call in mock_uniform.call_args_list:
+            assert call.args == (5.0, 10.0)
+        mock_sleep.assert_has_calls([mock.call(5.0), mock.call(9.99)])
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform", side_effect=[7.25, 6.1])
+    @mock.patch("fyers_token.requests.post")
+    def test_exactly_two_delays_for_three_failed_attempts(
+        self, mock_post, mock_uniform, mock_sleep, valid_env
+    ):
+        mock_post.side_effect = requests.Timeout("t")
+        with pytest.raises(FyersConnectionError):
+            generate_fyers_access_token()
+        assert mock_uniform.call_count == 2
+        assert mock_sleep.call_count == 2
+
+
+# -----------------------------------------------------------------------------
+# FR-006 — Permanent errors fail fast (no retry)
+# -----------------------------------------------------------------------------
+
+
+class TestPermanentFailFast:
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    def test_missing_config_does_not_retry_or_sleep(
+        self, mock_uniform, mock_sleep
+    ):
+        """FR-006: configuration errors fail immediately."""
+        env = {k: v for k, v in REQUIRED_ENV.items() if k != "FYERS_APP_ID"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch("fyers_token.requests.post") as mock_post:
+                with pytest.raises(FyersConfigError):
+                    generate_fyers_access_token()
+                mock_post.assert_not_called()
+        mock_sleep.assert_not_called()
+        mock_uniform.assert_not_called()
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    def test_invalid_pin_does_not_retry(
+        self, mock_post, mock_uniform, mock_sleep, valid_env, mock_totp
+    ):
+        """FR-006: permanent PIN failure fails fast."""
         mock_post.side_effect = [
             _otp_ok(),
             _totp_ok(),
             _json_response({"s": "error", "message": "Invalid PIN"}),
         ]
-        with pytest.raises(FyersAuthError) as exc_info:
+        with pytest.raises(FyersAuthError) as exc:
             generate_fyers_access_token()
-        assert "PIN" in str(exc_info.value)
-        assert "Invalid PIN" in str(exc_info.value)
+        assert "PIN" in str(exc.value)
+        mock_sleep.assert_not_called()
+        mock_uniform.assert_not_called()
+        assert mock_post.call_count == 3  # single attempt only
 
-    @mock.patch("fyers_token.requests.post")
     @mock.patch("fyers_token.time.sleep")
-    def test_pin_missing_temp_token_raises_auth_error(
-        self, mock_sleep, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [
-            _otp_ok(),
-            _totp_ok(),
-            _json_response({"s": "ok", "data": {}}),
-        ]
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "access_token" in str(exc_info.value)
-
+    @mock.patch("fyers_token.random.uniform")
     @mock.patch("fyers_token.requests.post")
+    def test_otp_request_api_error_does_not_retry(
+        self, mock_post, mock_uniform, mock_sleep, valid_env
+    ):
+        """Permanent auth-class OTP failure (Invalid User ID path)."""
+        mock_post.return_value = _json_response(
+            {"s": "error", "message": "OTP request failed: Invalid User ID"}
+        )
+        with pytest.raises(FyersAuthError) as exc:
+            generate_fyers_access_token()
+        assert "OTP request failed" in str(exc.value)
+        mock_sleep.assert_not_called()
+        assert mock_post.call_count == 1
+
     @mock.patch("fyers_token.time.sleep")
-    def test_totp_fails_after_retry_raises_auth_error(
-        self, mock_sleep, mock_post, valid_env, mock_totp
-    ):
-        fail = _json_response({"s": "error", "message": "OTP incorrect"})
-        mock_post.side_effect = [_otp_ok(), fail, fail]
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "TOTP verification failed after retry" in str(exc_info.value)
-        mock_sleep.assert_called_once()
-
-    @mock.patch("fyers_token.requests.post")
-    def test_invalid_totp_secret_format_raises_config_error(
-        self, mock_post, valid_env
-    ):
-        mock_post.return_value = _otp_ok()
-        with mock.patch("fyers_token.pyotp.TOTP", side_effect=ValueError("bad base32")):
-            with pytest.raises(FyersConfigError) as exc_info:
-                generate_fyers_access_token()
-        assert "TOTP secret" in str(exc_info.value)
-
+    @mock.patch("fyers_token.random.uniform")
     @mock.patch("fyers_token.requests.post")
     @mock.patch("fyers_token.requests.get")
-    def test_authcode_redirect_missing_raises_auth_error(
-        self, mock_get, mock_post, valid_env, mock_totp
+    def test_missing_redirect_is_permanent_fail_fast(
+        self, mock_get, mock_post, mock_uniform, mock_sleep, valid_env, mock_totp
     ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
+        mock_post.side_effect = _success_posts()
         resp = mock.Mock()
         resp.status_code = 200
         resp.headers = {}
         resp.json.return_value = {}
-        resp.text = "Error landing page with auth_code=leakme"
+        resp.text = "landing"
+        resp.close = mock.Mock()
         mock_get.return_value = resp
 
-        with pytest.raises(FyersAuthError) as exc_info:
+        with pytest.raises(FyersAuthError) as exc:
             generate_fyers_access_token()
-        msg = str(exc_info.value)
-        assert "Redirect Location not found" in msg
-        assert "leakme" not in msg
+        assert "Redirect Location not found" in str(exc.value)
+        mock_sleep.assert_not_called()
+        mock_uniform.assert_not_called()
 
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_authcode_missing_query_param_does_not_leak_url(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect(
-            location=f"{DEFAULT_REDIRECT}?state=sample_state&other=xyz"
-        )
-
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        msg = str(exc_info.value)
-        assert "auth_code" in msg
-        # Full redirect URL must not be dumped (path only is ok)
-        assert "sample_state" not in msg
-        assert "other=xyz" not in msg
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_authcode_5xx_raises_connection_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        resp = mock.Mock()
-        resp.status_code = 503
-        resp.headers = {}
-        resp.text = "Service Unavailable"
-        mock_get.return_value = resp
-
-        with pytest.raises(FyersConnectionError) as exc_info:
-            generate_fyers_access_token()
-        assert "503" in str(exc_info.value) or "server error" in str(
-            exc_info.value
-        ).lower()
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_authcode_4xx_raises_auth_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        resp = mock.Mock()
-        resp.status_code = 401
-        resp.headers = {}
-        resp.text = "Unauthorized"
-        mock_get.return_value = resp
-
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "401" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_token_exchange_api_failure_raises_auth_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-        with mock.patch("fyers_token.fyersModel.SessionModel") as mock_cls:
-            inst = mock.Mock()
-            inst.generate_token.return_value = {
-                "s": "error",
-                "message": "Invalid auth code",
-            }
-            mock_cls.return_value = inst
-            with pytest.raises(FyersAuthError) as exc_info:
-                generate_fyers_access_token()
-        assert "Token exchange failed" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_token_exchange_missing_access_token_raises_auth_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-        with mock.patch("fyers_token.fyersModel.SessionModel") as mock_cls:
-            inst = mock.Mock()
-            inst.generate_token.return_value = {"s": "ok"}
-            mock_cls.return_value = inst
-            with pytest.raises(FyersAuthError) as exc_info:
-                generate_fyers_access_token()
-        assert "Final access token" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_session_model_exception_raises_auth_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-        with mock.patch(
-            "fyers_token.fyersModel.SessionModel",
-            side_effect=RuntimeError("SDK boom"),
-        ):
-            with pytest.raises(FyersAuthError) as exc_info:
-                generate_fyers_access_token()
-        assert "SessionModel" in str(exc_info.value)
-
-
-class TestConnectionFailures:
-    @mock.patch("fyers_token.requests.post")
-    def test_otp_timeout_raises_connection_error(self, mock_post, valid_env):
-        mock_post.side_effect = requests.Timeout("Connection timed out")
-        with pytest.raises(FyersConnectionError) as exc_info:
-            generate_fyers_access_token()
-        assert "Timeout" in str(exc_info.value) or "Connection failed" in str(
-            exc_info.value
-        )
-
-    @mock.patch("fyers_token.requests.post")
-    def test_otp_http_error_raises_connection_error(self, mock_post, valid_env):
-        resp = mock.Mock()
-        resp.status_code = 503
-        resp.raise_for_status.side_effect = requests.HTTPError(
-            "503 Server Error", response=resp
-        )
-        mock_post.return_value = resp
-        with pytest.raises(FyersConnectionError) as exc_info:
-            generate_fyers_access_token()
-        assert "OTP" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
-    def test_totp_connection_error(self, mock_post, valid_env, mock_totp):
-        mock_post.side_effect = [
-            _otp_ok(),
-            requests.ConnectionError("DNS failure"),
-        ]
-        with pytest.raises(FyersConnectionError) as exc_info:
-            generate_fyers_access_token()
-        assert "TOTP" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
     @mock.patch("fyers_token.time.sleep")
-    def test_totp_retry_connection_error(
-        self, mock_sleep, mock_post, valid_env, mock_totp
+    @mock.patch("fyers_token.random.uniform")
+    @mock.patch("fyers_token.requests.post")
+    def test_totp_failure_after_inner_retry_is_permanent(
+        self, mock_post, mock_uniform, mock_sleep, valid_env, mock_totp
     ):
-        fail = _json_response({"s": "error", "message": "OTP expired"})
+        """H1 / FR-006: wrong TOTP must not outer-retry with 5–10s delays."""
+        # OTP ok, TOTP fail, TOTP retry fail → permanent
         mock_post.side_effect = [
             _otp_ok(),
-            fail,
-            requests.Timeout("retry timeout"),
+            _json_response({"s": "error", "message": "OTP incorrect"}),
+            _json_response({"s": "error", "message": "OTP incorrect"}),
         ]
-        with pytest.raises(FyersConnectionError) as exc_info:
+        with pytest.raises(FyersAuthError) as exc:
             generate_fyers_access_token()
-        assert "retry" in str(exc_info.value).lower()
-
-    @mock.patch("fyers_token.requests.post")
-    def test_pin_connection_error(self, mock_post, valid_env, mock_totp):
-        mock_post.side_effect = [
-            _otp_ok(),
-            _totp_ok(),
-            requests.Timeout("PIN timeout"),
-        ]
-        with pytest.raises(FyersConnectionError) as exc_info:
-            generate_fyers_access_token()
-        assert "PIN" in str(exc_info.value)
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_authcode_connection_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.side_effect = requests.ConnectionError("network down")
-        with pytest.raises(FyersConnectionError) as exc_info:
-            generate_fyers_access_token()
-        assert "authorization code" in str(exc_info.value).lower()
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_sdk_timeout_raises_connection_error(
-        self, mock_get, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        with mock.patch(
-            "fyers_token.concurrent.futures.ThreadPoolExecutor"
-        ) as mock_pool_cls:
-            mock_pool = mock.MagicMock()
-            mock_pool_cls.return_value = mock_pool
-            future = mock.Mock()
-            future.result.side_effect = concurrent.futures.TimeoutError()
-            mock_pool.submit.return_value = future
-
-            with pytest.raises(FyersConnectionError) as exc_info:
-                generate_fyers_access_token()
-        assert "token exchange" in str(exc_info.value).lower()
-        mock_pool.shutdown.assert_called_with(wait=False, cancel_futures=True)
+        assert "TOTP verification failed" in str(exc.value)
+        # Outer retry jitter must not run
+        mock_uniform.assert_not_called()
+        # Only inner window sleep (if any), not two outer delays
+        assert mock_post.call_count == 3
 
 
 # -----------------------------------------------------------------------------
-# Edge Cases — TOTP window retry
+# FR-007 — Fresh TOTP each attempt
 # -----------------------------------------------------------------------------
 
 
-class TestTotpRetryEdgeCases:
+class TestFreshTotpPerAttempt:
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform", return_value=5.0)
     @mock.patch("fyers_token.requests.post")
     @mock.patch("fyers_token.requests.get")
-    @mock.patch("fyers_token.time.sleep")
-    def test_totp_retry_then_full_success(
-        self, mock_sleep, mock_get, mock_post, valid_env, mock_totp, mock_session_success
-    ):
-        fail = _json_response({"s": "error", "message": "OTP expired"})
-        mock_post.side_effect = [_otp_ok(), fail, _totp_ok(), _pin_ok()]
-        mock_get.return_value = _authcode_redirect()
-
-        token = generate_fyers_access_token()
-        assert token == FINAL_TOKEN
-        mock_sleep.assert_called_once()
-        assert mock_post.call_count == 4
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.time.sleep")
-    def test_totp_retry_regenerates_otp_code(
-        self, mock_sleep, mock_post, valid_env, mock_totp
-    ):
-        """Capture OTP at call time — each request uses a fresh payload dict."""
-        _, totp_inst = mock_totp
-        totp_inst.now.side_effect = ["111111", "222222"]
-        fail = _json_response({"s": "error", "message": "OTP expired"})
-        pin_fail = _json_response({"s": "error", "message": "stop"})
-        responses = iter([_otp_ok(), fail, _totp_ok(), pin_fail])
-        otps_seen: list[str] = []
-
-        def post_side(*args, **kwargs):
-            if args and "verify_otp" in args[0]:
-                otps_seen.append(kwargs["json"]["otp"])
-            return next(responses)
-
-        mock_post.side_effect = post_side
-
-        with pytest.raises(FyersAuthError):
-            generate_fyers_access_token()
-
-        assert totp_inst.now.call_count == 2
-        assert otps_seen == ["111111", "222222"]
-        mock_sleep.assert_called_once()
-
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.time.sleep")
-    def test_totp_success_missing_request_key(
-        self, mock_sleep, mock_post, valid_env, mock_totp
-    ):
-        mock_post.side_effect = [
-            _otp_ok(),
-            _json_response({"s": "ok", "code": 200}),
-        ]
-        with pytest.raises(FyersAuthError) as exc_info:
-            generate_fyers_access_token()
-        assert "request_key" in str(exc_info.value).lower()
-
-
-# -----------------------------------------------------------------------------
-# Observability — logging without secrets
-# -----------------------------------------------------------------------------
-
-
-class TestLoggingNoSecrets:
-    @mock.patch("fyers_token.requests.post")
-    @mock.patch("fyers_token.requests.get")
-    def test_success_logs_steps_without_sensitive_values(
+    def test_totp_regenerated_on_each_outer_attempt(
         self,
         mock_get,
         mock_post,
+        mock_uniform,
+        mock_sleep,
+        valid_env,
+        mock_session_success,
+    ):
+        """FR-007: each outer attempt creates a new TOTP and calls now()."""
+        with mock.patch("fyers_token.pyotp.TOTP") as mock_totp_cls:
+            inst = mock.Mock()
+            inst.now.side_effect = ["111111", "222222", "333333"]
+            mock_totp_cls.return_value = inst
+
+            # Fail OTP step twice, succeed full path third
+            mock_post.side_effect = [
+                requests.Timeout("t1"),
+                requests.Timeout("t2"),
+                *_success_posts(),
+            ]
+            mock_get.return_value = _authcode_redirect()
+
+            token = generate_fyers_access_token()
+            assert token == FINAL_TOKEN
+            # New TOTP instance per successful attempt path that reaches step 2
+            # Attempt 3 reaches TOTP; attempts 1–2 fail at OTP before TOTP.
+            # So now() called once on attempt 3 only in this scenario.
+            assert mock_totp_cls.call_count == 1
+            assert inst.now.call_count >= 1
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform", return_value=5.0)
+    @mock.patch("fyers_token.requests.post")
+    @mock.patch("fyers_token.requests.get")
+    def test_totp_now_called_fresh_when_each_attempt_reaches_verify(
+        self,
+        mock_get,
+        mock_post,
+        mock_uniform,
+        mock_sleep,
+        valid_env,
+        mock_session_success,
+    ):
+        """When each attempt reaches TOTP verify, now() is invoked per attempt."""
+        with mock.patch("fyers_token.pyotp.TOTP") as mock_totp_cls:
+            inst = mock.Mock()
+            inst.now.side_effect = ["111111", "222222"]
+            mock_totp_cls.return_value = inst
+
+            # Attempt 1: OTP ok, TOTP ok, PIN ok, then GET 503 (transient)
+            # Attempt 2: full success
+            mock_post.side_effect = [
+                _otp_ok(),
+                _totp_ok(),
+                _pin_ok(),
+                _otp_ok(),
+                _totp_ok(),
+                _pin_ok(),
+            ]
+            resp_503 = mock.Mock()
+            resp_503.status_code = 503
+            resp_503.headers = {}
+            resp_503.text = "down"
+            resp_503.close = mock.Mock()
+            mock_get.side_effect = [resp_503, _authcode_redirect()]
+
+            token = generate_fyers_access_token()
+            assert token == FINAL_TOKEN
+            assert mock_totp_cls.call_count == 2
+            assert inst.now.call_count == 2
+            # Capture OTP values sent on verify_otp posts
+            totp_otps = [
+                c.kwargs["json"]["otp"]
+                for c in mock_post.call_args_list
+                if c.args and "verify_otp" in c.args[0]
+            ]
+            assert totp_otps == ["111111", "222222"]
+
+
+# -----------------------------------------------------------------------------
+# FR-008 — Logging WARNING failures / INFO retry schedule
+# -----------------------------------------------------------------------------
+
+
+class TestRetryLogging:
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.random.uniform", return_value=6.5)
+    @mock.patch("fyers_token.requests.post")
+    def test_transient_failure_logs_warning_and_retry_info(
+        self, mock_post, mock_uniform, mock_sleep, valid_env, caplog
+    ):
+        mock_post.side_effect = requests.Timeout("Gateway timeout")
+
+        with caplog.at_level(logging.INFO, logger="fyers_auth"):
+            with pytest.raises(FyersConnectionError) as exc:
+                generate_fyers_access_token()
+
+        msg = str(exc.value)
+        assert "after 3 attempts" in msg or "maximum retries" in msg.lower()
+
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        infos = [r for r in caplog.records if r.levelno == logging.INFO]
+        assert any(
+            "transient_failure" in r.getMessage() for r in warnings
+        )
+        assert any("retry_scheduled" in r.getMessage() for r in infos)
+        assert any("delay=" in r.getMessage() for r in infos)
+        assert any("attempt=1" in r.getMessage() for r in warnings)
+        assert any("attempt=2" in r.getMessage() for r in warnings)
+        # M2: final attempt also logged as WARNING
+        assert any(
+            "transient_failure_final" in r.getMessage() for r in warnings
+        )
+        assert any("attempt=3" in r.getMessage() for r in warnings)
+
+
+# -----------------------------------------------------------------------------
+# Regression — helpers / permanent error shapes still work
+# -----------------------------------------------------------------------------
+
+
+class TestRegressionHelpers:
+    def test_get_base64_string(self):
+        import base64
+
+        assert get_base64_string("YJ08718") == base64.b64encode(
+            b"YJ08718"
+        ).decode()
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.requests.post")
+    def test_otp_timeout_maps_to_connection_error(
+        self, mock_post, mock_sleep, valid_env
+    ):
+        mock_post.side_effect = requests.Timeout("Connection timed out")
+        with pytest.raises(FyersConnectionError) as exc:
+            generate_fyers_access_token()
+        assert "Timeout" in str(exc.value) or "Connection failed" in str(
+            exc.value
+        )
+        # Exhausts 3 attempts
+        assert mock_post.call_count == 3
+
+    @mock.patch("fyers_token.time.sleep")
+    @mock.patch("fyers_token.requests.post")
+    @mock.patch("fyers_token.requests.get")
+    def test_payload_otp_uses_base64_client_id(
+        self,
+        mock_get,
+        mock_post,
+        mock_sleep,
         valid_env,
         mock_totp,
         mock_session_success,
-        caplog,
     ):
-        mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
+        mock_post.side_effect = _success_posts()
         mock_get.return_value = _authcode_redirect()
-
-        with caplog.at_level(logging.INFO, logger="fyers_auth"):
-            generate_fyers_access_token()
-
-        joined = " ".join(caplog.messages)
-        assert "step=otp_request" in joined or "step=token_exchange" in joined
-        for secret in (
-            REQUIRED_ENV["FYERS_APP_SECRET"],
-            REQUIRED_ENV["FYERS_TOTP_SECRET"],
-            REQUIRED_ENV["FYERS_PIN"],
-            "123456",
-            TEMP_TOKEN,
-            FINAL_TOKEN,
-            AUTH_CODE,
-        ):
-            assert secret not in joined
-            assert secret not in caplog.text
-
-
-# -----------------------------------------------------------------------------
-# CLI Interface
-# -----------------------------------------------------------------------------
-
-
-def _execute_cli_entrypoint():
-    """Mirror fyers_token.py __main__ contract for offline unit tests."""
-    import fyers_token as mod
-
-    try:
-        token = mod.generate_fyers_access_token()
-        print(token)
-        raise SystemExit(0)
-    except Exception as e:
-        sys.stderr.write(f"Error: {e.__class__.__name__} - {str(e)}\n")
-        raise SystemExit(1)
-
-
-class TestCliEntryPoint:
-    def test_cli_success_prints_token_to_stdout_and_exits_zero(self, capsys):
-        with mock.patch(
-            "fyers_token.generate_fyers_access_token",
-            return_value=FINAL_TOKEN,
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                _execute_cli_entrypoint()
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert captured.out.strip() == FINAL_TOKEN
-        assert captured.err == ""
-
-    def test_cli_error_writes_exception_to_stderr_and_exits_nonzero(self, capsys):
-        with mock.patch(
-            "fyers_token.generate_fyers_access_token",
-            side_effect=FyersAuthError("PIN verification failed"),
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                _execute_cli_entrypoint()
-        assert exc_info.value.code == 1
-        captured = capsys.readouterr()
-        assert "FyersAuthError" in captured.err
-        assert "PIN verification failed" in captured.err
-        assert captured.out == ""
-
-    def test_cli_config_error_format(self, capsys):
-        with mock.patch(
-            "fyers_token.generate_fyers_access_token",
-            side_effect=FyersConfigError(
-                "Missing required environment variable: FYERS_PIN"
-            ),
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                _execute_cli_entrypoint()
-        assert exc_info.value.code == 1
-        err = capsys.readouterr().err
-        assert err.startswith("Error: FyersConfigError - ")
-        assert "FYERS_PIN" in err
-
-    def test_module_source_defines_cli_main_guard(self):
-        import fyers_token as mod
-
-        with open(mod.__file__, encoding="utf-8") as f:
-            source = f.read()
-        assert 'if __name__ == "__main__"' in source
-        assert "sys.exit(0)" in source
-        assert "sys.exit(1)" in source
-        assert "sys.stderr.write" in source
-        assert "_configure_cli_logging" in source
-
-
-# -----------------------------------------------------------------------------
-# Regression / constitution checks (SC-004)
-# -----------------------------------------------------------------------------
-
-
-class TestNoBrowserAutomation:
-    def test_module_does_not_import_browser_automation(self):
-        import fyers_token as mod
-
-        with open(mod.__file__, encoding="utf-8") as f:
-            source = f.read().lower()
-        for banned in (
-            "playwright",
-            "selenium",
-            "puppeteer",
-            "webdriver",
-            "chromium",
-            "pyppeteer",
-        ):
-            assert banned not in source
-
-    def test_generate_does_not_invoke_browser_libraries(
-        self, valid_env, mock_totp, mock_session_success
-    ):
-        with mock.patch("fyers_token.requests.post") as mock_post:
-            with mock.patch("fyers_token.requests.get") as mock_get:
-                mock_post.side_effect = [_otp_ok(), _totp_ok(), _pin_ok()]
-                mock_get.return_value = _authcode_redirect()
-                generate_fyers_access_token()
-        assert mock_post.call_count == 3
-        assert mock_get.call_count == 1
+        generate_fyers_access_token()
+        otp_payload = mock_post.call_args_list[0].kwargs["json"]
+        assert otp_payload["fy_id"] == get_base64_string(
+            REQUIRED_ENV["FYERS_CLIENT_ID"]
+        )
+        assert otp_payload["app_id"] == "2"

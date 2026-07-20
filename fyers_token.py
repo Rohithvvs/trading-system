@@ -1,9 +1,24 @@
-"""Fyers API v3 TOTP headless access-token generation (Sprint 2 / 007-fyers-totp-token).
+"""Fyers API v3 TOTP headless access-token generation.
 
-Standalone library + CLI module. Distinct from ``backend.app.models.fyers_token``
-(SQLAlchemy persistence model). Import as::
+Sprint 2 (007): pure API/TOTP login flow + CLI.
+Sprint 3 (008): automatic retry on *transient* failures (max 3 attempts,
+randomized 5–10s delay, fail-fast on permanent config/auth errors).
 
-    from fyers_token import generate_fyers_access_token
+**Import this generator (root module)**::
+
+    from fyers_token import generate_fyers_access_token, FyersConnectionError
+
+**ORM model (different module — do not confuse with this file)**::
+
+    from backend.app.models.fyers_token import FyersToken   # package path
+    # or: from app.models.fyers_token import FyersToken     # when cwd=backend
+
+This module only *generates* a token string. Persisting to ``fyers_tokens`` or
+scheduling daily runs is intentionally out of scope (downstream consumers).
+
+On exhausted retries, catch exception **types** (not exact message strings).
+The original step error is available as ``exc.__cause__`` and the message keeps
+the original text with a ``[after N attempts; maximum retries exhausted]`` suffix.
 
 Environment variables (credentials only — never hardcode secrets):
   - FYERS_CLIENT_ID   Fyers user id (e.g. YJ08718)
@@ -12,6 +27,7 @@ Environment variables (credentials only — never hardcode secrets):
   - FYERS_TOTP_SECRET Base32 TOTP secret
   - FYERS_PIN         4- or 6-digit login PIN
   - FYERS_REDIRECT_URI Optional OAuth redirect override
+  - FYERS_HTTP_TIMEOUT_SEC / FYERS_SDK_TIMEOUT_SEC / FYERS_RETRY_BUDGET_SEC
 """
 
 from __future__ import annotations
@@ -20,6 +36,7 @@ import base64
 import concurrent.futures
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -39,12 +56,58 @@ logger = logging.getLogger("fyers_auth")
 if not logger.handlers:
     logger.addHandler(logging.NullHandler())
 
+def _env_positive_float(name: str, default: float, *, minimum: float = 0.1) -> float:
+    """Load a positive finite float from the environment (safe defaults on bad input)."""
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return float(default)
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return float(default)
+    if value != value or value in (float("inf"), float("-inf")) or value < minimum:
+        return float(default)
+    return value
+
+
 # Finite bound for every external network hop (fail-fast, no indefinite hang).
-REQUEST_TIMEOUT_SEC = float(os.getenv("FYERS_HTTP_TIMEOUT_SEC", "10"))
-SDK_TIMEOUT_SEC = float(os.getenv("FYERS_SDK_TIMEOUT_SEC", "15"))
+REQUEST_TIMEOUT_SEC = _env_positive_float("FYERS_HTTP_TIMEOUT_SEC", 10.0)
+SDK_TIMEOUT_SEC = _env_positive_float("FYERS_SDK_TIMEOUT_SEC", 15.0)
+
+# Sprint 3 retry policy (FR-002 / FR-003 / SC-003).
+MAX_TOKEN_ATTEMPTS = 3
+RETRY_DELAY_MIN_SEC = 5.0
+RETRY_DELAY_MAX_SEC = 10.0
+# Wall-clock budget for a full generate call under persistent failure (SC-003).
+TOTAL_FAILURE_BUDGET_SEC = _env_positive_float("FYERS_RETRY_BUDGET_SEC", 35.0, minimum=1.0)
+# Cap inner TOTP window wait so it cannot alone exhaust the budget (H2 / M3).
+MAX_TOTP_WINDOW_SLEEP_SEC = _env_positive_float(
+    "FYERS_TOTP_WINDOW_SLEEP_CAP_SEC", 10.0, minimum=0.0
+)
 
 DEFAULT_REDIRECT_URI = (
     "https://trade.fyers.in/api-login/redirect-uri/index.html"
+)
+
+# Permanent auth failures → fail fast, never outer-retry (FR-006).
+# Stage-oriented markers only (not a bare "rejected" substring).
+_PERMANENT_AUTH_MARKERS: tuple[str, ...] = (
+    "PIN verification failed",
+    "OTP request failed",
+    "Invalid User ID",
+    "TOTP verification failed",
+    "Missing request_key",
+    "Missing temporary access_token",
+    "Authorization code request rejected",
+    "Redirect Location not found",
+    "auth_code parameter is missing",
+    "Token exchange failed",
+    "Token exchange returned an unexpected",
+    "Final access token was missing",
+    "Invalid JSON response",
+    "Fyers SDK SessionModel execution error",
+    "Invalid TOTP secret format",
+    "HTTP client error during",
 )
 
 _BROWSER_HEADERS = {
@@ -142,6 +205,60 @@ def _configure_cli_logging() -> None:
         )
         logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+
+def _is_permanent_auth_error(exc: FyersAuthError) -> bool:
+    """Return True when the auth error must not trigger outer retries (FR-006)."""
+    msg = str(exc)
+    return any(marker in msg for marker in _PERMANENT_AUTH_MARKERS)
+
+
+def _seconds_left(deadline: float) -> float:
+    return max(0.0, deadline - time.monotonic())
+
+
+def _sleep_capped(seconds: float, deadline: float) -> float:
+    """Sleep up to ``seconds`` without crossing the wall-clock deadline.
+
+    Returns the actual sleep duration used (0 if no time remains).
+    """
+    if seconds <= 0:
+        return 0.0
+    wait = min(float(seconds), _seconds_left(deadline))
+    if wait <= 0:
+        return 0.0
+    time.sleep(wait)
+    return wait
+
+
+def _raise_after_max_attempts(last_error: BaseException, attempts: int) -> None:
+    """Log final failure and raise with max-attempts context (FR-005 / FR-008).
+
+    Message keeps the *original* step error first so substring checks on the
+    underlying failure still work; appends ``[after N attempts; ...]``.
+    Original exception is also ``__cause__`` / ``original_error``.
+    """
+    logger.warning(
+        "step=token_generation attempt=%s outcome=transient_failure_final error=%s",
+        attempts,
+        _redact_sensitive(str(last_error), max_len=80),
+    )
+    # Original text first (callers matching "Timeout during ..." still succeed).
+    detail = (
+        f"{last_error} "
+        f"[after {attempts} attempts; maximum retries exhausted]"
+    )
+    if isinstance(last_error, FyersConnectionError):
+        err: Exception = FyersConnectionError(detail)
+    elif isinstance(last_error, FyersAuthError):
+        err = FyersAuthError(detail)
+    else:
+        err = FyersAuthError(detail)
+    # Programmatic metadata for consumers (stable; prefer over string parsing).
+    setattr(err, "attempts", attempts)
+    setattr(err, "max_attempts", MAX_TOKEN_ATTEMPTS)
+    setattr(err, "original_error", last_error)
+    raise err from last_error
 
 
 # -----------------------------------------------------------------------------
@@ -246,9 +363,14 @@ def _post_json(
             f"Timeout during {step} (limit={REQUEST_TIMEOUT_SEC}s): {e}"
         ) from e
     except requests.HTTPError as e:
-        status = getattr(getattr(e, "response", None), "status_code", "?")
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        # 5xx + 429 are transient (retry); other 4xx are permanent client/auth errors.
+        if status is not None and 400 <= int(status) < 500 and int(status) != 429:
+            raise FyersAuthError(
+                f"HTTP client error during {step} (status={status})"
+            ) from e
         raise FyersConnectionError(
-            f"HTTP error during {step} (status={status}): {e}"
+            f"HTTP error during {step} (status={status if status is not None else '?'}): {e}"
         ) from e
     except requests.RequestException as e:
         raise FyersConnectionError(
@@ -340,13 +462,22 @@ def generate_fyers_access_token() -> str:
       - FYERS_TOTP_SECRET
       - FYERS_PIN
 
+    Automatically retries the full login sequence up to ``MAX_TOKEN_ATTEMPTS``
+    times on *transient* failures (connection/timeouts/5xx), with a randomized
+    delay of 5.0–10.0 seconds between attempts. Permanent config/auth errors
+    fail immediately without delay.
+
+    Exhausted connection retries raise ``FyersConnectionError`` (with a
+    max-attempts message). Exhausted non-permanent auth errors raise
+    ``FyersAuthError``.
+
     Returns:
         str: The generated Fyers API v3 access token.
 
     Raises:
         FyersConfigError: If any required environment variable is missing.
-        FyersAuthError: If login, TOTP verification, or PIN verification fails.
-        FyersConnectionError: If API requests fail due to network/server errors.
+        FyersAuthError: Permanent auth failure, or non-permanent auth exhausted.
+        FyersConnectionError: Network/server failures after retries exhausted.
     """
     config = load_fyers_config()
     client_id = config["FYERS_CLIENT_ID"]
@@ -357,194 +488,261 @@ def generate_fyers_access_token() -> str:
     redirect_uri = config["FYERS_REDIRECT_URI"]
 
     headers = dict(_BROWSER_HEADERS)
+    last_error: BaseException | None = None
+    deadline = time.monotonic() + TOTAL_FAILURE_BUDGET_SEC
 
-    # Step 1: Send Login OTP Request
-    logger.info("step=otp_request outcome=start")
-    data_otp = _post_json(
-        "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2",
-        {
-            "fy_id": get_base64_string(client_id),
-            "app_id": "2",
-        },
-        headers,
-        step="OTP request",
-    )
-
-    if data_otp.get("s") != "ok":
-        raise FyersAuthError(
-            f"OTP request failed: {data_otp.get('message', 'Unknown error')}"
-        )
-
-    request_key_1 = data_otp.get("request_key")
-    if not request_key_1:
-        raise FyersAuthError("Missing request_key in OTP request response")
-
-    # Step 2: Generate and Verify TOTP
-    logger.info("step=totp_verify outcome=start")
-    try:
-        totp_generator = pyotp.TOTP(totp_secret)
-        totp_code = totp_generator.now()
-    except Exception as e:
-        raise FyersConfigError(f"Invalid TOTP secret format: {e}") from e
-
-    url_verify_totp = "https://api-t2.fyers.in/vagator/v2/verify_otp"
-    data_totp = _post_json(
-        url_verify_totp,
-        {"request_key": request_key_1, "otp": totp_code},
-        headers,
-        step="TOTP verification",
-    )
-
-    # FR-010: on failure, wait for next 30s window, regenerate TOTP, retry once.
-    if data_totp.get("s") != "ok":
-        fail_msg = data_totp.get("message", "Unknown error")
-        logger.warning(
-            "step=totp_verify outcome=retry message=%s",
-            _redact_sensitive(str(fail_msg), max_len=80),
-        )
-        time_remaining = 30 - (int(time.time()) % 30)
-        sleep_for = time_remaining + 1
-        logger.info(
-            "step=totp_verify outcome=sleep_next_window seconds=%s",
-            sleep_for,
-        )
-        time.sleep(sleep_for)
-
-        retry_code = totp_generator.now()
-        # New payload dict (avoid in-place mutation of prior request body).
-        data_totp = _post_json(
-            url_verify_totp,
-            {"request_key": request_key_1, "otp": retry_code},
-            headers,
-            step="TOTP retry verification",
-        )
-        if data_totp.get("s") != "ok":
+    for attempt in range(1, MAX_TOKEN_ATTEMPTS + 1):
+        # SC-003: do not start another attempt if the wall-clock budget is gone.
+        if attempt > 1 and _seconds_left(deadline) < 0.5:
+            if last_error is not None:
+                _raise_after_max_attempts(last_error, attempt - 1)
             raise FyersAuthError(
-                "TOTP verification failed after retry: "
-                f"{data_totp.get('message', 'Unknown error')}"
+                f"Token generation failed after {attempt - 1} attempts "
+                "(maximum retries exhausted): retry budget depleted"
             )
 
-    request_key_2 = data_totp.get("request_key")
-    if not request_key_2:
-        raise FyersAuthError(
-            "Missing request_key in TOTP verification response"
-        )
-
-    # Step 3: Verify PIN
-    logger.info("step=pin_verify outcome=start")
-    data_pin = _post_json(
-        "https://api-t2.fyers.in/vagator/v2/verify_pin_v2",
-        {
-            "request_key": request_key_2,
-            "identity_type": "pin",
-            "identifier": get_base64_string(pin),
-        },
-        headers,
-        step="PIN verification",
-    )
-
-    if data_pin.get("s") != "ok":
-        raise FyersAuthError(
-            f"PIN verification failed: {data_pin.get('message', 'Unknown error')}"
-        )
-
-    temp_token = (data_pin.get("data") or {}).get("access_token")
-    if not temp_token:
-        raise FyersAuthError(
-            "Missing temporary access_token in PIN verification response data"
-        )
-
-    # Step 4: Request Authorization Code
-    logger.info("step=authcode_request outcome=start")
-    url_authcode = "https://api-t1.fyers.in/api/v3/generate-authcode"
-    params_authcode = {
-        "client_id": app_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "state": "sample_state",
-    }
-    headers_authcode = {"Authorization": f"Bearer {temp_token}"}
-
-    res_authcode: requests.Response | None = None
-    try:
         try:
-            res_authcode = requests.get(
-                url_authcode,
-                params=params_authcode,
-                headers=headers_authcode,
-                allow_redirects=False,
-                timeout=REQUEST_TIMEOUT_SEC,
-            )
-        except requests.Timeout as e:
-            raise FyersConnectionError(
-                f"Timeout during authorization code request "
-                f"(limit={REQUEST_TIMEOUT_SEC}s): {e}"
-            ) from e
-        except requests.RequestException as e:
-            raise FyersConnectionError(
-                f"Connection failed during authorization code request: {e}"
-            ) from e
-
-        status = res_authcode.status_code
-        # 5xx → connection/server failure (fail-fast; M1).
-        if status >= 500:
-            raise FyersConnectionError(
-                f"HTTP server error during authorization code request "
-                f"(status={status})"
-            )
-        # 4xx without redirect is an auth problem.
-        if status >= 400 and "Location" not in res_authcode.headers:
-            raise FyersAuthError(
-                f"Authorization code request rejected (status={status})"
+            # Step 1: Send Login OTP Request
+            logger.info("step=otp_request attempt=%s outcome=start", attempt)
+            data_otp = _post_json(
+                "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2",
+                {
+                    "fy_id": get_base64_string(client_id),
+                    "app_id": "2",
+                },
+                headers,
+                step="OTP request",
             )
 
-        redirect_url = _extract_redirect_url(res_authcode)
-        if not redirect_url:
-            raise FyersAuthError(
-                f"Redirect Location not found (status={status}, "
-                f"{_safe_response_snippet(res_authcode)})"
-            )
+            if data_otp.get("s") != "ok":
+                raise FyersAuthError(
+                    f"OTP request failed: {data_otp.get('message', 'Unknown error')}"
+                )
 
-        parsed_url = urllib.parse.urlparse(redirect_url)
-        query_params = urllib.parse.parse_qs(parsed_url.query)
-        auth_code_list = query_params.get("auth_code")
-        if not auth_code_list:
-            # Do not include the full redirect URL (contains auth_code) — H3.
-            raise FyersAuthError(
-                "auth_code parameter is missing in redirect URL "
-                f"(path={parsed_url.path or '/'})"
-            )
-        auth_code = auth_code_list[0]
-    finally:
-        if res_authcode is not None:
+            request_key_1 = data_otp.get("request_key")
+            if not request_key_1:
+                raise FyersAuthError("Missing request_key in OTP request response")
+
+            # Step 2: Generate and Verify TOTP (fresh code every attempt — FR-007)
+            logger.info("step=totp_verify attempt=%s outcome=start", attempt)
             try:
-                res_authcode.close()
-            except Exception:
-                pass
+                totp_generator = pyotp.TOTP(totp_secret)
+                totp_code = totp_generator.now()
+            except Exception as e:
+                raise FyersConfigError(f"Invalid TOTP secret format: {e}") from e
 
-    # Step 5: Exchange Authorization Code for Final Access Token
-    logger.info("step=token_exchange outcome=start")
-    response = _exchange_auth_code(
-        app_id=app_id,
-        app_secret=app_secret,
-        redirect_uri=redirect_uri,
-        auth_code=auth_code,
-    )
+            url_verify_totp = "https://api-t2.fyers.in/vagator/v2/verify_otp"
+            data_totp = _post_json(
+                url_verify_totp,
+                {"request_key": request_key_1, "otp": totp_code},
+                headers,
+                step="TOTP verification",
+            )
 
-    if not isinstance(response, dict):
-        raise FyersAuthError("Token exchange returned an unexpected response type")
+            # Sprint 2 FR-010: one inner window-aligned TOTP retry (budget-capped).
+            if data_totp.get("s") != "ok":
+                fail_msg = data_totp.get("message", "Unknown error")
+                logger.warning(
+                    "step=totp_verify attempt=%s outcome=retry message=%s",
+                    attempt,
+                    _redact_sensitive(str(fail_msg), max_len=80),
+                )
+                time_remaining = 30 - (int(time.time()) % 30)
+                sleep_for = min(
+                    time_remaining + 1,
+                    MAX_TOTP_WINDOW_SLEEP_SEC,
+                    max(0.0, _seconds_left(deadline) - 0.5),
+                )
+                logger.info(
+                    "step=totp_verify attempt=%s outcome=sleep_next_window seconds=%.2f",
+                    attempt,
+                    sleep_for,
+                )
+                _sleep_capped(sleep_for, deadline)
 
-    if response.get("s") != "ok":
-        raise FyersAuthError(
-            f"Token exchange failed: {response.get('message', 'Unknown error')}"
+                retry_code = totp_generator.now()
+                data_totp = _post_json(
+                    url_verify_totp,
+                    {"request_key": request_key_1, "otp": retry_code},
+                    headers,
+                    step="TOTP retry verification",
+                )
+                if data_totp.get("s") != "ok":
+                    # Permanent credential/sync failure — do not outer-retry (H1).
+                    raise FyersAuthError(
+                        "TOTP verification failed after retry: "
+                        f"{data_totp.get('message', 'Unknown error')}"
+                    )
+
+            request_key_2 = data_totp.get("request_key")
+            if not request_key_2:
+                raise FyersAuthError(
+                    "Missing request_key in TOTP verification response"
+                )
+
+            # Step 3: Verify PIN
+            logger.info("step=pin_verify attempt=%s outcome=start", attempt)
+            data_pin = _post_json(
+                "https://api-t2.fyers.in/vagator/v2/verify_pin_v2",
+                {
+                    "request_key": request_key_2,
+                    "identity_type": "pin",
+                    "identifier": get_base64_string(pin),
+                },
+                headers,
+                step="PIN verification",
+            )
+
+            if data_pin.get("s") != "ok":
+                raise FyersAuthError(
+                    f"PIN verification failed: {data_pin.get('message', 'Unknown error')}"
+                )
+
+            temp_token = (data_pin.get("data") or {}).get("access_token")
+            if not temp_token:
+                raise FyersAuthError(
+                    "Missing temporary access_token in PIN verification response data"
+                )
+
+            # Step 4: Request Authorization Code
+            logger.info("step=authcode_request attempt=%s outcome=start", attempt)
+            url_authcode = "https://api-t1.fyers.in/api/v3/generate-authcode"
+            params_authcode = {
+                "client_id": app_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "state": "sample_state",
+            }
+            headers_authcode = {"Authorization": f"Bearer {temp_token}"}
+
+            res_authcode: requests.Response | None = None
+            try:
+                try:
+                    res_authcode = requests.get(
+                        url_authcode,
+                        params=params_authcode,
+                        headers=headers_authcode,
+                        allow_redirects=False,
+                        timeout=REQUEST_TIMEOUT_SEC,
+                    )
+                except requests.Timeout as e:
+                    raise FyersConnectionError(
+                        f"Timeout during authorization code request "
+                        f"(limit={REQUEST_TIMEOUT_SEC}s): {e}"
+                    ) from e
+                except requests.RequestException as e:
+                    raise FyersConnectionError(
+                        f"Connection failed during authorization code request: {e}"
+                    ) from e
+
+                status = res_authcode.status_code
+                # 5xx and 429 are transient (outer retry); other 4xx are permanent.
+                if status >= 500 or status == 429:
+                    raise FyersConnectionError(
+                        f"HTTP server error during authorization code request "
+                        f"(status={status})"
+                    )
+                if status >= 400 and "Location" not in res_authcode.headers:
+                    raise FyersAuthError(
+                        f"Authorization code request rejected (status={status})"
+                    )
+
+                redirect_url = _extract_redirect_url(res_authcode)
+                if not redirect_url:
+                    raise FyersAuthError(
+                        f"Redirect Location not found (status={status}, "
+                        f"{_safe_response_snippet(res_authcode)})"
+                    )
+
+                parsed_url = urllib.parse.urlparse(redirect_url)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                auth_code_list = query_params.get("auth_code")
+                if not auth_code_list:
+                    raise FyersAuthError(
+                        "auth_code parameter is missing in redirect URL "
+                        f"(path={parsed_url.path or '/'})"
+                    )
+                auth_code = auth_code_list[0]
+            finally:
+                if res_authcode is not None:
+                    try:
+                        res_authcode.close()
+                    except Exception:
+                        pass
+
+            # Step 5: Exchange Authorization Code for Final Access Token
+            logger.info("step=token_exchange attempt=%s outcome=start", attempt)
+            response = _exchange_auth_code(
+                app_id=app_id,
+                app_secret=app_secret,
+                redirect_uri=redirect_uri,
+                auth_code=auth_code,
+            )
+
+            if not isinstance(response, dict):
+                raise FyersAuthError(
+                    "Token exchange returned an unexpected response type"
+                )
+
+            if response.get("s") != "ok":
+                raise FyersAuthError(
+                    f"Token exchange failed: {response.get('message', 'Unknown error')}"
+                )
+
+            final_access_token = response.get("access_token")
+            if not final_access_token:
+                raise FyersAuthError("Final access token was missing in response")
+
+            logger.info("step=token_exchange attempt=%s outcome=success", attempt)
+            return final_access_token
+
+        except FyersConfigError:
+            # Permanent config error -> fail fast (FR-006)
+            raise
+        except FyersAuthError as e:
+            if _is_permanent_auth_error(e):
+                raise
+            last_error = e
+            if attempt >= MAX_TOKEN_ATTEMPTS:
+                _raise_after_max_attempts(last_error, attempt)
+        except FyersConnectionError as e:
+            last_error = e
+            if attempt >= MAX_TOKEN_ATTEMPTS:
+                _raise_after_max_attempts(last_error, attempt)
+
+        # Transient failure log & sleep delay (FR-008, FR-003); budget-capped (SC-003).
+        if last_error is None:
+            # Defensive: should be unreachable if try/except contract holds.
+            raise FyersAuthError(
+                f"Token generation failed after {attempt} attempts "
+                "(maximum retries exhausted): unknown transient failure"
+            )
+
+        logger.warning(
+            "step=token_generation attempt=%s outcome=transient_failure error=%s",
+            attempt,
+            _redact_sensitive(str(last_error), max_len=80),
         )
+        left = _seconds_left(deadline)
+        if left < RETRY_DELAY_MIN_SEC:
+            # Not enough budget for a full jitter delay + another attempt.
+            _raise_after_max_attempts(last_error, attempt)
 
-    final_access_token = response.get("access_token")
-    if not final_access_token:
-        raise FyersAuthError("Final access token was missing in response")
+        delay = random.uniform(RETRY_DELAY_MIN_SEC, RETRY_DELAY_MAX_SEC)
+        delay = min(delay, left)
+        logger.info(
+            "step=token_generation attempt=%s outcome=retry_scheduled delay=%.2fs",
+            attempt,
+            delay,
+        )
+        _sleep_capped(delay, deadline)
 
-    logger.info("step=token_exchange outcome=success")
-    return final_access_token
+    if last_error is not None:
+        _raise_after_max_attempts(last_error, MAX_TOKEN_ATTEMPTS)
+    raise FyersAuthError(
+        f"Token generation failed after {MAX_TOKEN_ATTEMPTS} attempts "
+        "(maximum retries exhausted)."
+    )
 
 
 # -----------------------------------------------------------------------------
