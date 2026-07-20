@@ -1,8 +1,46 @@
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
+from typing import Generator
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from backend.app.core.token_crypto import decrypt_secret
+from backend.app.db.session import get_db
+from backend.app.main import app
 from backend.app.models import FyersToken
+from backend.tests.conftest import TEST_DB_PATH
+
+
+@pytest.fixture()
+def client(db_session) -> Generator[TestClient, None, None]:
+    """Async get_db override on the same SQLite file as db_session (parity with test_settings)."""
+    db_path = Path(TEST_DB_PATH).resolve()
+    async_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    async_engine = create_async_engine(
+        async_url,
+        connect_args={"check_same_thread": False},
+    )
+    maker = async_sessionmaker(
+        async_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async def override_get_db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+    try:
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(async_engine.dispose())
+    except Exception:
+        pass
 
 
 @pytest.mark.integration
@@ -31,13 +69,15 @@ class TestTokenManagementAPI:
         assert "saved_at" in body
 
         # ── Database persistence assertions ──
+        db_session.expire_all()
         token_row = (
             db_session.query(FyersToken)
             .filter(FyersToken.id == 1)
             .one_or_none()
         )
         assert token_row is not None, "FyersToken row was not created in DB"
-        assert token_row.access_token == "mock_fyers_token_123"
+        # Tokens are encrypted at rest (enc:v1:...); compare decrypted value.
+        assert decrypt_secret(token_row.access_token) == "mock_fyers_token_123"
         assert token_row.status == "active"
         assert token_row.access_token_saved_at is not None
         assert token_row.last_error is None
