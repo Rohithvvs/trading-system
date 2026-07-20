@@ -3,13 +3,13 @@ import json
 
 import pytest
 
-from backend.app.models.system_log import SystemLog
-from backend.app.services import logger_service as logger_module
 from backend.app.services.logger_service import LoggingService
 
 
 @pytest.fixture()
 def isolated_logger(tmp_path):
+    # LoggingService is a process singleton — reset so each test is isolated.
+    LoggingService._instance = None
     service = LoggingService()
     service._queue = asyncio.Queue(maxsize=10_000)
     service._worker_task = None
@@ -18,13 +18,17 @@ def isolated_logger(tmp_path):
     yield service
     if service._worker_task and not service._worker_task.done():
         service._worker_task.cancel()
-    service._queue = asyncio.Queue(maxsize=10_000)
-    service._worker_task = None
-    service._shutting_down = False
+    LoggingService._instance = None
 
 
 @pytest.mark.asyncio
-async def test_logger_masks_secrets_before_db_persist(isolated_logger, db_session):
+async def test_logger_masks_secrets_before_db_persist(isolated_logger, monkeypatch):
+    captured: list[dict] = []
+
+    async def capture_persist(entries):
+        captured.extend(entries)
+
+    monkeypatch.setattr(isolated_logger, "_async_persist", capture_persist)
     isolated_logger.log(
         level="ERROR",
         source="API",
@@ -43,15 +47,9 @@ async def test_logger_masks_secrets_before_db_persist(isolated_logger, db_sessio
 
     await isolated_logger.flush_now()
 
-    log = db_session.query(SystemLog).filter(SystemLog.module == "unit_masking").one()
-    serialized = json.dumps(
-        {
-            "message": log.message,
-            "traceback": log.traceback,
-            "structured_data": log.structured_data,
-        },
-        default=str,
-    )
+    assert len(captured) == 1
+    entry = captured[0]
+    serialized = json.dumps(entry, default=str)
 
     assert serialized.count("***MASKED***") >= 7
     assert "tok123" not in serialized
@@ -69,7 +67,7 @@ def test_queue_full_writes_second_log_to_fallback_jsonl(isolated_logger):
     isolated_logger.log(level="INFO", source="SYSTEM", module="oom_first", message="queued")
     isolated_logger.log(level="ERROR", source="SYSTEM", module="oom_second", message="fallback password=hidden")
 
-    assert isolated_logger._queue.qsize() == 1
+    assert isolated_logger.queue.qsize() == 1
     assert isolated_logger._fallback_path.exists()
 
     fallback_rows = [
@@ -84,7 +82,14 @@ def test_queue_full_writes_second_log_to_fallback_jsonl(isolated_logger):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_drains_remaining_queue_to_database(isolated_logger, db_session):
+async def test_shutdown_drains_remaining_queue_to_database(isolated_logger, monkeypatch):
+    captured: list[dict] = []
+
+    async def capture_persist(entries):
+        captured.extend(entries)
+
+    monkeypatch.setattr(isolated_logger, "_async_persist", capture_persist)
+
     for index in range(5):
         isolated_logger.log(
             level="INFO",
@@ -97,22 +102,17 @@ async def test_shutdown_drains_remaining_queue_to_database(isolated_logger, db_s
 
     await isolated_logger.shutdown()
 
-    persisted = (
-        db_session.query(SystemLog)
-        .filter(SystemLog.module == "lifespan_drain")
-        .order_by(SystemLog.message)
-        .all()
-    )
-    assert len(persisted) == 5
+    assert len(captured) == 5
+    assert all(row["module"] == "lifespan_drain" for row in captured)
     assert isolated_logger.queue.empty()
 
 
 @pytest.mark.asyncio
 async def test_db_failure_during_flush_falls_back_to_jsonl(isolated_logger, monkeypatch):
-    def fail_persist(entries):
+    async def fail_persist(entries):
         raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(isolated_logger, "_sync_persist", fail_persist)
+    monkeypatch.setattr(isolated_logger, "_async_persist", fail_persist)
     isolated_logger.log(level="CRITICAL", source="SYSTEM", module="db_down", message="panic")
 
     await isolated_logger.flush_now()

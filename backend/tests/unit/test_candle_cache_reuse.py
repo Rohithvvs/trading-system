@@ -1,29 +1,23 @@
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pandas as pd
 import pytest
 
-from backend.app.schemas import AnalysisMode
-from backend.app.services import candle_store
+from backend.app.schemas import AnalysisMode, OHLCVPoint
 from backend.app.services.fyers_service import FyersService
 
 
-@pytest.mark.unit
-def test_daily_cache_reused_when_latest_completed_session_is_present(monkeypatch, tmp_path):
-    monkeypatch.setattr(candle_store, "DB_PATH", str(tmp_path / "candle_cache.db"))
-    candle_store.init_db()
-
-    end_date = datetime(2026, 5, 15, tzinfo=timezone.utc)
-    rows = []
-    for offset in range(260):
-        day = end_date - timedelta(days=259 - offset)
-        rows.append(
+def _frame(rows: int, end_date: datetime) -> pd.DataFrame:
+    data = []
+    for offset in range(rows):
+        day = end_date - timedelta(days=rows - 1 - offset)
+        data.append(
             {
-                "date": day.date().isoformat(),
+                "date": day,
                 "open": 100 + offset,
                 "high": 101 + offset,
                 "low": 99 + offset,
@@ -31,78 +25,82 @@ def test_daily_cache_reused_when_latest_completed_session_is_present(monkeypatch
                 "volume": 100000 + offset,
             }
         )
-    candle_store.store_candles("INFY", pd.DataFrame(rows))
+    return pd.DataFrame(data)
 
-    with sqlite3.connect(candle_store.DB_PATH) as conn:
-        conn.execute("UPDATE candles SET fetched_at = ?", ("2026-05-10T00:00:00+00:00",))
-        conn.commit()
 
-    monkeypatch.setattr(
-        candle_store,
-        "get_latest_completed_market_session_date",
-        lambda reference_date=None: "2026-05-15",
-    )
-    fetch_calls: list[tuple] = []
+@pytest.mark.asyncio
+async def test_daily_cache_reused_when_latest_completed_session_is_present(monkeypatch):
+    end_date = datetime(2026, 5, 15, tzinfo=timezone.utc)
     service = FyersService()
+
     monkeypatch.setattr(
-        service,
-        "_fetch_fyers_candles",
-        lambda *args, **kwargs: fetch_calls.append((args, kwargs)) or [],
+        "backend.app.services.candle_store.is_cache_fresh",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.has_completed_daily_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.get_candle_count",
+        AsyncMock(return_value=260),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.load_candles",
+        AsyncMock(return_value=_frame(260, end_date)),
     )
 
-    candles = service.get_candles_cached("INFY-EQ", AnalysisMode.swing, "1d", 260)
+    fetch_calls: list[tuple] = []
+
+    async def fake_fetch(*args, **kwargs):
+        fetch_calls.append((args, kwargs))
+        return []
+
+    monkeypatch.setattr(service, "fetch_ohlcv", fake_fetch)
+    monkeypatch.setattr(service, "_fetch_fyers_candles", lambda *a, **k: fetch_calls.append((a, k)) or [])
+
+    candles = await service.get_candles_cached("INFY-EQ", AnalysisMode.swing, "1d", 260)
 
     assert len(candles) == 260
     assert fetch_calls == []
     assert service.get_ohlcv_source("INFY-EQ", AnalysisMode.swing, "1d") == "CANDLE_CACHE_DB"
 
 
-@pytest.mark.unit
-def test_incomplete_daily_cache_triggers_fallback(monkeypatch, tmp_path):
-    # Setup a small/incomplete DB cache (fewer than required points)
-    monkeypatch.setattr(candle_store, "DB_PATH", str(tmp_path / "candle_cache.db"))
-    candle_store.init_db()
-
+@pytest.mark.asyncio
+async def test_incomplete_daily_cache_triggers_fallback(monkeypatch):
     end_date = datetime(2026, 5, 15, tzinfo=timezone.utc)
-    # Create fewer rows than the required 260 points
-    rows = []
-    for offset in range(200):
-        day = end_date - timedelta(days=199 - offset)
-        rows.append(
-            {
-                "date": day.date().isoformat(),
-                "open": 100 + offset,
-                "high": 101 + offset,
-                "low": 99 + offset,
-                "close": 100 + offset,
-                "volume": 100000 + offset,
-            }
-        )
-    candle_store.store_candles("INFY", pd.DataFrame(rows))
-
-    # Mark fetched_at older so freshness-check alone won't block reuse;
-    # monkeypatch latest completed session to force the has_completed_daily_session path
-    with sqlite3.connect(candle_store.DB_PATH) as conn:
-        conn.execute("UPDATE candles SET fetched_at = ?", ("2026-05-10T00:00:00+00:00",))
-        conn.commit()
+    service = FyersService()
 
     monkeypatch.setattr(
-        candle_store,
-        "get_latest_completed_market_session_date",
-        lambda reference_date=None: "2026-05-15",
+        "backend.app.services.candle_store.is_cache_fresh",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.has_completed_daily_session",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.get_candle_count",
+        AsyncMock(return_value=200),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.get_last_stored_date",
+        AsyncMock(return_value="2026-05-10"),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.candle_store.store_candles",
+        AsyncMock(return_value=None),
     )
 
     fetch_calls: list[tuple] = []
-    service = FyersService()
 
-    # Simulate FYERS fetch returning a complete set of candles (260 points)
-    def fake_fetch(*args, **kwargs):
+    def fake_fetch_fyers(*args, **kwargs):
         fetch_calls.append((args, kwargs))
-        fetched = []
+        out: list[OHLCVPoint] = []
         for i in range(260):
             day = end_date - timedelta(days=259 - i)
-            fetched.append(
-                SimpleNamespace(
+            out.append(
+                OHLCVPoint(
                     timestamp=day,
                     open=100 + i,
                     high=101 + i,
@@ -111,13 +109,12 @@ def test_incomplete_daily_cache_triggers_fallback(monkeypatch, tmp_path):
                     volume=100000 + i,
                 )
             )
-        return fetched
+        return out
 
-    monkeypatch.setattr(service, "_fetch_fyers_candles", fake_fetch)
+    monkeypatch.setattr(service, "_fetch_fyers_candles", fake_fetch_fyers)
 
-    candles = service.get_candles_cached("INFY-EQ", AnalysisMode.swing, "1d", 260)
+    candles = await service.get_candles_cached("INFY-EQ", AnalysisMode.swing, "1d", 260)
 
-    # Verify fallback was used and FYERS fetch invoked
     assert len(candles) == 260
     assert fetch_calls != []
     assert service.get_ohlcv_source("INFY-EQ", AnalysisMode.swing, "1d") == "FYERS_PRIMARY"
