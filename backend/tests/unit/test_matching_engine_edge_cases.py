@@ -1,6 +1,9 @@
+import uuid
 
 from backend.app.models.paper_trading import PaperOrder, PaperPosition
 from backend.app.services.paper_trading_service import PaperTradingService
+
+_TEST_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000002")
 
 
 def test_gap_down_stop_loss_execution(db_session):
@@ -9,7 +12,7 @@ def test_gap_down_stop_loss_execution(db_session):
     that gaps down to 90. Assert that the matching engine executes the fill
     exactly at the gap price (90), not the ideal trigger price (100).
     """
-    service = PaperTradingService(db_session)
+    service = PaperTradingService(db_session, user_id=_TEST_USER_ID)
     
     # Setup initial account and position
     account = service._get_or_create_account()
@@ -73,7 +76,7 @@ def test_partial_fill_scaling(db_session):
     that the database updates the position size correctly without duplicating
     the initial invested capital tracking rows.
     """
-    service = PaperTradingService(db_session)
+    service = PaperTradingService(db_session, user_id=_TEST_USER_ID)
     account = service._get_or_create_account()
     
     # Create an open position for 100 shares

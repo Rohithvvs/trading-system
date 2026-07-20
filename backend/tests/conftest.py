@@ -31,7 +31,22 @@ os.environ.setdefault("FYERS_ACCESS_TOKEN", "")
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine
 import sqlalchemy.pool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID  # noqa: E402
+
+# SQLite cannot render PostgreSQL JSONB/UUID natively. Register compilers early so
+# fixture create_all() works without relying on app lifespan hooks.
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(type_, compiler, **kw):  # noqa: ARG001
+    return "JSON"
+
+
+@compiles(PG_UUID, "sqlite")
+def _compile_uuid_sqlite(type_, compiler, **kw):  # noqa: ARG001
+    return "CHAR(36)"
+
 
 # Support both `pytest` from repo root and from backend/ with PYTHONPATH=.
 try:
@@ -94,6 +109,26 @@ def db_session(test_engine) -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+@pytest.fixture()
+async def async_db_session():
+    """Async SQLite session for MarketEngineService paths that await AsyncSession APIs.
+
+    In-memory only. Engine helpers that open a separate sync ``SessionLocal`` for
+    notifications are stubbed in market-engine tests to avoid cross-engine locks.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
+        yield session
+        await session.rollback()
+    await engine.dispose()
 
 
 @pytest.fixture()

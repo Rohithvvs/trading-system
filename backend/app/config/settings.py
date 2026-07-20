@@ -153,6 +153,16 @@ class Settings(BaseSettings):
     feat008_composite_uses_realistic: bool = True
     feat008_skip_on_missing_next_bar: bool = True
 
+    # FEAT-024A Spec 1 (004-execution-costs-config): configuration contract only.
+    # These fields are loaded from env (COSTS_ENABLED, SLIPPAGE_BPS, COMMISSION_FIXED,
+    # COMMISSION_PERCENT) but are NON-BINDING until later FEAT-024A specs wire consumers.
+    # Do not treat costs_enabled=True as evidence that costs are applied at runtime.
+    # Separate from FEAT-008 / backtest_service cost profiles (slippage_rate, brokerage_rate).
+    costs_enabled: bool = True
+    slippage_bps: float = 5.0
+    commission_fixed: float = 0.50
+    commission_percent: float = 0.001
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
         env_file_encoding='utf-8',

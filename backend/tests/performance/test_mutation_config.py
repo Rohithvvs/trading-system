@@ -3,29 +3,32 @@ import pytest
 from pydantic import ValidationError
 from backend.app.config.settings import Settings
 
-def test_settings_mutation_validates_env():
+
+def test_settings_mutation_validates_env(monkeypatch: pytest.MonkeyPatch):
     """
     Programmatically mutate environment variables.
-    Assert the backend safely rejects impossible variables via Pydantic Settings 
+    Assert the backend safely rejects impossible variables via Pydantic Settings
     and validates the fallback paths.
     """
-    # Test fallback path for database_url normalizer
-    os.environ["DATABASE_URL"] = "custom_db.sqlite3"
-    s1 = Settings()
-    assert s1.database_url == "sqlite:///./custom_db.sqlite3"
-    
-    os.environ["DATABASE_URL"] = ""
-    s2 = Settings()
-    assert s2.database_url == "sqlite:///./trading_system.db"
-    
-    # Test rejecting impossible variables
-    # Since we use pydantic BaseSettings, passing invalid types throws ValidationError
-    os.environ["APP_PORT"] = "not_an_integer"
+    # Bare sqlite path is accepted as-is (no automatic sqlite:/// prefixing).
+    monkeypatch.setenv("DATABASE_URL", "custom_db.sqlite3")
+    s1 = Settings(_env_file=None)
+    assert s1.database_url == "custom_db.sqlite3"
+
+    # Empty DATABASE_URL falls back to the Settings validator default.
+    monkeypatch.setenv("DATABASE_URL", "")
+    s2 = Settings(_env_file=None)
+    assert s2.database_url == (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
+    )
+
+    # Reject impossible typed variables.
+    monkeypatch.setenv("APP_PORT", "not_an_integer")
     with pytest.raises(ValidationError) as exc:
-        Settings()
-    
+        Settings(_env_file=None)
+
     assert "Input should be a valid integer" in str(exc.value)
 
-    # Clean up
-    del os.environ["APP_PORT"]
-    del os.environ["DATABASE_URL"]
+    # Cleanup for process-level safety (monkeypatch also restores after test).
+    monkeypatch.delenv("APP_PORT", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
