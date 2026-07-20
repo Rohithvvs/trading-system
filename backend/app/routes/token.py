@@ -16,8 +16,15 @@ logger = logging.getLogger("app.token")
 @router.post("/save-access-token")
 async def save_access_token_route(payload: FyersTokenCreate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     token = payload.access_token
-    if not token or not token.strip():
+    if not token or not str(token).strip():
         raise HTTPException(status_code=400, detail="access_token cannot be empty")
+    token = str(token).strip()
+    # Local sanity check (parity with settings token validate path)
+    if len(token) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Access token is empty or too short.",
+        )
 
     result = await token_service.save_access_token(token, db)
 
