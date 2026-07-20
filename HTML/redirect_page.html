@@ -1,0 +1,152 @@
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+
+  <title>API - Sample Redirect URI</title>
+  <meta content="" name="descriptison">
+  <meta content="" name="keywords">
+
+  <!-- Favicons -->
+  <link href="assets/img/logo.png" rel="icon">
+  
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,600,600i,700,700i|Raleway:300,300i,400,400i,500,500i,600,600i,700,700i|Poppins:300,300i,400,400i,500,500i,600,600i,700,700i" rel="stylesheet">
+
+  <!-- Vendor CSS Files -->
+  <link href="assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link href="assets/vendor/icofont/icofont.min.css" rel="stylesheet">
+  <link href="assets/vendor/boxicons/css/boxicons.min.css" rel="stylesheet">
+  <link href="assets/vendor/owl.carousel/assets/owl.carousel.min.css" rel="stylesheet">
+  <link href="assets/vendor/aos/aos.css" rel="stylesheet">
+
+  <!-- Template Main CSS File -->
+  <link href="assets/css/style.css" rel="stylesheet">
+ 
+   <script>
+    var nameURI = window.location.href;
+    var urlParam = function(nameURI) {
+        var results = new RegExp('[\?&]' + nameURI + '=([^&#]*)').exec(window.location.href);
+        if (results == null) {
+          return null;
+        }
+        else {
+          return decodeURI(results[1]) || 0;
+        }
+    }
+
+    function getURLValues() {
+     // var params = new URL(window.location.href).searchParams;
+      // var paramsPlace = window.location.href;
+      // alert(paramsPlace);
+      // var svalue = params.get('s'); 
+      // var codeValue = params.get('code');
+      // var auth_value = params.get('auth_code');
+     
+      var a = urlParam('s');
+      var b = urlParam('code');
+      var c = urlParam('auth_code');
+
+      // alert(a);
+      // alert(b);
+      // alert(c);
+
+      var svalue = a;
+      var codeValue = b;
+      var auth_value = c;
+
+      if(svalue == "ok"){
+        document.getElementById("s_var_value").style.color = "blue";
+        document.getElementById("s_var_value").innerHTML = svalue;
+        document.getElementById("s_status_code").style.color = "blue";
+        document.getElementById("s_status_code").innerHTML = codeValue;
+      }
+      else if(svalue == "error"){
+        document.getElementById("s_var_value").style.color = "red";
+        document.getElementById("s_var_value").innerHTML = svalue;
+        document.getElementById("s_status_code").style.color = "red";
+        document.getElementById("s_status_code").innerHTML = codeValue;
+      }
+      else {
+        document.getElementById("s_var_value").innerHTML = svalue;
+        document.getElementById("s_status_code").innerHTML = codeValue;
+      }
+      
+
+     // document.getElementById("s_status_code").innerHTML = codeValue;
+      document.getElementById("s_auth_code").style.color ="blue";
+      document.getElementById("s_auth_code").style.fontSize = "12px";
+      document.getElementById("s_auth_code").innerHTML = auth_value;
+      make_copy_button(document.getElementById('s_auth_code'));
+    }
+
+
+    function selectElementContents(el) {
+            // Copy textarea, pre, div, etc.
+            if (document.body.createTextRange) {
+                // IE
+                var textRange = document.body.createTextRange();
+                textRange.moveToElementText(el);
+                textRange.select();
+                textRange.execCommand("Copy");
+            } 
+            else if (window.getSelection && document.createRange) {
+                // Non-Internet Explorer
+                var range = document.createRange();
+                range.selectNodeContents(el);
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+                try {
+                    var successful = document.execCommand('copy');
+                    var msg = successful ? 'successful' : 'unsuccessful';
+                    console.log('Copy command was ' + msg);
+                }
+                catch (err) {
+                    console.log('Oops, unable to copy');
+                }
+            }
+    } // end function selectElementContents(el)
+
+    function make_copy_button(el) {
+        var copy_btn = document.createElement('input');
+        
+        copy_btn.type = "button";
+        copy_btn.style.border = "none";
+        copy_btn.style.borderRadius = "5px";
+        el.parentNode.insertBefore(copy_btn, el.nextSibling);
+        copy_btn.onclick = function() {
+            selectElementContents(el);
+            document.getElementById("auth_copy").style.display = "block"
+            document.getElementById("auth_copy").style.color = "blue"
+            document.getElementById("auth_copy").innerHTML = "Auth code Copied Successfully";
+            setTimeout(function(){ 
+              document.getElementById("auth_copy").style.color = "blue"
+              document.getElementById("auth_copy").style.display = "none"
+            }, 5000);
+        };
+
+        if (document.queryCommandSupported("copy") || parseInt(navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./)[2]) >= 42) {
+            copy_btn.value = "Copy";
+        }
+        else {
+            copy_btn.value = "Select All (then press Ctrl + C to Copy)";
+        }
+    }
+
+   
+  </script>
+  <style>
+     p {
+                width: 100%; 
+                border: 0px solid #000000;
+             }
+             p.c {
+                 word-break: break-all;
+             }
+             th,td{
+               width: 50%;
+               border: none;
+               text-align: left;
+             }
+  </style>
+</head>

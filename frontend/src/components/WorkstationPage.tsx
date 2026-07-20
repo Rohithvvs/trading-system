@@ -16,6 +16,7 @@ import {
   getTokenStatus,
 } from "../api";
 import { getCached, CACHE_KEYS } from "../utils/appCache";
+import { isFyersTokenExpired, isFyersTokenUsable } from "../utils/tokenStatus";
 import { MetricCardSkeleton } from "./Skeleton";
 
 type Props = {
@@ -110,19 +111,24 @@ export function WorkstationPage({ onLoadSavedScan, onNavigate }: Props) {
   const totalMins = istTime.getHours() * 60 + istTime.getMinutes();
   const isEligible = totalMins >= 555 && totalMins <= 1320;
 
-  const isTokenValid = tokenStatus?.status === "active";
+  const isTokenValid = isFyersTokenUsable(tokenStatus);
+  const isTokenExpired = isFyersTokenExpired(tokenStatus);
+  const tokenStatusKey = String(tokenStatus?.status || "").toLowerCase();
   const isSchedulerRunning = health?.services?.find((s: any) => s.name === "scheduler")?.status === "ok";
   const isDbConnected = health?.services?.find((s: any) => s.name === "database")?.status === "ok";
 
   let scannerState: "READY" | "PAUSED" | "BLOCKED" = "READY";
-  if (!isTokenValid) scannerState = "BLOCKED";
+  if (!isTokenValid || isTokenExpired) scannerState = "BLOCKED";
   else if (!isEligible) scannerState = "PAUSED";
 
   let autoScannerState = "🟢 Enabled";
   let autoScannerReason = "";
-  if (!isTokenValid) {
+  if (!isTokenValid || isTokenExpired) {
     autoScannerState = "🔴 Token Expired";
-    autoScannerReason = "Please update FYERS token.";
+    autoScannerReason =
+      tokenStatusKey === "failed" && !tokenStatus?.access_token_active
+        ? "Token automation failed. Please update FYERS token."
+        : "Please update FYERS token.";
   } else if (!isSchedulerRunning) {
     autoScannerState = "🔴 Scheduler Offline";
     autoScannerReason = "Backend scheduler is down.";

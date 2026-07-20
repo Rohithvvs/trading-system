@@ -78,7 +78,7 @@ class TestTokenManagementAPI:
         assert token_row is not None, "FyersToken row was not created in DB"
         # Tokens are encrypted at rest (enc:v1:...); compare decrypted value.
         assert decrypt_secret(token_row.access_token) == "mock_fyers_token_123"
-        assert token_row.status == "active"
+        assert token_row.status == "Success"
         assert token_row.access_token_saved_at is not None
         assert token_row.last_error is None
 

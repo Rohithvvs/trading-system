@@ -118,5 +118,35 @@ Shadow observability:
 - Registered audit actions: `shadow.execution.start`, `shadow.execution.complete`, `shadow.discrepancy.detected` (see `backend/app/governance/audit.py`)
 
 
+## Fyers Access Token Automation & Database Storage (Sprint 4)
+
+Sprint 4 integrates the headless Fyers login token automation utility with database storage and monitoring observability:
+
+- **Token Generation & Retries**: Headless login flow using pure API + TOTP (`generate_fyers_access_token()`) automatically retries up to 3 times on transient errors, using randomized backoff delays (5.0s to 10.0s).
+- **Database Persistence**: The generated access token is symmetrically Fernet-encrypted and persisted to the system-wide singleton row (`id=1`) in the `fyers_tokens` table in **one atomic transaction** (token + monitoring fields + history).
+- **Monitoring Observability**: Every run updates the monitoring columns on `FyersToken`:
+  - `status` (unified): `"Success"` on any successful token save (UI, OAuth, broker mirror, or automation), `"Failed"` on automation failure, `"inactive"` when deactivated. Legacy DB rows with `"active"` are still treated as connected.
+  - `last_error`: Exception message (`str(exc)`, truncated) on failure; cleared to `None` on success.
+  - `access_token_saved_at`: Update timestamp (UTC).
+  - History note for automation: `Automated headless token generation`.
+- **Status API extras** (`GET /api/token/status`):
+  - `connection_status`: normalized `Connected` / `Expiring Soon` / `Expired` / `Disconnected` (works for both `active` and `Success`/`Failed`).
+  - `automation_metrics`: in-process counters (`success_total`, `failure_total`, last outcome/latency).
+- **CLI Runner** (replaces the old hardcoded SQLite `fyers_auth` injector — that path is retired):
+  ```bash
+  python update_token.py
+  ```
+  Exit `0` on success (prints masked token preview only); exit `1` on failure after recording `Failed` when the DB is reachable.
+  Requires `DATABASE_URL` and Fyers credentials via environment / settings (never hardcode tokens).
+- **Optional timeouts** (env):
+  - `FYERS_TOKEN_JOB_TIMEOUT_SEC` (default `180`) — max wall time for generation thread.
+  - `FYERS_TOKEN_DB_WRITE_TIMEOUT_SEC` (default `30`) — max wall time for DB commit.
+- **Test Suite**:
+  ```bash
+  pytest tests/test_token_persistence.py
+  ```
+
+
+
 
 

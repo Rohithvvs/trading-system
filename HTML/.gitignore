@@ -1,0 +1,4 @@
+# Playwright persistent profile (cookies / captcha trust) — do not commit
+fyers_pw_profile/
+playwright_*.png
+playwright_*.txt

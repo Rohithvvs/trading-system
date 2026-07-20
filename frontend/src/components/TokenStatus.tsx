@@ -15,6 +15,7 @@ import { getCached, CACHE_KEYS } from "../utils/appCache";
 import { TableSkeleton } from "./Skeleton";
 import { Badge } from "../design-system/components/Badge";
 import { Button } from "../design-system/components/Button";
+import { isFyersTokenUsable } from "../utils/tokenStatus";
 
 type Status = {
   access_token_active: boolean;
@@ -23,8 +24,18 @@ type Status = {
   expires_at?: string | null;
   expires_in_seconds?: number | null;
   status: string | null;
+  /** Normalized by backend: Connected | Expired | Expiring Soon | Disconnected */
+  connection_status?: string | null;
   last_error: string | null;
   token_masked?: string | null;
+  automation_metrics?: {
+    success_total?: number;
+    failure_total?: number;
+    last_outcome?: string | null;
+    last_elapsed_ms?: number | null;
+    last_error_type?: string | null;
+    last_at?: string | null;
+  } | null;
 };
 
 type BrokerMeta = {
@@ -347,18 +358,40 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
   const totalMins = istTime.getHours() * 60 + istTime.getMinutes();
   const isEligible = totalMins >= 555 && totalMins <= 1320;
 
+  // Lifecycle: UI save uses "active"; automation (Sprint 4) uses "Success"/"Failed".
+  // Prefer backend-normalized connection_status; fall back for older API responses.
+  const hasUsableToken = isFyersTokenUsable(status);
+  const statusKey = (status?.status || "").toLowerCase();
   const connectionLabel =
     brokerMeta?.connection_status ||
-    (status?.status === "active" && (status?.expires_in_seconds ?? 0) > 0
+    status?.connection_status ||
+    (hasUsableToken && (status?.expires_in_seconds ?? 0) > 0
       ? "Connected"
-      : status?.status === "active"
+      : hasUsableToken
         ? "Expired"
         : "Disconnected");
 
   const expiresInSeconds = status?.expires_in_seconds;
   const tokenMask =
-    brokerMeta?.token_masked || status?.token_masked || (status?.access_token_active ? "xxxxxxxxxxxx" : null);
-  const hasExisting = Boolean(brokerMeta?.exists || status?.access_token_active);
+    brokerMeta?.token_masked || status?.token_masked || (hasUsableToken ? "xxxxxxxxxxxx" : null);
+  const hasExisting = Boolean(brokerMeta?.exists || hasUsableToken);
+  const tokenStatusLabel = (() => {
+    const raw = status?.status || (hasExisting ? "active" : "");
+    const k = raw.toLowerCase();
+    // Unified monitoring status (Sprint 4). Failed = last job attempt failed, not "feature broken".
+    if (k === "success") return "Success";
+    if (k === "failed") {
+      return hasUsableToken
+        ? "Last job failed (prior token still usable)"
+        : "Last job failed (no usable token)";
+    }
+    if (k === "active") return "Success"; // legacy synonym
+    if (k === "inactive") return "Inactive";
+    if (k === "no_token" || !raw) return hasExisting ? "Success" : "—";
+    return raw;
+  })();
+  const showJobFailureWarning =
+    statusKey === "failed" && Boolean(status?.last_error);
 
   function InfoRow({ label, value, urgent }: { label: string; value: React.ReactNode; urgent?: boolean }) {
     return (
@@ -400,6 +433,17 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
       {success && (
         <AlertCard type="success" message={success} testId="token-success" />
       )}
+      {showJobFailureWarning && (
+        <AlertCard
+          type="warning"
+          message={
+            hasUsableToken
+              ? `Automation is working, but the last run failed. Previous token is still available for trading. Reason: ${status?.last_error}`
+              : `Automation is working, but the last run failed and no usable token is stored. Reason: ${status?.last_error}`
+          }
+          testId="token-job-failure-warning"
+        />
+      )}
 
       {/* Main content: two columns on desktop */}
       <div className="token-mgmt__columns">
@@ -420,8 +464,8 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
             <InfoRow
               label="Token Status"
               value={
-                <span className="token-mgmt__mono">
-                  {status?.status || (hasExisting ? "Active" : "—")}
+                <span className="token-mgmt__mono" data-testid="token-status-value">
+                  {tokenStatusLabel}
                 </span>
               }
             />
@@ -745,8 +789,8 @@ function formatDate(dateStr: string): string {
 
 function statusTone(s: string | null | undefined): "positive" | "neutral" | "warning" | "negative" {
   const v = (s || "").toLowerCase();
-  if (v === "active" || v === "connected" || v === "validated") return "positive";
-  if (v === "expiring" || v === "expiring soon") return "warning";
-  if (v === "expired" || v === "invalid" || v === "error") return "negative";
+  if (v === "active" || v === "connected" || v === "validated" || v === "success") return "positive";
+  if (v === "expiring" || v === "expiring soon" || v === "failed") return "warning";
+  if (v === "expired" || v === "invalid" || v === "error" || v === "inactive") return "negative";
   return "neutral";
 }

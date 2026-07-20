@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta http-equiv="cache-control" content="max-age=0" />
+    <meta http-equiv="cache-control" content="no-cache" />
+    <meta http-equiv="expires" content="0" />
+    <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <meta http-equiv="pragma" content="no-cache" />
+    <title>FYERS - Born to Trade</title>
+    <meta name="title" content="Login to FYERS â Access Your Trading & Demat Account" />
+    <meta name="description" content="Login securely to FYERS and manage your trading and demat account easily. Trade stocks, derivatives, mutual funds, and more with a secure platform." />
+    <meta name="image" content="https://assets.fyers.in/images/fyers_meta.png" />
+    
+    <meta property="og:title" content="Login to FYERS â Access Your Trading & Demat Account" />
+    <meta property="og:description" content="Login securely to FYERS and manage your trading and demat account easily. Trade stocks, derivatives, mutual funds, and more with a secure platform." />
+    <meta property="og:url" content="https://login.fyers.in/" />
+    <meta property="og:image" content="https://assets.fyers.in/images/fyers_meta.png" />
+    <meta property="og:image:secure_url" content="https://assets.fyers.in/images/fyers_meta.png" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Login to FYERS â Access Your Trading & Demat Account" />
+    <meta name="twitter:description" content="Login securely to FYERS and manage your trading and demat account easily. Trade stocks, derivatives, mutual funds, and more with a secure platform." />
+    <meta name="twitter:image" content="https://assets.fyers.in/images/fyers_meta.png" />
+    <meta name="twitter:image:alt" content="FYERS Trading Platform" />
+
+     <link rel="canonical" href="https://login.fyers.in/" />
+    <meta name="apple-mobile-web-app-title" content="Login to FYERS â Access Your Trading & Demat Account" />
+
+    <link rel="shortcut icon" type="image/jpg" href="https://assets.fyers.in/images/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script type="text/javascript" src="https://trade.fyers.in/lib/jquery/1.12.4/jquery.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@200;300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link href="https://login.fyers.in/new-sso/16.3/webLoginCss/fyers-ui.css?v=1.2" rel="stylesheet" type="text/css">
+    <script type="text/javascript" src="https://trade.fyers.in/lib/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.1.0/css/all.css"
+        integrity="sha384-lKuwvrZot6UHsBSfcMvOkWwlCMgc0TaWr+30HWe3a4ltaBwTZhyTEggF5tJv8tbt" crossorigin="anonymous">
+
+    <script src="https://trade.fyers.in/lib/bootstrap/3.3.5/bootstrap.min.js"></script>
+     
+    <script src="https://assets.fyers.in/Lib/crypto/crypto-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.5.0/lib/qr-code-styling.js"></script>
+    <link rel="stylesheet" href="https://assets.fyers.in/Lib/intlTelInput.css" />
+    <script src="https://assets.fyers.in/Lib/intlTelInput.min.js"></script>
+    <link rel="stylesheet" href="https://assets.fyers.in/fy_notifications/css/2.0/notify.min.css" />
+    <script src="https://trade.fyers.in/Prod/1.2/fyers-widget.min.js"></script>
+    <link rel="preload" as="font" href="https://assets.fyers.in/global-components/fonts/text-security-disc.woff"
+        type="font/woff" crossorigin="anonymous">
+    <link rel="canonical" href=" https://login.fyers.in/ ">
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    
+    
+    <script src="https://assets.fyers.in/Lib/analytics/user-engagement.min.js"></script>
+    
+</head>
+
+<body class="bg-primary">
+    <section id="token-validation-loader">
+        <div class="login-container-loader">
+            <img src="https://assets.fyers.in/verified-pnl/images/fyers-loader-white.gif" alt="Loading...">
+        </div>
+    </section>
+    <section class="login-page">
+        <div class="agreement-container agreement agreement-mobile"></div>
+
+        <section class="banner-section">
+            <div id="login-banner-container"></div>
+        </section>
+        <section class="login-area">
+            <section class="container login-form" id="main-login-form">
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div class="pb-4" id="upper-section">
+                            <form id="mobileIdForm">
+                                <h4 class="mb-4">Login to FYERS</h4>
+                                <div class="d-flex login-switch" style="gap: 0.5rem;">
+                                    <label>
+                                        <input type="radio" name="loginType" value="mobile_rb" id="mobile_rb" checked>
+                                        <p>Mobile number</p>
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="loginType" value="clientId_rb" id="clientId_rb">
+                                        <p>Client ID</p>
+                                    </label>
+                                </div>
+                                <div id="mobile-input-section">
+                                    <div class="banner-container" id="mob-banner">
+                                    </div>
+                                    <form id="mobileIdForm">
+                                        
+                                        <div class="input-group pt-2" id="mobile-input-group">
+                                            <input type="tel" id="mobile-code" name="mobile-code"
+                                                style="padding-left: 75px;"
+                                                class="form-control input-bar text-uppercase validate"
+                                                placeholder="Mobile number" autocomplete="off" minlength="7"
+                                                maxlength="15">
+                                        </div>
+                                        
+                                        <button id="mobileNumberSubmit" type="submit"
+                                            class="btn btn-secondary btn-secondary-new btn-block justify-content-center mt-3"
+                                            disabled>
+                                            Continue <span class="loading-dots"
+                                                style="display: none;"><span>.</span><span>.</span></span>
+                                        </button>
+                                    </form>
+                                </div>
+                                <div id="clientid-input-section" style="display: none;">
+                                    <div class="banner-container" id="cid-banner"></div>
+                                    <form id="clientIdForm">
+                                        
+                                        <div class="input-group pt-2">
+                                            <input type="text" id="fy_client_id" name="fy_client_id"
+                                                class="form-control input-bar text-uppercase validate client_id"
+                                                placeholder="Client ID" autocomplete="off">
+                                        </div>
+                                        
+
+                                        
+                                        <but

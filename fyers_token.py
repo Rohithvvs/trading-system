@@ -1,8 +1,16 @@
-"""Fyers API v3 TOTP headless access-token generation.
+"""Fyers API v3 TOTP headless access-token generation (fully automated).
 
 Sprint 2 (007): pure API/TOTP login flow + CLI.
 Sprint 3 (008): automatic retry on *transient* failures (max 3 attempts,
 randomized 5–10s delay, fail-fast on permanent config/auth errors).
+
+Five-step flow (no browser, no captcha):
+  1. POST vagator send_login_otp_v2
+  2. POST vagator verify_otp (TOTP)
+  3. POST vagator verify_pin_v2 → temporary access_token
+  4. POST api-t1 /api/v3/token (direct-login payload) → auth_code in Url
+     (fallback: legacy GET generate-authcode Location header)
+  5. SessionModel.generate_token → final app access_token
 
 **Import this generator (root module)**::
 
@@ -390,17 +398,180 @@ def _post_json(
 
 
 def _extract_redirect_url(res_authcode: requests.Response) -> str | None:
+    """Extract OAuth redirect URL from Location header or JSON body.
+
+    Fyers historically returned 302 + Location on generate-authcode.
+    Current API (2025+) often returns 200/308 JSON::
+
+        {"Url": "https://...?auth_code=..."}
+
+    from POST /api/v3/token after vagator PIN login.
+    """
     redirect_url = res_authcode.headers.get("Location")
     if redirect_url:
         return redirect_url
-    # Fallback: some environments return 200 + redirect in body.
-    if res_authcode.status_code == 200:
-        try:
-            data = res_authcode.json()
-            return (data.get("data") or {}).get("redirect_uri")
-        except ValueError:
-            return None
+    # JSON body with Url / redirect fields (status 200 or 308 common).
+    try:
+        data = res_authcode.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in ("Url", "url", "redirect", "redirect_uri", "redirectUrl"):
+        val = data.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        for key in ("Url", "url", "redirect", "redirect_uri", "redirectUrl"):
+            val = nested.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
     return None
+
+
+def _split_app_id(app_id: str) -> tuple[str, str]:
+    """Split FYERS_APP_ID like ``8BC5U9HYCQ-100`` into (app_id, appType)."""
+    raw = (app_id or "").strip()
+    if "-" in raw:
+        base, app_type = raw.rsplit("-", 1)
+        if base and app_type:
+            return base, app_type
+    return raw, "100"
+
+
+def _request_auth_code(
+    *,
+    temp_token: str,
+    app_id: str,
+    fyers_client_id: str,
+    redirect_uri: str,
+    headers: dict,
+) -> str:
+    """Step 4: obtain OAuth auth_code after vagator PIN login.
+
+    Primary (current Fyers SSO): POST ``/api/v3/token`` with direct-login
+    payload + Bearer temp token → JSON ``Url`` containing ``auth_code``.
+
+    Fallback (legacy): GET ``/api/v3/generate-authcode`` expecting Location.
+    """
+    app_base, app_type = _split_app_id(app_id)
+    auth_headers = {
+        **headers,
+        "Authorization": f"Bearer {temp_token}",
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://login.fyers.in",
+        "Referer": "https://login.fyers.in/",
+    }
+    payload = {
+        "fyers_id": fyers_client_id,
+        "app_id": app_base,
+        "redirect_uri": redirect_uri,
+        "appType": app_type,
+        "code_challenge": "",
+        "state": "sample_state",
+        "scope": "",
+        "nonce": "",
+        "response_type": "code",
+        "create_cookie": True,
+    }
+
+    res_authcode: requests.Response | None = None
+    last_status: int | None = None
+    try:
+        # --- Primary: POST /api/v3/token (direct-login style) ---
+        try:
+            res_authcode = requests.post(
+                "https://api-t1.fyers.in/api/v3/token",
+                json=payload,
+                headers=auth_headers,
+                allow_redirects=False,
+                timeout=REQUEST_TIMEOUT_SEC,
+            )
+        except requests.Timeout as e:
+            raise FyersConnectionError(
+                f"Timeout during authorization code request "
+                f"(limit={REQUEST_TIMEOUT_SEC}s): {e}"
+            ) from e
+        except requests.RequestException as e:
+            raise FyersConnectionError(
+                f"Connection failed during authorization code request: {e}"
+            ) from e
+
+        last_status = res_authcode.status_code
+        if last_status >= 500 or last_status == 429:
+            raise FyersConnectionError(
+                f"HTTP server error during authorization code request "
+                f"(status={last_status})"
+            )
+
+        redirect_url = _extract_redirect_url(res_authcode)
+        # --- Fallback: legacy GET generate-authcode ---
+        if not redirect_url:
+            try:
+                res_authcode.close()
+            except Exception:
+                pass
+            params_authcode = {
+                "client_id": app_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "state": "sample_state",
+            }
+            try:
+                res_authcode = requests.get(
+                    "https://api-t1.fyers.in/api/v3/generate-authcode",
+                    params=params_authcode,
+                    headers=auth_headers,
+                    allow_redirects=False,
+                    timeout=REQUEST_TIMEOUT_SEC,
+                )
+            except requests.Timeout as e:
+                raise FyersConnectionError(
+                    f"Timeout during authorization code request "
+                    f"(limit={REQUEST_TIMEOUT_SEC}s): {e}"
+                ) from e
+            except requests.RequestException as e:
+                raise FyersConnectionError(
+                    f"Connection failed during authorization code request: {e}"
+                ) from e
+            last_status = res_authcode.status_code
+            if last_status >= 500 or last_status == 429:
+                raise FyersConnectionError(
+                    f"HTTP server error during authorization code request "
+                    f"(status={last_status})"
+                )
+            redirect_url = _extract_redirect_url(res_authcode)
+
+        if not redirect_url:
+            if last_status is not None and last_status >= 400:
+                raise FyersAuthError(
+                    f"Authorization code request rejected (status={last_status})"
+                )
+            raise FyersAuthError(
+                f"Redirect Location not found (status={last_status}, "
+                f"{_safe_response_snippet(res_authcode)})"
+            )
+
+        parsed_url = urllib.parse.urlparse(redirect_url)
+        query_params = urllib.parse.parse_qs(parsed_url.query)
+        auth_code_list = query_params.get("auth_code")
+        if not auth_code_list:
+            # Some responses put auth_code only in the JSON body path already
+            # folded into redirect_url; also accept bare code query.
+            auth_code_list = query_params.get("code")
+        if not auth_code_list or not auth_code_list[0]:
+            raise FyersAuthError(
+                "auth_code parameter is missing in redirect URL "
+                f"(path={parsed_url.path or '/'})"
+            )
+        return auth_code_list[0]
+    finally:
+        if res_authcode is not None:
+            try:
+                res_authcode.close()
+            except Exception:
+                pass
 
 
 def _exchange_auth_code(
@@ -605,70 +776,16 @@ def generate_fyers_access_token() -> str:
                 )
 
             # Step 4: Request Authorization Code
+            # Current Fyers SSO: POST /api/v3/token (not GET generate-authcode HTML).
             logger.info("step=authcode_request attempt=%s outcome=start", attempt)
-            url_authcode = "https://api-t1.fyers.in/api/v3/generate-authcode"
-            params_authcode = {
-                "client_id": app_id,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "state": "sample_state",
-            }
-            headers_authcode = {"Authorization": f"Bearer {temp_token}"}
-
-            res_authcode: requests.Response | None = None
-            try:
-                try:
-                    res_authcode = requests.get(
-                        url_authcode,
-                        params=params_authcode,
-                        headers=headers_authcode,
-                        allow_redirects=False,
-                        timeout=REQUEST_TIMEOUT_SEC,
-                    )
-                except requests.Timeout as e:
-                    raise FyersConnectionError(
-                        f"Timeout during authorization code request "
-                        f"(limit={REQUEST_TIMEOUT_SEC}s): {e}"
-                    ) from e
-                except requests.RequestException as e:
-                    raise FyersConnectionError(
-                        f"Connection failed during authorization code request: {e}"
-                    ) from e
-
-                status = res_authcode.status_code
-                # 5xx and 429 are transient (outer retry); other 4xx are permanent.
-                if status >= 500 or status == 429:
-                    raise FyersConnectionError(
-                        f"HTTP server error during authorization code request "
-                        f"(status={status})"
-                    )
-                if status >= 400 and "Location" not in res_authcode.headers:
-                    raise FyersAuthError(
-                        f"Authorization code request rejected (status={status})"
-                    )
-
-                redirect_url = _extract_redirect_url(res_authcode)
-                if not redirect_url:
-                    raise FyersAuthError(
-                        f"Redirect Location not found (status={status}, "
-                        f"{_safe_response_snippet(res_authcode)})"
-                    )
-
-                parsed_url = urllib.parse.urlparse(redirect_url)
-                query_params = urllib.parse.parse_qs(parsed_url.query)
-                auth_code_list = query_params.get("auth_code")
-                if not auth_code_list:
-                    raise FyersAuthError(
-                        "auth_code parameter is missing in redirect URL "
-                        f"(path={parsed_url.path or '/'})"
-                    )
-                auth_code = auth_code_list[0]
-            finally:
-                if res_authcode is not None:
-                    try:
-                        res_authcode.close()
-                    except Exception:
-                        pass
+            auth_code = _request_auth_code(
+                temp_token=temp_token,
+                app_id=app_id,
+                fyers_client_id=client_id,
+                redirect_uri=redirect_uri,
+                headers=headers,
+            )
+            logger.info("step=authcode_request attempt=%s outcome=success", attempt)
 
             # Step 5: Exchange Authorization Code for Final Access Token
             logger.info("step=token_exchange attempt=%s outcome=start", attempt)
