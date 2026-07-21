@@ -130,3 +130,55 @@ class AnalyticsService:
                     log_entry.realized_return_20d = round(alpha, 2)
 
         self.logger.info("Strategy Drift Tracker DB operations complete.")
+
+
+    async def query_by_situation_tags(
+        self,
+        db: AsyncSession,
+        tags: list[str],
+        recommendation: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        limit: int = 100
+    ) -> list[AnalysisHistory]:
+        """Query historical recommendations filtered by situation tags (all tags must match).
+
+        Optional filters (FR-007): recommendation action and created_at date range.
+        """
+        from sqlalchemy.orm import selectinload
+        stmt = select(AnalysisHistory).options(selectinload(AnalysisHistory.stock))
+        
+        dialect_name = db.bind.dialect.name if db.bind else "postgresql"
+        conditions = []
+        if recommendation:
+            conditions.append(AnalysisHistory.recommendation == recommendation)
+        if start_date is not None:
+            conditions.append(AnalysisHistory.created_at >= start_date)
+        if end_date is not None:
+            conditions.append(AnalysisHistory.created_at <= end_date)
+            
+        if dialect_name == "postgresql":
+            if tags:
+                conditions.append(AnalysisHistory.situation_tags.contains(tags))
+            stmt = stmt.where(*conditions).order_by(AnalysisHistory.created_at.desc()).limit(limit)
+            return list((await db.scalars(stmt)).all())
+
+        # SQLite stores ChoiceArray as JSON text. Use quoted-token LIKE to avoid
+        # substring false matches (e.g. TAG matching TAG_EXTRA), then exact-filter.
+        if tags:
+            for tag in tags:
+                # JSON dumps list elements as "TAG"; quoted match is tag-boundary safe.
+                conditions.append(AnalysisHistory.situation_tags.like(f'%"{tag}"%'))
+
+        stmt = stmt.where(*conditions).order_by(AnalysisHistory.created_at.desc()).limit(limit * 5 if tags else limit)
+        candidates = list((await db.scalars(stmt)).all())
+        if not tags:
+            return candidates[:limit]
+
+        required = set(tags)
+        exact = [
+            row for row in candidates
+            if required.issubset(set(row.situation_tags or []))
+        ]
+        return exact[:limit]
+

@@ -38,7 +38,15 @@ from app.models import infrastructure
 from app.models import research
 
 def _prepare_asyncpg_url(raw_database_url: str) -> tuple[str, dict[str, object]]:
+    """Normalize DB URL for async engines (mirrors app.db.session helper).
+
+    SQLite sync URLs must become sqlite+aiosqlite for create_async_engine /
+    async_engine_from_config, otherwise SQLAlchemy raises:
+    "The asyncio extension requires an async driver... pysqlite is not async".
+    """
     parsed = urlsplit(raw_database_url)
+    if parsed.scheme == "sqlite":
+        return raw_database_url.replace("sqlite://", "sqlite+aiosqlite://", 1), {}
     if parsed.scheme != "postgresql+asyncpg":
         return raw_database_url, {}
 

@@ -1032,7 +1032,9 @@ class OrchestratorAgent:
             backtest=best_backtest,
             recommendation=recommendation,
             sector_overlay=sector_overlay,
-            market_regime=market_regime
+            market_regime=market_regime,
+            symbol=symbol,
+            articles=articles
         )
 
         # FEAT-011 Spec 1: Shadow Execution Context hook
@@ -1141,8 +1143,20 @@ class OrchestratorAgent:
         recommendation: Any,
         sector_overlay: Any = None,
         market_regime: Any = None,
+        symbol: str = None,
+        articles: list[Any] = None,
     ) -> None:
         from ..db.session import AsyncSessionLocal
+        from ..services.taxonomy_classifier import determine_situation_tags
+
+        situation_tags = determine_situation_tags(
+            symbol=symbol,
+            recommendation=recommendation.action,
+            sentiment_score=sentiment_score,
+            articles=articles,
+            market_regime=market_regime
+        )
+
         async with AsyncSessionLocal() as db:
             analysis_entry = AnalysisHistory(
                 stock_id=stock_id,
@@ -1168,6 +1182,7 @@ class OrchestratorAgent:
                 market_volatility_state=market_regime.volatility_state if market_regime else None,
                 market_new_entry_allowed=market_regime.new_entry_allowed if market_regime else None,
                 market_risk_multiplier=market_regime.risk_multiplier if market_regime else None,
+                situation_tags=situation_tags,
             )
             db.add(analysis_entry)
 

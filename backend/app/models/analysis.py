@@ -3,10 +3,54 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+import json
 
 from ..db.base import Base
+
+
+class ChoiceArray(TypeDecorator):
+    """Platform-independent ARRAY type.
+    Uses PostgreSQL's ARRAY type, or JSON-serialized TEXT on SQLite.
+    """
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, item_type, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.item_type = item_type
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(ARRAY(self.item_type))
+        else:
+            return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == 'postgresql':
+            return value
+        if isinstance(value, str):
+            return value
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return []
+        if dialect.name == 'postgresql':
+            return value
+        if value == '{}':
+            return []
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            if value.startswith('{') and value.endswith('}'):
+                return [x.strip() for x in value[1:-1].split(',') if x.strip()]
+            return []
+
 
 
 class AnalysisHistory(Base):
@@ -41,6 +85,7 @@ class AnalysisHistory(Base):
     market_risk_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     shadow_outputs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    situation_tags: Mapped[list[str]] = mapped_column(ChoiceArray(Text), server_default="{}", nullable=False)
 
     stock = relationship("WatchedStock", back_populates="analyses")
 
@@ -120,5 +165,19 @@ class ArticleDedupLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
+
+
+class BackfillProgress(Base):
+    __tablename__ = "backfill_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    last_processed_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="RUNNING", nullable=False)
+    processed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
 
 

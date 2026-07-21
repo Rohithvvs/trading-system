@@ -25,14 +25,23 @@ async def initialize_db():
     from alembic import command
     from app.config import settings
     from app.config.settings import ROOT_DIR
-    
+
+    db_url = (getattr(settings, "database_url", None) or os.environ.get("DATABASE_URL") or "")
+    # When the root tests/conftest forces a shared SQLite file, tables are often
+    # already created via Base.metadata.create_all / per-test engines. Running the
+    # full Alembic baseline there collides ("table already exists"). Postgres CI
+    # still runs migrations normally.
+    if "sqlite" in db_url:
+        yield
+        return
+
     # Alembic relies on env.py, which uses settings.database_url natively.
     alembic_cfg = Config(str(ROOT_DIR / "backend" / "alembic.ini"))
-    
+
     # Run migrations synchronously in a thread
     import asyncio
     await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
-    
+
     yield
     # We do not drop tables because some tests might expect persistent data or we drop them if needed
 

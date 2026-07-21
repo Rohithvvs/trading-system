@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -31,6 +32,53 @@ from .experiment import (
 from .experiment_log import ExperimentLog
 from .audit import AuditTrailManager
 from ..observability.schema import ExperimentStatus, ExperimentFilterParams
+
+# Privileged taxonomy/backfill commands require Administrator credentials (FR-004 / M7)
+_TAXONOMY_ADMIN_COMMANDS = frozenset(
+    {
+        "backfill",
+        "backfill-pause",
+        "taxonomy-report",
+        "taxonomy-query",
+    }
+)
+
+
+def _require_taxonomy_admin(args: argparse.Namespace) -> None:
+    """M7: Gate taxonomy admin commands when API_KEY / GOVERNANCE_ADMIN_TOKEN is set.
+
+    Phase 0: if no server-side admin secret is configured, allow with a stderr notice
+    (host-trusted ops). When configured, require matching --admin-token or
+    GOVERNANCE_CLI_TOKEN environment variable.
+    """
+    if getattr(args, "command", None) not in _TAXONOMY_ADMIN_COMMANDS:
+        return
+
+    expected = (
+        os.getenv("GOVERNANCE_ADMIN_TOKEN", "").strip()
+        or os.getenv("API_KEY", "").strip()
+    )
+    if not expected:
+        print(
+            "[WARN] Taxonomy admin command running without API_KEY/GOVERNANCE_ADMIN_TOKEN "
+            "(Phase 0 open host access).",
+            file=sys.stderr,
+        )
+        return
+
+    provided = (
+        getattr(args, "admin_token", None)
+        or os.getenv("GOVERNANCE_CLI_TOKEN", "")
+        or ""
+    ).strip()
+    if provided != expected:
+        print(
+            "ERROR: Administrator credentials required for this command. "
+            "Pass --admin-token <token> or set GOVERNANCE_CLI_TOKEN to match "
+            "API_KEY / GOVERNANCE_ADMIN_TOKEN.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -107,6 +155,59 @@ def _parse_args(args: list[str] | None = None) -> argparse.Namespace:
     kill_p = sub.add_parser("kill", help="Disable a rule")
     kill_p.add_argument("--rule", required=True, help="Rule ID (e.g. news_dedup)")
     kill_p.add_argument("--reason", required=True, help="Reason for emergency rollback")
+
+    # backfill
+    backfill_p = sub.add_parser("backfill", help="Run historical situation taxonomy backfill")
+    backfill_p.add_argument("--job-id", required=True, help="Unique identifier for the backfill job")
+    backfill_p.add_argument("--batch-size", type=int, default=100, help="Number of records to process per batch")
+    backfill_p.add_argument("--delay", type=float, default=0.5, help="Throttle delay in seconds between batches")
+    backfill_p.add_argument("--resume", action="store_true", help="Resume a previously paused backfill job")
+    backfill_p.add_argument(
+        "--admin-token",
+        default=None,
+        help="Administrator token (or set GOVERNANCE_CLI_TOKEN); required when API_KEY is set",
+    )
+
+    # backfill-pause (M3)
+    pause_bf_p = sub.add_parser(
+        "backfill-pause",
+        help="Pause a running historical situation taxonomy backfill job",
+    )
+    pause_bf_p.add_argument("--job-id", required=True, help="Backfill job id to pause")
+    pause_bf_p.add_argument("--admin-token", default=None, help="Administrator token")
+
+    # taxonomy-report
+    report_tax_p = sub.add_parser("taxonomy-report", help="Generate situation tag distribution report")
+    report_tax_p.add_argument("--output-dir", help="Override output directory for the report markdown")
+    report_tax_p.add_argument("--admin-token", default=None, help="Administrator token")
+
+    # taxonomy-query (M6 / FR-007)
+    query_p = sub.add_parser(
+        "taxonomy-query",
+        help="Query recommendations by situation tags, action, and date range",
+    )
+    query_p.add_argument(
+        "--tags",
+        required=True,
+        help="Comma-separated situation tags (all must match)",
+    )
+    query_p.add_argument(
+        "--recommendation",
+        default=None,
+        help="Filter by action (BUY, SELL, WATCH, ...)",
+    )
+    query_p.add_argument(
+        "--start",
+        default=None,
+        help="Inclusive start datetime ISO-8601 (created_at)",
+    )
+    query_p.add_argument(
+        "--end",
+        default=None,
+        help="Inclusive end datetime ISO-8601 (created_at)",
+    )
+    query_p.add_argument("--limit", type=int, default=50, help="Max rows to return")
+    query_p.add_argument("--admin-token", default=None, help="Administrator token")
 
     return parser.parse_args(args)
 
@@ -404,6 +505,111 @@ async def _run_command(args: argparse.Namespace) -> None:
                     print(f"ERROR: Failed to persist kill-switch: {e}", file=sys.stderr)
                     sys.exit(1)
 
+            elif args.command == "backfill":
+                from ..services.backfill_service import BackfillService
+                service = BackfillService()
+                print(f"Starting historical situation taxonomy backfill job '{args.job_id}'...")
+                try:
+                    processed = await service.run_backfill(
+                        job_id=args.job_id,
+                        batch_size=args.batch_size,
+                        delay_seconds=args.delay,
+                        resume=args.resume
+                    )
+                except RuntimeError as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+                except Exception as e:
+                    print(f"ERROR: Backfill failed: {e}", file=sys.stderr)
+                    sys.exit(1)
+                progress = await service.get_job_progress(args.job_id)
+                if progress is None:
+                    print(
+                        f"[WARN] Backfill finished processing {processed} records this run, "
+                        f"but no progress row was found for job '{args.job_id}'.",
+                        file=sys.stderr,
+                    )
+                elif progress.status == "COMPLETED":
+                    print(
+                        f"[OK] Historical backfill complete. "
+                        f"status={progress.status} this_run={processed} "
+                        f"processed_count={progress.processed_count}/{progress.total_count} "
+                        f"last_processed_id={progress.last_processed_id}"
+                    )
+                else:
+                    print(
+                        f"[WARN] Historical backfill ended with status={progress.status}. "
+                        f"this_run={processed} processed_count={progress.processed_count}/"
+                        f"{progress.total_count} last_processed_id={progress.last_processed_id}. "
+                        f"Re-run with --resume to continue.",
+                        file=sys.stderr,
+                    )
+
+            elif args.command == "backfill-pause":
+                from ..services.backfill_service import BackfillService
+                service = BackfillService()
+                try:
+                    progress = await service.pause_backfill(args.job_id)
+                except RuntimeError as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+                print(
+                    f"[OK] Backfill job '{args.job_id}' status={progress.status} "
+                    f"last_processed_id={progress.last_processed_id} "
+                    f"processed_count={progress.processed_count}/{progress.total_count}"
+                )
+
+            elif args.command == "taxonomy-report":
+                from ..services.backfill_service import BackfillService
+                service = BackfillService()
+                output_path = await service.write_distribution_report(args.output_dir)
+                print(f"[OK] Situation tag distribution report generated at {output_path}")
+
+            elif args.command == "taxonomy-query":
+                from ..services.analytics_service import AnalyticsService
+
+                tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+                if not tags:
+                    print("ERROR: --tags must include at least one tag", file=sys.stderr)
+                    sys.exit(1)
+
+                start_date = None
+                end_date = None
+                if args.start:
+                    try:
+                        start_date = datetime.fromisoformat(args.start.replace("Z", "+00:00"))
+                    except ValueError as e:
+                        print(f"ERROR: Invalid --start datetime: {e}", file=sys.stderr)
+                        sys.exit(1)
+                if args.end:
+                    try:
+                        end_date = datetime.fromisoformat(args.end.replace("Z", "+00:00"))
+                    except ValueError as e:
+                        print(f"ERROR: Invalid --end datetime: {e}", file=sys.stderr)
+                        sys.exit(1)
+
+                analytics = AnalyticsService()
+                rows = await analytics.query_by_situation_tags(
+                    db,
+                    tags=tags,
+                    recommendation=args.recommendation,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=args.limit,
+                )
+                print(
+                    f"Matched {len(rows)} recommendation(s) "
+                    f"(tags={tags}, recommendation={args.recommendation}, "
+                    f"start={args.start}, end={args.end}, limit={args.limit})"
+                )
+                for rec in rows:
+                    symbol = rec.stock.symbol if getattr(rec, "stock", None) else rec.stock_id
+                    print(
+                        f"  id={rec.id} symbol={symbol} action={rec.recommendation} "
+                        f"tags={rec.situation_tags} created_at={rec.created_at}"
+                    )
+
+
         except SingleActiveConstraintError as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
@@ -423,6 +629,7 @@ def experiment_cli() -> None:
     if not args.command:
         print("Error: No command specified", file=sys.stderr)
         sys.exit(1)
+    _require_taxonomy_admin(args)
     asyncio.run(_run_command(args))
 
 
