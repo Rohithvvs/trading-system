@@ -1,4 +1,3 @@
-from sqlalchemy import select, update
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -254,3 +253,42 @@ async def token_diagnostic(db: AsyncSession = Depends(get_db)):
         "token_saved_at": status.get("access_token_saved_at"),
         "automation_metrics": status.get("automation_metrics"),
     }
+
+
+internal_router = APIRouter(tags=["internal"])
+
+
+@internal_router.post("/internal/refresh-fyers-token")
+async def refresh_fyers_token_route(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    x_scheduler_secret: Optional[str] = Header(
+        default=None, alias="X-Scheduler-Secret"
+    ),
+):
+    """Internal protected endpoint to trigger Fyers access token generation and persistence."""
+    _require_scheduler_secret(request, x_scheduler_secret)
+
+    try:
+        await token_service.generate_and_persist_fyers_token(db)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "success",
+                "message": "Access token generated and saved successfully",
+            },
+        )
+    except Exception as exc:
+        logger.error(
+            "INTERNAL_REFRESH_TOKEN_FAILED | error_type=%s | error=%s",
+            type(exc).__name__,
+            str(exc),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": "Failed to generate access token after retries",
+            },
+        )
+
