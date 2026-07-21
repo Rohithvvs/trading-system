@@ -193,6 +193,10 @@ class Settings(BaseSettings):
     shadow_mode_ruleset: str = Field(default="experimental_v1", alias="SHADOW_MODE_RULESET")
     shadow_mode_persistence_enabled: bool = Field(default=False, alias="SHADOW_MODE_PERSISTENCE_ENABLED")
 
+    # FEAT-012/FEAT-013: Governance states and validation reporting
+    governance_reports_dir: str = Field(default="governance/reports", alias="GOVERNANCE_REPORTS_DIR")
+    rule_states_file: str = Field(default="backend/app/config/rule_states.json", alias="RULE_STATES_FILE")
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
         env_file_encoding='utf-8',
