@@ -15,5 +15,12 @@ class NewsAnalysisAgent:
         if not articles:
             return [], 0.5, "Neutral", "No recent news found for this symbol."
             
+        # FEAT-014: Trigger shadow news deduplication background runner.
+        # Gate with the shared shadow hook helper (master toggle AND stage != OFF).
+        from ..config import settings
+        if settings.is_shadow_hook_enabled():
+            from ..services.shadow_executor import ShadowThreadPool, execute_shadow_news_dedup
+            ShadowThreadPool.submit_task(execute_shadow_news_dedup, symbol, articles)
+
         score, label, summary = self.sentiment_service.summarize(symbol, articles)
         return articles, score, label, summary

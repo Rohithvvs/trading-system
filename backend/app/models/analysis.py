@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
@@ -38,6 +39,8 @@ class AnalysisHistory(Base):
     market_volatility_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
     market_new_entry_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     market_risk_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    shadow_outputs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     stock = relationship("WatchedStock", back_populates="analyses")
 
@@ -96,3 +99,26 @@ class ScannedCandidate(Base):
     technical_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
     screener_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     matched: Mapped[bool] = mapped_column(default=False)
+
+
+class ArticleDedupLog(Base):
+    """Audit row for a removed near-duplicate article (FR-009).
+
+    Table name matches the specification clarification: ``news_deduplication_audit``.
+    """
+
+    __tablename__ = "news_deduplication_audit"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol: Mapped[str] = mapped_column(String(25), index=True)
+    kept_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    deduplicated_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    kept_title: Mapped[str] = mapped_column(Text, nullable=False)
+    deduplicated_title: Mapped[str] = mapped_column(Text, nullable=False)
+    similarity: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(String(250), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+
