@@ -864,6 +864,14 @@ async def generate_and_persist_fyers_token(db: AsyncSession) -> dict[str, Any]:
     Does **not** use the UI manual-save path (avoids validation + wrong history note).
     """
     import asyncio
+    import sys
+    from pathlib import Path
+
+    # fyers_token.py lives at repo root; ensure import works when cwd is backend/.
+    _repo_root = Path(__file__).resolve().parents[3]
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+
     from fyers_token import generate_fyers_access_token
 
     job_started = datetime.now(timezone.utc)

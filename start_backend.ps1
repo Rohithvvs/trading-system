@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $venvCandidates = @(
+  (Join-Path $repoRoot "backend\venv\Scripts\python.exe"),
   (Join-Path $repoRoot ".venv313\Scripts\python.exe"),
   (Join-Path $repoRoot ".venv\Scripts\python.exe"),
   (Join-Path $repoRoot "venv\Scripts\python.exe")
@@ -35,6 +36,29 @@ if ($existingPids.Count -gt 0) {
     Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue
   }
   Start-Sleep -Seconds 1
+}
+
+# Load repo-root .env into this process so keys like SCHEDULER_SECRET are available
+# to routes that read os.environ (not only pydantic Settings fields).
+$envFile = Join-Path $repoRoot ".env"
+if (Test-Path $envFile) {
+  Get-Content $envFile | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith("#")) { return }
+    $eq = $line.IndexOf("=")
+    if ($eq -lt 1) { return }
+    $key = $line.Substring(0, $eq).Trim()
+    $val = $line.Substring($eq + 1).Trim()
+    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+      $val = $val.Substring(1, $val.Length - 2)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($key) -and -not (Test-Path "Env:$key")) {
+      Set-Item -Path "Env:$key" -Value $val
+    }
+  }
+  Write-Host "Loaded environment variables from $envFile"
+} else {
+  Write-Host "WARNING: .env not found at $envFile"
 }
 
 Write-Host "Starting backend on http://127.0.0.1:$port"

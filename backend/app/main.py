@@ -8,6 +8,22 @@ _backend_dir = str(Path(__file__).resolve().parent.parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
+# Ensure repo root is on sys.path so root modules like `fyers_token.py` import
+# correctly when uvicorn is started with cwd=backend (start_backend.ps1).
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+# Load repo-root .env into os.environ before any route reads secrets
+# (e.g. SCHEDULER_SECRET via os.environ.get). Pydantic settings alone does not
+# populate os.environ for non-Settings keys.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_repo_root / ".env", override=False)
+except Exception:
+    pass
+
 from datetime import datetime, timezone
 from time import perf_counter
 from contextlib import asynccontextmanager
