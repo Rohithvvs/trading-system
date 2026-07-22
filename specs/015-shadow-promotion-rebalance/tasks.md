@@ -15,8 +15,8 @@
 
 **Purpose**: Shared schemas and data structures for attribution telemetry and scoring configuration.
 
-- [ ] T001 [P] Create Pydantic telemetry models (`AttributionReport`, `InteractionAnalysis`, `PromotionStateRecord`) in `backend/app/schemas/shadow_telemetry.py`
-- [ ] T002 [P] Create `ScoringMatrixConfig` schema with `sum == 100.0` `@model_validator` in `backend/app/schemas/scoring_config.py`
+- [X] T001 [P] Create Pydantic telemetry models (`AttributionReport`, `InteractionAnalysis`, `PromotionStateRecord`) in `backend/app/schemas/shadow_telemetry.py`
+- [X] T002 [P] Create `ScoringMatrixConfig` schema with `sum == 100.0` `@model_validator` in `backend/app/schemas/scoring_config.py`
 
 ---
 
@@ -26,7 +26,7 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 [P] Implement base matrix validation and weight normalization helpers in `backend/app/services/scoring_matrix_service.py`
+- [X] T003 [P] Implement base matrix validation and weight normalization helpers in `backend/app/services/scoring_matrix_service.py`
 
 **Checkpoint**: Shared schemas and scoring matrix foundational infrastructure ready.
 
@@ -40,10 +40,10 @@
 
 ### Tasks for User Story 1
 
-- [ ] T004 [P] [US1] Write unit tests for 4-way ablation math, sample size safeguards, and Pearson/Spearman correlation in `backend/tests/unit/test_attribution_validation.py`
-- [ ] T005 [P] [US1] Implement pure `AttributionValidationService` with 4-way synthetic replay and feature correlation check in `backend/app/services/attribution_validation_service.py`
-- [ ] T006 [US1] Add CLI governance command `experiment.report` in `backend/app/governance/experiment_cli.py`
-- [ ] T007 [US1] Expose REST endpoints `GET /api/v1/governance/attribution-report` and `GET /api/v1/governance/interaction-check` in `backend/app/routes/governance.py`
+- [X] T004 [P] [US1] Write unit tests for 4-way ablation math, sample size safeguards, and Pearson/Spearman correlation in `backend/tests/unit/test_attribution_validation.py`
+- [X] T005 [P] [US1] Implement pure `AttributionValidationService` with 4-way synthetic replay and feature correlation check in `backend/app/services/attribution_validation_service.py`
+- [X] T006 [US1] Add CLI governance command `experiment.report` in `backend/app/governance/experiment_cli.py`
+- [X] T007 [US1] Expose REST endpoints `GET /api/v1/governance/attribution-report` and `GET /api/v1/governance/interaction-check` in `backend/app/routes/governance.py`
 
 **Checkpoint**: User Story 1 (Attribution & Interaction Analysis) fully testable and functional.
 
@@ -57,9 +57,9 @@
 
 ### Tasks for User Story 2
 
-- [ ] T008 [P] [US2] Write unit tests for 100-point rebalanced matrix weights and sum invariant enforcement in `backend/tests/unit/test_scoring_matrix_rebalance.py`
-- [ ] T009 [P] [US2] Implement `ScoringMatrixService` with default 100-point baseline and rebalanced matrix configs in `backend/app/services/scoring_matrix_service.py`
-- [ ] T010 [US2] Integrate `ScoringMatrixService` weight resolution into composite recommendation calculation in `backend/app/services/recommendation_service.py`
+- [X] T008 [P] [US2] Write unit tests for 100-point rebalanced matrix weights and sum invariant enforcement in `backend/tests/unit/test_scoring_matrix_rebalance.py`
+- [X] T009 [P] [US2] Implement `ScoringMatrixService` with default 100-point baseline and rebalanced matrix configs in `backend/app/services/scoring_matrix_service.py`
+- [X] T010 [US2] Integrate `ScoringMatrixService` weight resolution into composite recommendation calculation in `backend/app/services/recommendation_service.py`
 
 **Checkpoint**: User Story 2 (Matrix Rebalancing) fully testable and functional.
 
@@ -73,10 +73,10 @@
 
 ### Tasks for User Story 3
 
-- [ ] T011 [P] [US3] Write integration tests for Stage 1 promotion, Stage 2 promotion, and instant Kill-Switch fallback in `backend/tests/integration/test_sequential_promotion.py`
-- [ ] T012 [US3] Wire Stage 1 live Sentiment Time-Decay promotion check (`RuleManager().is_active_in_production("sentiment_decay")`) in `backend/app/services/recommendation_service.py` and `backend/app/agents/news_analysis_agent.py`
-- [ ] T013 [US3] Wire Stage 2 live Market Breadth promotion check (`RuleManager().is_active_in_production("market_breadth")`) in `backend/app/services/recommendation_service.py` and `backend/app/agents/orchestrator_agent.py`
-- [ ] T014 [US3] Expose REST endpoints `POST /api/v1/governance/rules/{rule_id}/promote` and `POST /api/v1/governance/rules/{rule_id}/kill` in `backend/app/routes/governance.py`
+- [X] T011 [P] [US3] Write integration tests for Stage 1 promotion, Stage 2 promotion, and instant Kill-Switch fallback in `backend/tests/integration/test_sequential_promotion.py`
+- [X] T012 [US3] Wire Stage 1 live Sentiment Time-Decay promotion check (`RuleManager().is_active_in_production("sentiment_decay")`) in `backend/app/services/recommendation_service.py` and `backend/app/agents/news_analysis_agent.py`
+- [X] T013 [US3] Wire Stage 2 live Market Breadth promotion check (`RuleManager().is_active_in_production("market_breadth")`) in `backend/app/services/recommendation_service.py` and `backend/app/agents/orchestrator_agent.py`
+- [X] T014 [US3] Expose REST endpoints `POST /api/v1/governance/rules/{rule_id}/promote` and `POST /api/v1/governance/rules/{rule_id}/kill` in `backend/app/routes/governance.py`
 
 **Checkpoint**: All three user stories functional, sequentially wired, gated by RuleManager, and fully reversible via kill-switch.
 
@@ -86,8 +86,8 @@
 
 **Purpose**: Validation, quickstart execution, and final quality checks.
 
-- [ ] T015 [P] Run full pytest suite for unit, integration, and promotion safety tests
-- [ ] T016 [P] Execute validation scenarios defined in `specs/015-shadow-promotion-rebalance/quickstart.md`
+- [X] T015 [P] Run full pytest suite for unit, integration, and promotion safety tests
+- [X] T016 [P] Execute validation scenarios defined in `specs/015-shadow-promotion-rebalance/quickstart.md`
 
 ---
 

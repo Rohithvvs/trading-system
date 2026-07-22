@@ -938,6 +938,31 @@ class OrchestratorAgent:
         if feat007_config is None:
             feat007_config = self._build_feat007_config()
 
+        # Stage 2: when market_breadth is production, compute live soft contribution.
+        # Fail-open to 0.0 so scan path never aborts on breadth errors.
+        market_breadth_soft_score: float | None = None
+        try:
+            from ..governance.rule_manager import RuleManager
+            from ..services.market_breadth import calculate_market_breadth
+
+            if RuleManager().is_active_in_production("market_breadth"):
+                breadth_items = self._universe_breadth_items_from_bulk(bulk_technical_results)
+                breadth_telemetry = calculate_market_breadth(breadth_items)
+                market_breadth_soft_score = float(breadth_telemetry.soft_score_contribution)
+                if not breadth_telemetry.is_valid:
+                    shadow_logger.warning(
+                        "breadth_telemetry_unreliable | symbol=%s | soft=%s | action=use_soft_anyway",
+                        symbol,
+                        market_breadth_soft_score,
+                    )
+        except Exception as breadth_live_exc:
+            shadow_logger.warning(
+                "governance_fail_open | symbol=%s | rule=market_breadth | error=%s | action=soft_score_0",
+                symbol,
+                breadth_live_exc,
+            )
+            market_breadth_soft_score = 0.0
+
         recommendation = await asyncio.to_thread(
             self.recommendation_agent.run,
             symbol=symbol,
@@ -959,6 +984,7 @@ class OrchestratorAgent:
             sector_roc20=sector_roc20,
             benchmark_roc20=benchmark_roc20,
             feat007_abstained_reason=feat007_abstained_reason,
+            market_breadth_soft_score=market_breadth_soft_score,
         )
         data_quality = self._data_quality_payload(candles_by_mode, request, symbol)
         recommendation = self._enforce_strict_buy_gate(

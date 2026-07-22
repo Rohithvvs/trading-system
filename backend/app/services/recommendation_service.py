@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from statistics import mean
 from typing import Any
 
@@ -43,6 +44,8 @@ class RecommendationService:
         sector_roc20: float | None = None,
         benchmark_roc20: float | None = None,
         feat007_abstained_reason: str | None = None,
+        # Stage 2: optional soft contribution injected by orchestrator when rule is production
+        market_breadth_soft_score: float | None = None,
     ) -> FinalRecommendation:
         technical_score = max((result.score for result in technical_results), default=0.0)
         best_backtest = max(backtests, key=lambda item: item.total_return) if backtests else None
@@ -62,29 +65,79 @@ class RecommendationService:
             avg_volume=avg_volume
         )
 
-        backtest_points = self._backtest_component(best_backtest) if best_backtest else 0.0
-        
-        # Max Possible:
-        # Tech: 100 * tech_wt
-        # Backtest: 100 * backtest_wt (Since backtest max component was 25 for 0.25 wt, we should scale it. Wait, previously max was 25 points out of 100. So we should treat raw component as out of 100 and multiply by weight.)
-        
-        # Actually, let's normalize raw scores to 100:
-        raw_tech = technical_score # 0 to 100
-        raw_backtest = min(max((best_backtest.total_return * 4) if best_backtest and best_backtest.trade_count >= 5 else 0.0, -20.0), 100.0) # -20 to 100
-        # Guard against NaN propagation from backtest or other sources
-        import math
-        if math.isnan(raw_backtest):
-            raw_backtest = 0.0
-        raw_news = sentiment_score * 100 # -100 to 100
-        raw_fund = fundamental_score * 100 # -100 to 100
-        
-        score = round(
-            (raw_tech * tech_wt) + 
-            (raw_backtest * backtest_wt) + 
-            (raw_news * news_wt) + 
-            (raw_fund * fund_wt), 2
+        # Stage 2 Market Breadth gate (fail-open to baseline on any governance error)
+        breadth_active = False
+        try:
+            from ..governance.rule_manager import RuleManager
+
+            breadth_active = RuleManager().is_active_in_production("market_breadth")
+        except Exception as e:
+            logger.warning(
+                "governance_fail_open | symbol=%s | rule=market_breadth | error=%s | action=baseline_scoring",
+                symbol,
+                e,
+            )
+            breadth_active = False
+
+        raw_tech = technical_score  # 0 to 100
+        raw_backtest = min(
+            max(
+                (best_backtest.total_return * 4)
+                if best_backtest and best_backtest.trade_count >= 5
+                else 0.0,
+                -20.0,
+            ),
+            100.0,
         )
-        score = max(0.0, min(100.0, score)) # Ensure bounds
+        if math.isnan(raw_backtest) or math.isinf(raw_backtest):
+            raw_backtest = 0.0
+        raw_news = sentiment_score * 100  # -100 to 100
+        raw_fund = fundamental_score * 100  # -100 to 100
+
+        if breadth_active:
+            # Stage 2: rebalanced 100-point matrix + live soft contribution
+            from .scoring_matrix_service import ScoringMatrixService
+
+            matrix_config = ScoringMatrixService.get_matrix_config(market_breadth_promoted=True)
+            soft = market_breadth_soft_score
+            if soft is None or (isinstance(soft, float) and (math.isnan(soft) or math.isinf(soft))):
+                soft = 0.0
+                logger.warning(
+                    "breadth_soft_missing | symbol=%s | action=soft_score_0",
+                    symbol,
+                )
+            # Map soft contribution [-15, +15] → factor score [0, 100] centered at 50
+            soft_f = max(-15.0, min(15.0, float(soft)))
+            breadth_factor = max(0.0, min(100.0, 50.0 + (soft_f / 15.0) * 50.0))
+            raw_vol = min(
+                100.0,
+                max(0.0, (current_volume / max(1.0, float(avg_volume))) * 50.0),
+            )
+            score = round(
+                ScoringMatrixService.compute_composite_score(
+                    technical_score=raw_tech,
+                    sentiment_score=raw_news,
+                    fundamental_score=raw_fund,
+                    volume_score=raw_vol,
+                    market_breadth_score=breadth_factor,
+                    matrix_config=matrix_config,
+                ),
+                2,
+            )
+        else:
+            # Baseline production path (pre-Stage-2) — preserve dynamic weights + backtest
+            score = round(
+                (raw_tech * tech_wt)
+                + (raw_backtest * backtest_wt)
+                + (raw_news * news_wt)
+                + (raw_fund * fund_wt),
+                2,
+            )
+
+        if math.isnan(score) or math.isinf(score):
+            logger.error("composite_score_non_finite | symbol=%s | score=%s | fail_open=0", symbol, score)
+            score = 0.0
+        score = max(0.0, min(100.0, score))  # Ensure bounds
         
         confidence = round(min(0.95, max(0.35, score / 100)), 2)
         trade_plans = self._build_trade_plans(technical_results, backtests, candles_by_mode)
