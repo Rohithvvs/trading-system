@@ -418,3 +418,50 @@ def test_mixed_naive_and_aware_timestamps_do_not_raise() -> None:
     result = deduplicate_articles([art1, art2])
     assert len(result) == 1
     assert result[0].url == "http://example.com/a"
+
+
+def test_missing_published_at_does_not_raise() -> None:
+    """014 residual M1: optional published_at must not crash production dedup."""
+    now = datetime.datetime(2023, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    # Same 4h window so title-overlap collapse can apply (None sorts as epoch
+    # and would otherwise sit in a separate window from modern timestamps).
+    near = datetime.datetime(2023, 1, 1, 12, 30, 0, tzinfo=datetime.timezone.utc)
+    articles = [
+        ArticleItem(
+            title="AAPL Earnings Beat Estimates Today",
+            published_at=None,
+            source="CNBC",
+            url="http://example.com/missing",
+            sentiment_score=0.5,
+        ),
+        ArticleItem(
+            title="AAPL Earnings Beat Estimates Today",
+            published_at=near,
+            source="Reuters",
+            url="http://example.com/fresh",
+            sentiment_score=0.5,
+        ),
+        ArticleItem(
+            title="Unrelated Chip Shortage Eases Supply",
+            published_at=now,
+            source="Unknown",
+            url="http://example.com/other",
+            sentiment_score=0.1,
+        ),
+    ]
+
+    result = deduplicate_articles(articles)
+    # Must complete without raising; missing-ts row is treated as oldest.
+    assert len(result) >= 1
+    urls = {a.url for a in result}
+    assert "http://example.com/other" in urls
+
+
+def test_all_missing_published_at_still_returns() -> None:
+    """All-None timestamps: function completes and keeps unique titles."""
+    articles = [
+        ArticleItem(title="Alpha Unique Headline One", published_at=None, url="u1"),
+        ArticleItem(title="Beta Unique Headline Two", published_at=None, url="u2"),
+    ]
+    result = deduplicate_articles(articles)
+    assert len(result) == 2

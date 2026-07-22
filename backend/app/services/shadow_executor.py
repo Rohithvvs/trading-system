@@ -4,19 +4,23 @@ import atexit
 import copy
 import json
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.session import SessionLocal
 from app.models.analysis import AnalysisHistory, ArticleDedupLog
 from app.models.stock import WatchedStock
 from app.schemas.analysis import ArticleItem
 from .news_deduplication import _as_utc, _clean_title, deduplicate_articles
+from .sentiment_decay import calculate_sentiment_time_decay
+from .market_breadth import calculate_market_breadth, StockBreadthItem
 
 logger = logging.getLogger("app.shadow_executor")
 
@@ -27,6 +31,9 @@ _HISTORY_RETRY_DELAY_SECONDS = 0.5  # total wait budget ~5s
 _MAX_PENDING_SHADOW_TASKS = 64
 # Accept history rows created slightly before run start (clock skew / flush delay).
 _HISTORY_NOT_BEFORE_SLACK = timedelta(seconds=2)
+# Serialize shadow_outputs merges in-process so concurrent feature workers cannot
+# last-write-wins drop sibling keys (FR-008). Complements row-level FOR UPDATE.
+_shadow_outputs_write_lock = threading.Lock()
 
 
 class ShadowThreadPool:
@@ -84,6 +91,60 @@ def _normalize_shadow_outputs(raw: Any) -> dict[str, Any]:
         except Exception:
             return {}
     return {}
+
+
+def _merge_shadow_outputs_locked(
+    session: Session,
+    history: AnalysisHistory,
+    patch: dict[str, Any],
+) -> AnalysisHistory:
+    """Atomically merge ``patch`` into ``history.shadow_outputs`` (FR-008).
+
+    PostgreSQL: server-side JSONB ``||`` merge (single UPDATE, no lost siblings).
+    SQLite / other: SELECT FOR UPDATE + in-process merge (callers also hold the
+    process-wide write lock).
+    """
+    bind = session.get_bind()
+    dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
+
+    if dialect == "postgresql":
+        # Atomic key merge: COALESCE(existing, {}) || patch
+        from sqlalchemy.dialects.postgresql import JSONB
+        from sqlalchemy import type_coerce, func
+
+        empty = type_coerce({}, JSONB)
+        patch_json = type_coerce(patch, JSONB)
+        coalesced = func.coalesce(AnalysisHistory.shadow_outputs, empty)
+        session.execute(
+            update(AnalysisHistory)
+            .where(AnalysisHistory.id == history.id)
+            .values(shadow_outputs=coalesced.op("||")(patch_json))
+        )
+        session.commit()
+        locked = session.execute(
+            select(AnalysisHistory).where(AnalysisHistory.id == history.id)
+        ).scalar_one_or_none()
+        if locked is None:
+            raise RuntimeError(
+                f"AnalysisHistory id={history.id} not found after shadow merge"
+            )
+        return locked
+
+    locked = session.execute(
+        select(AnalysisHistory)
+        .where(AnalysisHistory.id == history.id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if locked is None:
+        raise RuntimeError(f"AnalysisHistory id={history.id} not found for shadow merge")
+
+    merged = _normalize_shadow_outputs(locked.shadow_outputs)
+    merged.update(patch)
+    # Assign a fresh dict so SQLAlchemy JSON/JSONB change tracking always fires.
+    locked.shadow_outputs = dict(merged)
+    flag_modified(locked, "shadow_outputs")
+    session.commit()
+    return locked
 
 
 def _build_removed_audit_rows(
@@ -193,36 +254,43 @@ def _persist_shadow_telemetry(
         "executed_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    patch = {
+        # Nested under news_dedup so multi-feature shadow keys can coexist.
+        # Flat FR-010 keys are also mirrored for literal-spec consumers.
+        "news_dedup": telemetry,
+        "original_news_count": original_news_count,
+        "kept_news_count": kept_news_count,
+    }
+
     last_error: Exception | None = None
     for attempt in range(_HISTORY_RETRY_ATTEMPTS):
         session = SessionLocal()
+        history: AnalysisHistory | None = None
+        should_retry = False
         try:
-            history = _load_latest_history(session, stock_id, not_before=not_before)
-            if history is None:
-                session.close()
-                if attempt + 1 < _HISTORY_RETRY_ATTEMPTS:
-                    time.sleep(_HISTORY_RETRY_DELAY_SECONDS)
+            with _shadow_outputs_write_lock:
+                history = _load_latest_history(session, stock_id, not_before=not_before)
+                if history is None:
+                    should_retry = attempt + 1 < _HISTORY_RETRY_ATTEMPTS
+                else:
+                    locked = _merge_shadow_outputs_locked(session, history, patch)
+                    logger.info(
+                        "Shadow news dedup complete | symbol=%s | original=%s | kept=%s | "
+                        "removed=%s | history_id=%s | attempt=%s",
+                        symbol,
+                        original_news_count,
+                        kept_news_count,
+                        removed_news_count,
+                        locked.id,
+                        attempt + 1,
+                    )
+                    return
+            # Sleep outside the write lock so other features can merge.
+            if history is None and should_retry:
+                time.sleep(_HISTORY_RETRY_DELAY_SECONDS)
                 continue
-
-            shadow_outputs = _normalize_shadow_outputs(history.shadow_outputs)
-            # Nested under news_dedup so multi-feature shadow keys can coexist.
-            # Flat FR-010 keys are also mirrored for literal-spec consumers.
-            shadow_outputs["news_dedup"] = telemetry
-            shadow_outputs["original_news_count"] = original_news_count
-            shadow_outputs["kept_news_count"] = kept_news_count
-            history.shadow_outputs = shadow_outputs
-            session.commit()
-            logger.info(
-                "Shadow news dedup complete | symbol=%s | original=%s | kept=%s | "
-                "removed=%s | history_id=%s | attempt=%s",
-                symbol,
-                original_news_count,
-                kept_news_count,
-                removed_news_count,
-                history.id,
-                attempt + 1,
-            )
-            return
+            if history is None:
+                break
         except Exception as exc:
             last_error = exc
             try:
@@ -325,4 +393,151 @@ def execute_shadow_news_dedup(symbol: str, articles: list[ArticleItem]) -> None:
     except Exception as e:
         logger.warning(
             "Shadow news deduplication execution failed: %s | symbol=%s", e, symbol
+        )
+
+
+def _persist_shadow_key_telemetry(
+    symbol: str,
+    stock_id: int | None,
+    feature_key: str,
+    telemetry: dict[str, Any],
+    not_before: datetime | None = None,
+) -> None:
+    """Persist feature_key telemetry under shadow_outputs for the given symbol/stock_id.
+
+    Uses a process-wide write lock plus row-level FOR UPDATE merge so concurrent
+    shadow features never overwrite each other's keys (FR-008 / SC-002).
+    """
+    session = SessionLocal()
+    try:
+        if stock_id is None:
+            stock_id = _resolve_stock_id(session, symbol)
+    finally:
+        session.close()
+
+    if stock_id is None:
+        logger.warning(
+            "Shadow telemetry skipped (%s): stock not found | symbol=%s",
+            feature_key,
+            symbol,
+        )
+        return
+
+    patch = {feature_key: telemetry}
+    last_error: Exception | None = None
+    for attempt in range(_HISTORY_RETRY_ATTEMPTS):
+        session = SessionLocal()
+        history: AnalysisHistory | None = None
+        should_retry = False
+        try:
+            with _shadow_outputs_write_lock:
+                history = _load_latest_history(session, stock_id, not_before=not_before)
+                if history is None:
+                    should_retry = attempt + 1 < _HISTORY_RETRY_ATTEMPTS
+                else:
+                    locked = _merge_shadow_outputs_locked(session, history, patch)
+                    logger.info(
+                        "Shadow %s telemetry saved | symbol=%s | history_id=%s | attempt=%s",
+                        feature_key,
+                        symbol,
+                        locked.id,
+                        attempt + 1,
+                    )
+                    return
+            if history is None and should_retry:
+                time.sleep(_HISTORY_RETRY_DELAY_SECONDS)
+                continue
+            if history is None:
+                break
+        except Exception as exc:
+            last_error = exc
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            logger.warning(
+                "Shadow %s telemetry write failed (attempt %s/%s): %s | symbol=%s",
+                feature_key,
+                attempt + 1,
+                _HISTORY_RETRY_ATTEMPTS,
+                exc,
+                symbol,
+            )
+            if attempt + 1 < _HISTORY_RETRY_ATTEMPTS:
+                time.sleep(_HISTORY_RETRY_DELAY_SECONDS)
+        finally:
+            session.close()
+
+    logger.warning(
+        "Shadow %s telemetry not written after %s attempts | symbol=%s | error=%s",
+        feature_key,
+        _HISTORY_RETRY_ATTEMPTS,
+        symbol,
+        last_error,
+    )
+
+
+def execute_shadow_sentiment_decay(
+    symbol: str,
+    articles: list[ArticleItem],
+    scan_time: datetime | None = None,
+    stock_id: int | None = None,
+) -> None:
+    """Run FEAT-018 Sentiment Time-Decay in shadow mode and persist telemetry.
+
+    Fault isolation:
+    - Deep-copies articles so live production lists remain untouched.
+    - Catches all exceptions and logs warnings without affecting calling code or other shadow rules.
+    """
+    try:
+        run_started_at = datetime.now(timezone.utc)
+        articles_copy = copy.deepcopy(articles)
+        telemetry_model = calculate_sentiment_time_decay(
+            articles_copy, scan_time=scan_time or run_started_at
+        )
+        telemetry_dict = telemetry_model.model_dump()
+
+        _persist_shadow_key_telemetry(
+            symbol=symbol,
+            stock_id=stock_id,
+            feature_key="sentiment_decay",
+            telemetry=telemetry_dict,
+            not_before=run_started_at,
+        )
+    except Exception as e:
+        logger.warning(
+            "Shadow sentiment decay execution failed: %s | symbol=%s", e, symbol
+        )
+
+
+def execute_shadow_market_breadth(
+    symbol: str,
+    universe_prices: list[StockBreadthItem | dict[str, Any]],
+    scan_time: datetime | None = None,
+    stock_id: int | None = None,
+) -> None:
+    """Run FEAT-016 Market Breadth in shadow mode and persist telemetry.
+
+    Fault isolation:
+    - Deep-copies universe prices to ensure zero side-effects.
+    - Catches all exceptions and logs warnings without affecting calling code or other shadow rules.
+    """
+    try:
+        run_started_at = datetime.now(timezone.utc)
+        universe_copy = copy.deepcopy(universe_prices)
+        telemetry_model = calculate_market_breadth(
+            universe_copy, scan_time=scan_time or run_started_at
+        )
+        telemetry_dict = telemetry_model.model_dump()
+
+        _persist_shadow_key_telemetry(
+            symbol=symbol,
+            stock_id=stock_id,
+            feature_key="market_breadth",
+            telemetry=telemetry_dict,
+            not_before=run_started_at,
+        )
+    except Exception as e:
+        logger.warning(
+            "Shadow market breadth execution failed: %s | symbol=%s", e, symbol
         )

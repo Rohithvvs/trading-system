@@ -30,8 +30,18 @@ def _get_source_priority(source: str) -> int:
     return 1
 
 
-def _as_utc(value: datetime) -> datetime:
-    """Normalize naive/aware timestamps so window math never raises TypeError."""
+# Missing publication times sort as oldest so incomplete rows are not preferred.
+_MISSING_TS = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _as_utc(value: datetime | None) -> datetime:
+    """Normalize timestamps for window math; never raise on None/naive values.
+
+    ``None`` is treated as epoch (oldest) so production dedup remains safe after
+    ``ArticleItem.published_at`` became optional (014 residual M1).
+    """
+    if value is None:
+        return _MISSING_TS
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)

@@ -15,7 +15,7 @@
 
 **Purpose**: Shared schema definitions and data structures for shadow candidate features.
 
-- [ ] T001 [P] Create Pydantic data schemas for sentiment decay and market breadth telemetry payloads in `backend/app/schemas/shadow_telemetry.py`
+- [X] T001 [P] Create Pydantic data schemas for sentiment decay and market breadth telemetry payloads in `backend/app/schemas/shadow_telemetry.py`
 
 ---
 
@@ -25,8 +25,8 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] Verify and update `AnalysisHistory` ORM model support for `shadow_outputs` dictionary normalization in `backend/app/models/analysis.py`
-- [ ] T003 [P] Add normalization and persistence helpers for `sentiment_decay` and `market_breadth` shadow keys in `backend/app/services/shadow_executor.py`
+- [X] T002 [P] Verify and update `AnalysisHistory` ORM model support for `shadow_outputs` dictionary normalization in `backend/app/models/analysis.py`
+- [X] T003 [P] Add normalization and persistence helpers for `sentiment_decay` and `market_breadth` shadow keys in `backend/app/services/shadow_executor.py`
 
 **Checkpoint**: Shared schemas and shadow telemetry persistence infrastructure ready.
 
@@ -40,10 +40,10 @@
 
 ### Tasks for User Story 1
 
-- [ ] T004 [P] [US1] Write unit tests for exponential decay math, 72h cutoff, and missing timestamp edge cases in `backend/tests/unit/test_sentiment_decay.py`
-- [ ] T005 [P] [US1] Implement pure `calculate_sentiment_time_decay` function with exponential decay and 72h cutoff in `backend/app/services/sentiment_decay.py`
-- [ ] T006 [US1] Implement `execute_shadow_sentiment_decay` worker in `backend/app/services/shadow_executor.py`
-- [ ] T007 [US1] Submit shadow sentiment decay task to `ShadowThreadPool` upon news analysis completion in `backend/app/agents/news_analysis_agent.py`
+- [X] T004 [P] [US1] Write unit tests for exponential decay math, 72h cutoff, and missing timestamp edge cases in `backend/tests/unit/test_sentiment_decay.py`
+- [X] T005 [P] [US1] Implement pure `calculate_sentiment_time_decay` function with exponential decay and 72h cutoff in `backend/app/services/sentiment_decay.py`
+- [X] T006 [US1] Implement `execute_shadow_sentiment_decay` worker in `backend/app/services/shadow_executor.py`
+- [X] T007 [US1] Submit shadow sentiment decay via `OrchestratorAgent._submit_shadow_candidate_features` **after** `AnalysisHistory` persist (independent of `news_dedup` lifecycle) in `backend/app/agents/orchestrator_agent.py`
 
 **Checkpoint**: User Story 1 (Sentiment Time-Decay) fully testable and functional in Shadow Mode.
 
@@ -57,10 +57,10 @@
 
 ### Tasks for User Story 2
 
-- [ ] T008 [P] [US2] Write unit tests for 200-day MA percentage calculation, 5 regime tiers, and small universe guard rails in `backend/tests/unit/test_market_breadth.py`
-- [ ] T009 [P] [US2] Implement pure `calculate_market_breadth` function and regime mapping matrix in `backend/app/services/market_breadth.py`
-- [ ] T010 [US2] Implement `execute_shadow_market_breadth` worker in `backend/app/services/shadow_executor.py`
-- [ ] T011 [US2] Submit shadow market breadth task to `ShadowThreadPool` during scan orchestration in `backend/app/agents/orchestrator_agent.py`
+- [X] T008 [P] [US2] Write unit tests for 200-day MA percentage calculation, 5 regime tiers, and small universe guard rails in `backend/tests/unit/test_market_breadth.py`
+- [X] T009 [P] [US2] Implement pure `calculate_market_breadth` function and regime mapping matrix in `backend/app/services/market_breadth.py`
+- [X] T010 [US2] Implement `execute_shadow_market_breadth` worker in `backend/app/services/shadow_executor.py`
+- [X] T011 [US2] Submit shadow market breadth via `OrchestratorAgent._submit_shadow_candidate_features` with **full bulk-universe** price/SMA200 rows after persist in `backend/app/agents/orchestrator_agent.py`
 
 **Checkpoint**: User Story 2 (Market Breadth) fully testable and functional in Shadow Mode.
 
@@ -74,9 +74,9 @@
 
 ### Tasks for User Story 3
 
-- [ ] T012 [P] [US3] Write integration tests for concurrent execution and non-overwriting JSONB dictionary updates in `backend/tests/integration/test_parallel_shadow_features.py`
-- [ ] T013 [P] [US3] Write integration tests for deliberate shadow crash isolation and production score identity verification in `backend/tests/integration/test_parallel_shadow_features.py`
-- [ ] T014 [US3] Verify telemetry query and `situation_tags` correlation capabilities for Sprint 8 A/B ablation analysis in `backend/app/services/analytics_service.py`
+- [X] T012 [P] [US3] Write integration tests for concurrent execution and non-overwriting JSONB dictionary updates in `backend/tests/integration/test_parallel_shadow_features.py`
+- [X] T013 [P] [US3] Write integration tests for deliberate shadow crash isolation and production score identity verification in `backend/tests/integration/test_parallel_shadow_features.py`
+- [X] T014 [US3] Add `query_shadow_candidates_by_situation_tags` for Sprint 8 A/B ablation (tags + `sentiment_decay` / `market_breadth`) in `backend/app/services/analytics_service.py`
 
 **Checkpoint**: All three user stories functional, concurrently wired, fault-isolated, and ready for analytics.
 
@@ -86,8 +86,8 @@
 
 **Purpose**: Validation, quickstart execution, and final quality checks.
 
-- [ ] T015 [P] Run full pytest suite for unit and integration shadow tests
-- [ ] T016 [P] Execute validation scenarios defined in `specs/014-shadow-sentiment-breadth/quickstart.md`
+- [X] T015 [P] Run full pytest suite for unit and integration shadow tests
+- [X] T016 [P] Execute validation scenarios defined in `specs/014-shadow-sentiment-breadth/quickstart.md`
 
 ---
 

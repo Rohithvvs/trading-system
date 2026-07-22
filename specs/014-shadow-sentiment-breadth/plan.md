@@ -65,16 +65,22 @@ backend/
 │   ├── services/
 │   │   ├── sentiment_decay.py      # [NEW] Pure function for FEAT-018 Sentiment Time-Decay
 │   │   ├── market_breadth.py       # [NEW] Pure function for FEAT-016 Market Breadth
-│   │   └── shadow_executor.py      # [MODIFIED] Added execute_shadow_sentiment_decay & execute_shadow_market_breadth
+│   │   ├── analytics_service.py    # [MODIFIED] Shadow+tags correlation query helper
+│   │   └── shadow_executor.py      # [MODIFIED] Shadow workers + atomic shadow_outputs merge
+│   ├── schemas/
+│   │   └── shadow_telemetry.py     # [NEW] Pydantic telemetry schemas
 │   └── agents/
-│       ├── news_analysis_agent.py  # [MODIFIED] Submits shadow sentiment decay task
-│       └── orchestrator_agent.py   # [MODIFIED] Submits shadow market breadth task
+│       ├── news_analysis_agent.py  # [MODIFIED] Shadow news_dedup only (not sentiment decay)
+│       └── orchestrator_agent.py   # [MODIFIED] Post-persist FEAT-018 + FEAT-016 submission
 └── tests/
     ├── unit/
     │   ├── test_sentiment_decay.py # [NEW] Unit tests for Sentiment Time-Decay
-    │   └── test_market_breadth.py  # [NEW] Unit tests for Market Breadth
-    └── integration/
-        └── test_parallel_shadow_features.py # [NEW] Concurrent shadow execution & fault isolation tests
+    │   ├── test_market_breadth.py  # [NEW] Unit tests for Market Breadth
+    │   └── test_shadow_candidate_*.py
+    ├── integration/
+    │   └── test_parallel_shadow_features.py # [NEW] Concurrent shadow execution & fault isolation tests
+    └── regression/
+        └── test_shadow_sentiment_breadth_regression.py
 ```
 
 ---
@@ -107,15 +113,20 @@ def calculate_sentiment_time_decay(
 Contains aggregate raw score, aggregate decayed score, total article count, decayed article count, zeroed article count, and article breakdown details.
 
 #### Pipeline Insertion Point
-Executed asynchronously in `NewsAnalysisAgent.analyze_news()` after raw scoring is complete:
+Submitted **after** `OrchestratorAgent._persist_analysis` (so `AnalysisHistory` exists), independent of the `news_dedup` rule lifecycle and independent of the experimental shadow ruleset executor:
+
 ```python
+# OrchestratorAgent._submit_shadow_candidate_features(...)
 ShadowThreadPool.submit_task(
     execute_shadow_sentiment_decay,
-    symbol=symbol,
-    articles=articles,
-    raw_sentiment_score=composite_score,
+    symbol,
+    articles or [],
+    None,       # scan_time
+    stock_id,
 )
 ```
+
+Rationale (audit H1/H3): early news-agent submission raced history creation and was incorrectly gated on `news_dedup == "shadow"`.
 
 ---
 
@@ -147,29 +158,34 @@ def calculate_market_breadth(
 Contains universe size, valid stock count, above 200MA count, breadth percentage, regime label, soft score contribution, and validity flag.
 
 #### Pipeline Insertion Point
-Executed asynchronously in `orchestrator_agent.py` after universe price/SMA data is retrieved during a scan cycle:
+Submitted from the same post-persist helper as FEAT-018, with **bulk technical universe** rows (close + `sma_200` for all symbols in the scan batch):
+
 ```python
+breadth_items = self._universe_breadth_items_from_bulk(bulk_technical_results)
 ShadowThreadPool.submit_task(
     execute_shadow_market_breadth,
-    stock_id=stock_id,
-    symbol=symbol,
-    universe_data=universe_data,
+    symbol,
+    breadth_items,
+    None,       # scan_time
+    stock_id,
 )
 ```
+
+Note: single-symbol analysis may yield `regime_label=unreliable` when valid count &lt; 10 (FR-006 guard rail). Full bulk scans supply the monitored universe.
 
 ---
 
 ### 5.3 Parallel Shadow Wiring & Telemetry Persistence
 
-1. **Concurrent Submission**: Both shadow tasks are submitted independently to `ShadowThreadPool`.
+1. **Concurrent Submission**: Both shadow tasks are submitted independently to `ShadowThreadPool` after production persist (non-blocking; SC-001).
 2. **Telemetry Atomic Update**:
-   - `execute_shadow_sentiment_decay` and `execute_shadow_market_breadth` retrieve the target `AnalysisHistory` record.
-   - Outputs are written directly to `history.shadow_outputs["sentiment_decay"]` and `history.shadow_outputs["market_breadth"]`.
-   - ORM modifications update dedicated keys without overwriting `news_dedup` or top-level telemetry fields.
+   - Workers merge into `shadow_outputs` under distinct keys (`sentiment_decay`, `market_breadth`).
+   - PostgreSQL: JSONB `||` merge; SQLite/tests: process lock + `FOR UPDATE` + dict merge (FR-008 / SC-002).
+   - Sibling keys such as `news_dedup` are preserved.
 3. **Fault Isolation**:
-   - Every shadow worker function wraps its calculation and persistence steps inside a `try...except Exception:` block.
-   - Any exception is logged as a warning and safely swallowed.
-   - Production recommendation pipelines and other shadow tasks continue without interruption.
+   - Every shadow worker wraps calculation and persistence in `try...except Exception:`.
+   - Candidate submits are isolated from each other and from the experimental ruleset executor.
+   - Production recommendation pipelines continue without interruption (FR-009 / FR-010).
 
 ---
 

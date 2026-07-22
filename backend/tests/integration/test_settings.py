@@ -17,14 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from backend.app.models import FyersToken, FyersTokenHistory
 from backend.app.services.token_service import _decrypt_from_storage, _mask_token
-from backend.tests.conftest import TEST_DB_PATH
 
 try:
     from app.db.session import get_db
     from app.main import app
+    import backend.tests.conftest as _conftest
 except ModuleNotFoundError:  # pragma: no cover
     from backend.app.db.session import get_db
     from backend.app.main import app
+    import backend.tests.conftest as _conftest
 
 # Resolve the module that owns the mounted route (handles app.* vs backend.app.*).
 _settings_mod_name = "app.routes.settings"
@@ -37,11 +38,21 @@ settings_routes = importlib.import_module(_settings_mod_name)
 
 
 @pytest.fixture()
-def client(db_session) -> Generator[TestClient, None, None]:
-    """TestClient with async get_db override on the same file DB as db_session."""
-    # db_session holds a sync connection open; use a shared-cache URI when possible.
-    db_path = Path(TEST_DB_PATH).resolve()
-    async_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+def client(db_session, test_engine) -> Generator[TestClient, None, None]:
+    """TestClient with async get_db on the **same per-test SQLite file** as db_session.
+
+    Uses ``CURRENT_TEST_DB_PATH`` / ``test_engine`` URL so seed rows written via
+    the sync fixture are visible to the async route (fixes token deactivate flake).
+    """
+    db_path = getattr(_conftest, "CURRENT_TEST_DB_PATH", None)
+    if db_path is None:
+        # Fallback: derive path from the sync test engine URL.
+        url = str(test_engine.url)
+        db_path = Path(url.replace("sqlite:///", ""))
+    else:
+        db_path = Path(db_path)
+
+    async_url = f"sqlite+aiosqlite:///{db_path.resolve().as_posix()}"
     async_engine = create_async_engine(
         async_url,
         connect_args={"check_same_thread": False},
@@ -153,6 +164,7 @@ def test_save_token_success(client, db_session, monkeypatch):
     )
     db_session.add(old_token)
     db_session.commit()
+    old_id = old_token.id
 
     class MockResponse:
         status_code = 200
@@ -181,13 +193,27 @@ def test_save_token_success(client, db_session, monkeypatch):
         assert call_kwargs.get("source") == "API"
         assert "successfully" in call_kwargs.get("message", "").lower()
 
+        # Drop any open sync snapshot so we see the async route's commit.
+        db_session.rollback()
         db_session.expire_all()
-        db_session.refresh(old_token)
-        assert old_token.is_active is False
-        assert old_token.status == "inactive"
 
-        new_token = db_session.query(FyersToken).filter_by(is_active=True).first()
+        reloaded_old = db_session.query(FyersToken).filter_by(id=old_id).one()
+        assert not bool(reloaded_old.is_active)
+        assert reloaded_old.status == "inactive"
+
+        new_token = (
+            db_session.query(FyersToken)
+            .filter(FyersToken.is_active.is_(True))
+            .order_by(FyersToken.id.desc())
+            .first()
+        )
+        if new_token is None:
+            new_token = next(
+                (t for t in db_session.query(FyersToken).all() if bool(t.is_active)),
+                None,
+            )
         assert new_token is not None
+        assert new_token.id != old_id
         decrypted = _decrypt_from_storage(new_token.access_token)
         assert decrypted == plaintext
         assert new_token.status == "Success"

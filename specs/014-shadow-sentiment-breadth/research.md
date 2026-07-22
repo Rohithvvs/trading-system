@@ -43,7 +43,8 @@
 ---
 
 ### Decision 4: Concurrency & Fault Isolation Architecture
-- **Decision**: Submit both shadow calculations via `ShadowThreadPool.submit_task()`. Each shadow worker function handles its own calculation, opens a session using `SessionLocal()`, and commits changes to `shadow_outputs` using `SAVEPOINT` ORM merge semantics.
+- **Decision**: Submit both shadow calculations via `ShadowThreadPool.submit_task()` **after** production `AnalysisHistory` persist (orchestrator). Each worker opens `SessionLocal()` and merges into `shadow_outputs` under a distinct key. PostgreSQL uses atomic JSONB `||` merge; SQLite uses a process lock + row re-read.
 - **Rationale**: 
-  - Dedicated thread pool prevents shadow execution from consuming FastAPI request loops.
-  - Independent `try...except` blocks in worker functions ensure a crash in `market_breadth` does not impact `sentiment_decay`, and neither impacts production scoring.
+  - Dedicated thread pool prevents shadow execution from consuming FastAPI request loops (SC-001).
+  - Independent `try...except` blocks ensure a crash in `market_breadth` does not impact `sentiment_decay`, and neither impacts production scoring (FR-009/010).
+  - Post-persist submission and key merge prevent lost telemetry under concurrent writers (FR-008 / SC-002).
