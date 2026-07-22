@@ -247,6 +247,36 @@ async def job_retention_cleanup():
     except Exception:
         logger.exception("Retention cleanup failed")
 
+
+async def job_weekly_rule_governance_report():
+    """FEAT-026: weekly on-schedule governance evaluation for promoted rules."""
+    try:
+        from .db.session import AsyncSessionLocal
+        from .governance.rule_governance import (
+            evaluate_all_promoted_rules,
+            persist_governance_report,
+        )
+
+        async with AsyncSessionLocal() as db:
+            response = await evaluate_all_promoted_rules(db)
+        try:
+            path = persist_governance_report(response)
+            logger.info(
+                "WEEKLY_RULE_GOVERNANCE_OK | rules=%s | path=%s | evaluated_at=%s",
+                response.promoted_rules_count,
+                path,
+                response.evaluated_at,
+            )
+        except Exception:
+            # Evaluation succeeded; persistence failure must not mark job as total failure only.
+            logger.exception(
+                "WEEKLY_RULE_GOVERNANCE_PERSIST_FAILED | rules=%s | evaluated_at=%s",
+                response.promoted_rules_count,
+                response.evaluated_at,
+            )
+    except Exception:
+        logger.exception("WEEKLY_RULE_GOVERNANCE_FAILED")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .config import settings
@@ -502,6 +532,16 @@ async def lifespan(app: FastAPI):
         CronTrigger(hour=3, minute=0, timezone="Asia/Kolkata"),
         id="observability_log_rotation",
         replace_existing=True,
+    )
+
+    # JOB 8: Weekly Production Rule Governance report (FEAT-026 / FR-001)
+    scheduler.add_job(
+        job_weekly_rule_governance_report,
+        CronTrigger(day_of_week="sun", hour=18, minute=0, timezone="Asia/Kolkata"),
+        id="weekly_rule_governance_report",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
     # Clear in-memory FYERS quarantine on every app start

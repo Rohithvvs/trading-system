@@ -214,6 +214,17 @@ def _parse_args(args: list[str] | None = None) -> argparse.Namespace:
     query_p.add_argument("--limit", type=int, default=50, help="Max rows to return")
     query_p.add_argument("--admin-token", default=None, help="Administrator token")
 
+    # governance-report (FEAT-026)
+    gov_report_p = sub.add_parser(
+        "governance-report",
+        help="Generate Production Rule Governance report (FEAT-026)",
+    )
+    gov_report_p.add_argument(
+        "--rules",
+        default=None,
+        help="Comma-separated rule IDs to evaluate (default: news_dedup,sentiment_decay,market_breadth)",
+    )
+
     return parser.parse_args(args)
 
 
@@ -667,6 +678,33 @@ async def _run_command(args: argparse.Namespace) -> None:
                         f"  id={rec.id} symbol={symbol} action={rec.recommendation} "
                         f"tags={rec.situation_tags} created_at={rec.created_at}"
                     )
+
+            elif args.command in ("governance-report", "governance_report"):
+                from .rule_governance import (
+                    evaluate_all_promoted_rules,
+                    persist_governance_report,
+                )
+                rules_filter = None
+                if getattr(args, "rules", None):
+                    rules_filter = [r.strip() for r in args.rules.split(",") if r.strip()]
+                print("Generating Production Rule Governance Report (FEAT-026)...")
+                response = await evaluate_all_promoted_rules(db, rule_ids=rules_filter)
+                print(f"[OK] Evaluated {response.promoted_rules_count} rule(s) at {response.evaluated_at[:19]}.")
+                try:
+                    report_path = persist_governance_report(response)
+                    print(f"[OK] Report saved: {report_path}")
+                except Exception as persist_exc:
+                    # Hardening: console report still useful if disk write fails.
+                    print(f"[WARN] Report persist failed: {persist_exc}", file=sys.stderr)
+                print("=" * 86)
+                print(f"{'RULE ID':<20} | {'HEALTH STATUS':<18} | {'30D FP RATE':<12} | {'BASELINE':<10} | {'SAMPLES':<8}")
+                print("-" * 86)
+                for r in response.rules:
+                    fp_str = f"{r.false_positive_rate_30d * 100:.1f}%" if r.false_positive_rate_30d is not None else "N/A"
+                    base_str = f"{r.baseline_false_positive_rate * 100:.1f}%"
+                    print(f"{r.rule_id:<20} | {r.health_status:<18} | {fp_str:<12} | {base_str:<10} | {r.sample_count_30d:<8}")
+                    print(f"  Reason: {r.status_reason}")
+                print("=" * 86)
 
 
         except SingleActiveConstraintError as e:
