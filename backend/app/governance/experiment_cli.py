@@ -149,6 +149,11 @@ def _parse_args(args: list[str] | None = None) -> argparse.Namespace:
     promote_p = sub.add_parser("promote", help="Promote a rule to production")
     promote_p.add_argument("--rule", required=True, help="Rule ID (e.g. news_dedup)")
     promote_p.add_argument("--checklist-approved", action="store_true", help="Confirm completion of FEAT-010 review checklist")
+    promote_p.add_argument(
+        "--attribution-report-approved",
+        action="store_true",
+        help="SC-001: confirm A/B attribution report + interaction check approved (required for sentiment_decay/market_breadth)",
+    )
     promote_p.add_argument("--reason", default="", help="Justification/notes")
 
     # kill
@@ -447,37 +452,91 @@ async def _run_command(args: argparse.Namespace) -> None:
             elif args.command == "report":
                 from ..services.validation_report import ValidationReportGenerator
                 from ..config import settings
-                from pathlib import Path
-                generator = ValidationReportGenerator(db)
-                print(f"Generating Challenger Validation Report for '{args.rule}'...")
-                report = await generator.generate_report(args.rule)
-                print(f"[OK] Analysis completed for '{args.rule}' ({report['window_start'][:10]} to {report['window_end'][:10]}).")
-                print(f"[OK] Operational status: {report['status']}")
-                print(f"[OK] Deduplication Rate: {float(report['deduplication_rate'])*100:.2f}% (Range: 5% - 40%)")
-                print(f"[OK] False-Positive Rate: {float(report['false_positive_rate'])*100:.2f}% (Baseline: {float(report['baseline_false_positive_rate'])*100:.2f}%)")
-                if report.get("data_incomplete") and report.get("incomplete_data_warning"):
-                    print(f"[WARN] {report['incomplete_data_warning']}")
-                    if report.get("available_data_span_days") is not None:
-                        print(
-                            f"[WARN] Available shadow data span: "
-                            f"{report['available_data_span_days']} days (required: 14)."
-                        )
+                if args.rule in ("shadow_attribution", "attribution", "sentiment_decay", "market_breadth"):
+                    from pathlib import Path
+                    import json
+                    from ..services.attribution_validation_service import AttributionValidationService
+                    from ..services.attribution_data_loader import (
+                        load_shadow_histories,
+                        records_from_histories,
+                    )
 
-                reports_dir = Path(settings.governance_reports_dir)
-                if not reports_dir.is_absolute():
-                    from ..config.settings import ROOT_DIR
-                    reports_dir = ROOT_DIR / reports_dir
-                print(f"[OK] Saved structured report: {reports_dir / 'challenger_report_news_dedup.json'}")
-                print(f"[OK] Saved human-readable summary: {reports_dir / 'challenger_report_news_dedup.md'}")
+                    print(f"Generating 4-Way A/B Attribution & Interaction Report for '{args.rule}'...")
+                    histories = await load_shadow_histories(db, days=30)
+                    records, decay_deltas, breadth_contribs = records_from_histories(histories)
+
+                    report = AttributionValidationService.evaluate_ablation(records, days=30)
+                    interaction = AttributionValidationService.analyze_interaction(
+                        decay_deltas, breadth_contribs
+                    )
+
+                    print(f"[OK] Report Status: {report.status}")
+                    print(f"[OK] Evaluated Samples: {report.total_samples}")
+                    print(f"[OK] Baseline Win Rate: {report.baseline_metrics.win_rate * 100:.1f}%")
+                    print(f"[OK] Combined Win Rate: {report.combined_metrics.win_rate * 100:.1f}%")
+                    print(f"[OK] Correlation (Pearson r): {interaction.pearson_correlation:.4f}")
+                    print(f"[OK] Redundancy Classification: {interaction.redundancy_classification}")
+                    print(f"[OK] Sentiment Decay Recommendation: {interaction.decay_promotion_recommendation}")
+                    print(f"[OK] Market Breadth Recommendation: {interaction.breadth_promotion_recommendation}")
+                    print(f"[OK] Rationale: {interaction.rationale}")
+
+                    reports_dir = Path(settings.governance_reports_dir)
+                    if not reports_dir.is_absolute():
+                        from ..config.settings import ROOT_DIR
+                        reports_dir = ROOT_DIR / reports_dir
+                    reports_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = reports_dir / "attribution_interaction_report.json"
+                    out_path.write_text(
+                        json.dumps(
+                            {
+                                "attribution": report.model_dump(mode="json"),
+                                "interaction": interaction.model_dump(mode="json"),
+                            },
+                            indent=2,
+                            default=str,
+                        ),
+                        encoding="utf-8",
+                    )
+                    print(f"[OK] Saved structured report: {out_path}")
+
+                else:
+                    from pathlib import Path
+                    generator = ValidationReportGenerator(db)
+                    print(f"Generating Challenger Validation Report for '{args.rule}'...")
+                    report = await generator.generate_report(args.rule)
+                    print(f"[OK] Analysis completed for '{args.rule}' ({report['window_start'][:10]} to {report['window_end'][:10]}).")
+                    print(f"[OK] Operational status: {report['status']}")
+                    print(f"[OK] Deduplication Rate: {float(report['deduplication_rate'])*100:.2f}% (Range: 5% - 40%)")
+                    print(f"[OK] False-Positive Rate: {float(report['false_positive_rate'])*100:.2f}% (Baseline: {float(report['baseline_false_positive_rate'])*100:.2f}%)")
+                    if report.get("data_incomplete") and report.get("incomplete_data_warning"):
+                        print(f"[WARN] {report['incomplete_data_warning']}")
+                        if report.get("available_data_span_days") is not None:
+                            print(
+                                f"[WARN] Available shadow data span: "
+                                f"{report['available_data_span_days']} days (required: 14)."
+                            )
+
+                    reports_dir = Path(settings.governance_reports_dir)
+                    if not reports_dir.is_absolute():
+                        from ..config.settings import ROOT_DIR
+                        reports_dir = ROOT_DIR / reports_dir
+                    print(f"[OK] Saved structured report: {reports_dir / 'challenger_report_news_dedup.json'}")
+                    print(f"[OK] Saved human-readable summary: {reports_dir / 'challenger_report_news_dedup.md'}")
 
             elif args.command == "promote":
                 from .rule_manager import RuleManager
                 mgr = RuleManager()
                 try:
+                    # SC-001: Sprint-8 rules require --attribution-report-approved
                     await mgr.promote_rule(
                         rule_id=args.rule,
                         checklist_approved=args.checklist_approved,
                         reason=args.reason,
+                        attribution_report_approved=(
+                            True
+                            if args.rule not in ("sentiment_decay", "market_breadth")
+                            else bool(getattr(args, "attribution_report_approved", False))
+                        ),
                     )
                     print(f"[OK] Rule '{args.rule}' successfully promoted to PRODUCTION.")
                     print("[OK] State transition logged to audit log.")

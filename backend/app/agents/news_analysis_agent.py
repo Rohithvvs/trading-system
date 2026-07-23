@@ -89,4 +89,31 @@ class NewsAnalysisAgent:
                 self._submit_shadow_dedup(symbol, articles)
 
         score, label, summary = self.sentiment_service.summarize(symbol, input_articles)
+
+        # Stage 1 Promotion Check for sentiment_decay (fail-open to baseline score)
+        try:
+            from ..governance.rule_manager import RuleManager
+            if RuleManager().is_active_in_production("sentiment_decay"):
+                from ..services.sentiment_decay import calculate_sentiment_time_decay
+                decay_telemetry = calculate_sentiment_time_decay(input_articles)
+                score = float(decay_telemetry.aggregate_decayed_score)
+                # Keep label/summary consistent with decayed score (audit H7)
+                if score >= 0.2:
+                    label = "positive"
+                elif score <= -0.2:
+                    label = "negative"
+                else:
+                    label = "neutral"
+                summary = (
+                    f"{symbol} news flow is {label} after sentiment time-decay "
+                    f"(decayed_score={score:.2f})."
+                )
+        except Exception as e:
+            logger.error(
+                "governance_fail_open | symbol=%s | rule=sentiment_decay | error=%s | action=baseline_sentiment",
+                symbol,
+                e,
+            )
+
         return input_articles, score, label, summary
+

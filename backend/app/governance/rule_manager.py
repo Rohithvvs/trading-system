@@ -201,6 +201,7 @@ class RuleManager:
         new_state: str,
         reason: str,
         checklist_approved: bool | None = None,
+        attribution_report_approved: bool | None = None,
     ) -> None:
         """Best-effort audit write; state transition must not roll back on audit failure."""
         details: dict[str, object] = {
@@ -210,6 +211,8 @@ class RuleManager:
         }
         if checklist_approved is not None:
             details["checklist_approved"] = checklist_approved
+        if attribution_report_approved is not None:
+            details["attribution_report_approved"] = attribution_report_approved
         try:
             await self.audit_mgr.record(
                 actor=actor,
@@ -230,17 +233,43 @@ class RuleManager:
             )
 
     async def promote_rule(
-        self, rule_id: str, checklist_approved: bool, reason: str = "", actor: str = "admin"
+        self,
+        rule_id: str,
+        checklist_approved: bool,
+        reason: str = "",
+        actor: str = "admin",
+        attribution_report_approved: bool | None = None,
     ) -> None:
         """Promote a rule from 'shadow' to 'production'.
 
         Enforces checklist verification before state modification.
         Serialized with kill via ``_transition_lock`` (sequential admin actions).
+
+        Sprint 8 gates (centralized here so REST and CLI cannot diverge):
+        - SC-001: sentiment_decay / market_breadth require attribution_report_approved
+        - FR-008: market_breadth (Stage 2) requires sentiment_decay already in production
         """
         if not checklist_approved:
             raise ValueError(
                 "Rule promotion rejected. Must verify review checklist completion using the --checklist-approved flag."
             )
+
+        # SC-001: candidate Sprint-8 features require completed attribution report approval
+        if rule_id in ("sentiment_decay", "market_breadth"):
+            if attribution_report_approved is not True:
+                raise ValueError(
+                    f"Rule promotion rejected for '{rule_id}'. "
+                    "SC-001 requires attribution_report_approved=True "
+                    "(complete A/B attribution report and interaction check)."
+                )
+
+        # FR-008: Stage 2 blocked until Stage 1 is live
+        if rule_id == "market_breadth":
+            if not self.is_active_in_production("sentiment_decay"):
+                raise ValueError(
+                    "Stage 2 promotion ('market_breadth') blocked: "
+                    "Stage 1 ('sentiment_decay') must be promoted to production first."
+                )
 
         with self._transition_lock:
             current_state = self.get_rule_state(rule_id)
@@ -270,6 +299,9 @@ class RuleManager:
             new_state="production",
             reason=reason,
             checklist_approved=True,
+            attribution_report_approved=(
+                True if attribution_report_approved is True else attribution_report_approved
+            ),
         )
 
     async def kill_rule(self, rule_id: str, reason: str, actor: str = "admin") -> None:

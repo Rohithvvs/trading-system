@@ -33,6 +33,7 @@ class RecommendationAgent:
         sector_roc20: float | None = None,
         benchmark_roc20: float | None = None,
         feat007_abstained_reason: str | None = None,
+        market_breadth_soft_score: float | None = None,
     ) -> FinalRecommendation:
         primary_technical = technical_results[0]
         best_backtest = max(backtests, key=lambda item: item.total_return)
@@ -73,4 +74,5 @@ class RecommendationAgent:
             sector_roc20=sector_roc20,
             benchmark_roc20=benchmark_roc20,
             feat007_abstained_reason=feat007_abstained_reason,
+            market_breadth_soft_score=market_breadth_soft_score,
         )
