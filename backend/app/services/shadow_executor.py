@@ -21,8 +21,30 @@ from app.schemas.analysis import ArticleItem
 from .news_deduplication import _as_utc, _clean_title, deduplicate_articles
 from .sentiment_decay import calculate_sentiment_time_decay
 from .market_breadth import calculate_market_breadth, StockBreadthItem
+from .sector_strength import calculate_sector_strength, SectorInput
 
 logger = logging.getLogger("app.shadow_executor")
+
+
+def _annotate_telemetry_with_history_outcome(
+    telemetry: dict[str, Any],
+    history: AnalysisHistory | None,
+) -> dict[str, Any]:
+    """Attach rule-scoped outcome / false_positive labels from history (FEAT-026)."""
+    if history is None:
+        return telemetry
+    try:
+        from app.governance.rule_governance import outcome_fields_from_history
+
+        fields = outcome_fields_from_history(history)
+        if not fields:
+            return telemetry
+        annotated = dict(telemetry)
+        annotated.update(fields)
+        return annotated
+    except Exception as exc:  # never block shadow path
+        logger.warning("Outcome annotation skipped: %s", exc)
+        return telemetry
 
 # SC-003: allow orchestrator to persist AnalysisHistory after news agent returns.
 _HISTORY_RETRY_ATTEMPTS = 10
@@ -247,19 +269,12 @@ def _persist_shadow_telemetry(
         )
         return
 
-    telemetry = {
+    base_telemetry = {
         "original_news_count": original_news_count,
         "kept_news_count": kept_news_count,
         "removed_news_count": removed_news_count,
         "executed_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    patch = {
-        # Nested under news_dedup so multi-feature shadow keys can coexist.
-        # Flat FR-010 keys are also mirrored for literal-spec consumers.
-        "news_dedup": telemetry,
-        "original_news_count": original_news_count,
-        "kept_news_count": kept_news_count,
+        "status": "success",
     }
 
     last_error: Exception | None = None
@@ -273,6 +288,16 @@ def _persist_shadow_telemetry(
                 if history is None:
                     should_retry = attempt + 1 < _HISTORY_RETRY_ATTEMPTS
                 else:
+                    telemetry = _annotate_telemetry_with_history_outcome(
+                        base_telemetry, history
+                    )
+                    patch = {
+                        # Nested under news_dedup so multi-feature shadow keys can coexist.
+                        # Flat FR-010 keys are also mirrored for literal-spec consumers.
+                        "news_dedup": telemetry,
+                        "original_news_count": original_news_count,
+                        "kept_news_count": kept_news_count,
+                    }
                     locked = _merge_shadow_outputs_locked(session, history, patch)
                     logger.info(
                         "Shadow news dedup complete | symbol=%s | original=%s | kept=%s | "
@@ -423,7 +448,6 @@ def _persist_shadow_key_telemetry(
         )
         return
 
-    patch = {feature_key: telemetry}
     last_error: Exception | None = None
     for attempt in range(_HISTORY_RETRY_ATTEMPTS):
         session = SessionLocal()
@@ -435,6 +459,10 @@ def _persist_shadow_key_telemetry(
                 if history is None:
                     should_retry = attempt + 1 < _HISTORY_RETRY_ATTEMPTS
                 else:
+                    annotated = _annotate_telemetry_with_history_outcome(
+                        telemetry, history
+                    )
+                    patch = {feature_key: annotated}
                     locked = _merge_shadow_outputs_locked(session, history, patch)
                     logger.info(
                         "Shadow %s telemetry saved | symbol=%s | history_id=%s | attempt=%s",
@@ -540,4 +568,62 @@ def execute_shadow_market_breadth(
     except Exception as e:
         logger.warning(
             "Shadow market breadth execution failed: %s | symbol=%s", e, symbol
+        )
+
+
+def execute_shadow_sector_strength(
+    symbol: str,
+    sectors: list[SectorInput | dict[str, Any]] | None = None,
+    benchmark_symbol: str = "NIFTY50",
+    benchmark_return_pct: float | None = 0.0,
+    scan_time: datetime | None = None,
+    stock_id: int | None = None,
+) -> None:
+    """Run FEAT-020 Sector Strength in shadow mode and persist telemetry.
+
+    Fault isolation:
+    - Deep-copies input sectors data so live matrix pipeline lists remain untouched.
+    - Catches all exceptions and logs warnings without affecting calling code or live scoring matrix.
+    """
+    try:
+        run_started_at = datetime.now(timezone.utc)
+        sectors_copy = copy.deepcopy(sectors) if sectors else []
+        # Non-blocking telemetry warning for missing inputs (spec edge case).
+        if not sectors_copy:
+            logger.warning(
+                "Shadow sector_strength empty sectors | symbol=%s | benchmark=%s | "
+                "benchmark_return_pct=%s",
+                symbol,
+                benchmark_symbol,
+                benchmark_return_pct,
+            )
+        if benchmark_return_pct is None:
+            logger.warning(
+                "Shadow sector_strength missing benchmark return | symbol=%s | "
+                "benchmark=%s | sectors=%s",
+                symbol,
+                benchmark_symbol,
+                len(sectors_copy),
+            )
+        telemetry_model = calculate_sector_strength(
+            sectors=sectors_copy,
+            benchmark_symbol=benchmark_symbol,
+            benchmark_return_pct=benchmark_return_pct,
+            scan_time=scan_time or run_started_at,
+        )
+        telemetry_dict = telemetry_model.model_dump()
+        if not sectors_copy or benchmark_return_pct is None:
+            # Preserve schema; mark partial so operators can filter weak rows.
+            telemetry_dict["status"] = "partial"
+
+        _persist_shadow_key_telemetry(
+            symbol=symbol,
+            stock_id=stock_id,
+            feature_key="sector_strength",
+            telemetry=telemetry_dict,
+            not_before=run_started_at,
+        )
+    except Exception as e:
+        logger.warning(
+            "Shadow sector strength execution failed: %s | symbol=%s", e, symbol
         )

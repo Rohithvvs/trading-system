@@ -28,6 +28,7 @@ _COMMAND_ROUTES: dict[str, str] = {
     "experiment.backfill_pause": "app.governance.experiment_cli:experiment_cli backfill-pause",
     "experiment.taxonomy_report": "app.governance.experiment_cli:experiment_cli taxonomy-report",
     "experiment.taxonomy_query": "app.governance.experiment_cli:experiment_cli taxonomy-query",
+    "experiment.governance-report": "app.governance.experiment_cli:experiment_cli governance-report",
     "audit.export": "app.governance.experiment_cli:experiment_cli audit export",
 }
 

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading System API & Governance Documentation</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { color: #1a202c; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        h2 { color: #2b6cb0; margin-top: 30px; }
+        code { background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+        pre { background: #1a202c; color: #f7fafc; padding: 15px; border-radius: 6px; overflow-x: auto; }
+        .endpoint { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 10px 15px; margin-bottom: 15px; border-radius: 0 4px 4px 0; }
+        .method { font-weight: bold; color: #2b6cb0; }
+    </style>
+</head>
+<body>
+    <h1>Operational Governance & Analytics API</h1>
+    <p>Operational layer endpoints providing real-time engine health metrics, shadow mode rule execution telemetry, and weekly 30-day production rule health evaluations.</p>
+
+    <h2>Endpoints</h2>
+
+    <div class="endpoint">
+        <span class="method">GET</span> <code>/api/v1/analytics/engine-health</code>
+        <p>Retrieves 7-day rolling scan totals, recommendation distributions (BUY/SELL/HOLD), positive outcome rate, and average confidence scores.</p>
+    </div>
+
+    <div class="endpoint">
+        <span class="method">GET</span> <code>/api/v1/analytics/shadow-status</code>
+        <p>Retrieves execution counts and latest timestamps for active watch-only shadow rules (<code>news_dedup</code>, <code>sentiment_decay</code>, <code>market_breadth</code>, <code>sector_strength</code>).</p>
+    </div>
+
+    <div class="endpoint">
+        <span class="method">GET</span> <code>/api/v1/analytics/rule-governance</code>
+        <p>Retrieves 30-day rolling false-positive rates and health statuses (<code>GREEN</code>, <code>YELLOW</code>, <code>RED</code>, <code>INSUFFICIENT_DATA</code>) for all promoted production rules.</p>
+    </div>
+
+    <h2>CLI Usage</h2>
+    <pre><code>python -m app.governance.experiment_cli governance-report</code></pre>
+</body>
+</html>

@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Analytics Dashboard API Schema",
+  "description": "API contracts for lightweight operational analytics endpoints (FEAT-028)",
+  "endpoints": {
+    "GET /api/v1/analytics/engine-health": {
+      "summary": "Retrieve rolling 7-day engine health metrics",
+      "responses": {
+        "200": {
+          "type": "object",
+          "properties": {
+            "window_days": { "type": "integer" },
+            "total_scans": { "type": "integer" },
+            "total_recommendations": { "type": "integer" },
+            "signal_distribution": {
+              "type": "object",
+              "properties": {
+                "BUY": { "type": "integer" },
+                "SELL": { "type": "integer" },
+                "HOLD": { "type": "integer" }
+              },
+              "required": ["BUY", "SELL", "HOLD"]
+            },
+            "positive_outcome_rate": { "type": ["number", "null"] },
+            "average_confidence_score": { "type": ["number", "null"] },
+            "generated_at": { "type": "string", "format": "date-time" }
+          },
+          "required": ["window_days", "total_scans", "total_recommendations", "signal_distribution", "generated_at"]
+        }
+      }
+    },
+    "GET /api/v1/analytics/shadow-status": {
+      "summary": "Retrieve status and execution telemetry of active shadow rules",
+      "responses": {
+        "200": {
+          "type": "object",
+          "properties": {
+            "active_shadow_rules": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "rules_telemetry": { "type": "object" },
+            "generated_at": { "type": "string", "format": "date-time" }
+          },
+          "required": ["active_shadow_rules", "rules_telemetry", "generated_at"]
+        }
+      }
+    },
+    "GET /api/v1/analytics/rule-governance": {
+      "summary": "Retrieve latest weekly rule governance health evaluations",
+      "responses": {
+        "200": {
+          "type": "object",
+          "properties": {
+            "evaluated_at": { "type": "string", "format": "date-time" },
+            "promoted_rules_count": { "type": "integer" },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rule_id": { "type": "string" },
+                  "evaluated_at": { "type": "string", "format": "date-time" },
+                  "health_status": { "type": "string", "enum": ["GREEN", "YELLOW", "RED", "INSUFFICIENT_DATA"] },
+                  "health_label": {
+                    "type": "string",
+                    "enum": ["healthy", "caution", "degraded", "insufficient data"],
+                    "description": "Spec FR-003 vocabulary mapped from health_status"
+                  },
+                  "false_positive_rate_30d": { "type": ["number", "null"] },
+                  "baseline_false_positive_rate": { "type": "number" },
+                  "sample_count_30d": { "type": "integer" },
+                  "status_reason": { "type": "string" }
+                },
+                "required": ["rule_id", "health_status", "health_label", "baseline_false_positive_rate", "sample_count_30d", "status_reason"]
+              }
+            }
+          },
+          "required": ["evaluated_at", "promoted_rules_count", "rules"]
+        }
+      }
+    }
+  }
+}

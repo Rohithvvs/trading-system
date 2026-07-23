@@ -1137,6 +1137,7 @@ class OrchestratorAgent:
                 stock_id=stock_id,
                 articles=articles or [],
                 bulk_technical_results=bulk_technical_results,
+                sector_overlay=sector_overlay,
             )
 
         self.logger.info(
@@ -1318,8 +1319,9 @@ class OrchestratorAgent:
         stock_id: int | None,
         articles: list[Any],
         bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]] | None,
+        sector_overlay: Any = None,
     ) -> None:
-        """Submit FEAT-018 / FEAT-016 after AnalysisHistory persist (audit H1/H3/H4/C1).
+        """Submit FEAT-018 / FEAT-016 / FEAT-020 after AnalysisHistory persist.
 
         Each feature is isolated in its own try/except so one failure cannot block
         the other or the production path.
@@ -1329,6 +1331,7 @@ class OrchestratorAgent:
                 ShadowThreadPool,
                 execute_shadow_market_breadth,
                 execute_shadow_sentiment_decay,
+                execute_shadow_sector_strength,
             )
         except Exception as import_exc:
             shadow_logger.warning(
@@ -1370,6 +1373,44 @@ class OrchestratorAgent:
                 "Shadow market_breadth submit failed | symbol=%s | error=%s",
                 symbol,
                 breadth_exc,
+            )
+
+        # FEAT-020: Sector Strength — watch-only relative sector return calculation.
+        # Build real sector/benchmark inputs from bulk technicals + sector overlay ROC.
+        try:
+            from ..services.sector_strength import build_sector_strength_scan_inputs
+
+            universe_map: dict[str, TechnicalAnalysisResult] | None = None
+            if bulk_technical_results:
+                if AnalysisMode.swing in bulk_technical_results:
+                    universe_map = bulk_technical_results[AnalysisMode.swing]
+                else:
+                    universe_map = next(iter(bulk_technical_results.values()), None)
+
+            sectors, benchmark_symbol, benchmark_return_pct = build_sector_strength_scan_inputs(
+                universe_technical=universe_map,
+                sector_overlay=sector_overlay,
+            )
+            if benchmark_return_pct is None and not sectors:
+                shadow_logger.warning(
+                    "Shadow sector_strength missing benchmark/sector data | symbol=%s | "
+                    "persisting neutral empty telemetry",
+                    symbol,
+                )
+            ShadowThreadPool.submit_task(
+                execute_shadow_sector_strength,
+                symbol,
+                sectors or None,
+                benchmark_symbol,
+                benchmark_return_pct,
+                None,
+                stock_id,
+            )
+        except Exception as sector_exc:
+            shadow_logger.warning(
+                "Shadow sector_strength submit failed | symbol=%s | error=%s",
+                symbol,
+                sector_exc,
             )
 
     def _default_data_source_label(self) -> str:
