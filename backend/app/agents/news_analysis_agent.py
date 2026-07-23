@@ -50,7 +50,12 @@ class NewsAnalysisAgent:
             return articles
 
     def _submit_shadow_dedup(self, symbol: str, articles: list[ArticleItem]) -> None:
-        """Best-effort shadow execution; never impacts the production path."""
+        """Best-effort shadow news-dedup execution; never impacts the production path.
+
+        Sentiment time-decay is submitted independently by the orchestrator after
+        AnalysisHistory is persisted so it is not coupled to the news_dedup
+        lifecycle state (audit H1 / FR-007).
+        """
         try:
             from ..config import settings
 

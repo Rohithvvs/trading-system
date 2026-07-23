@@ -82,11 +82,11 @@ class FundamentalAnalysisResult(BaseModel):
 
 class ArticleItem(BaseModel):
     title: str
-    description: str
-    source: str
-    url: str
-    published_at: datetime
-    sentiment_score: float
+    description: str = ""
+    source: str = "unknown"
+    url: str = ""
+    published_at: datetime | None = None
+    sentiment_score: float = 0.0
 
 
 class BacktestResult(BaseModel):

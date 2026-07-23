@@ -1,4 +1,4 @@
-from .analysis import AnalysisHistory, BacktestHistory, ArticleDedupLog
+from .analysis import AnalysisHistory, BacktestHistory, ArticleDedupLog, BackfillProgress
 from .paper_trading import (
     ExecutionEvent,
     MarketEngineSession,
@@ -36,6 +36,7 @@ __all__ = [
     "AnalysisHistory",
     "BacktestHistory",
     "ArticleDedupLog",
+    "BackfillProgress",
     "PaperOrder",
     "PaperPosition",
     "PaperTradeHistory",

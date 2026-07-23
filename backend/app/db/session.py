@@ -82,6 +82,29 @@ import logging as _db_logging
 _db_forensics_logger = _db_logging.getLogger("app.db_forensics")
 
 
+class RebindableAsyncSessionLocal:
+    """Callable session factory whose underlying maker can be swapped in tests.
+
+    Modules that ``from app.db.session import AsyncSessionLocal`` keep a reference
+    to this proxy object. Rebinding updates ``_factory`` so all importers open
+    sessions against the current engine (prevents shared-file SQLite leakage).
+    """
+
+    __slots__ = ("_factory",)
+
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = factory
+
+    def rebind(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = factory
+
+    def __call__(self, *args, **kwargs):
+        return self._factory(*args, **kwargs)
+
+    def configure(self, **kwargs):
+        return self._factory.configure(**kwargs)
+
+
 def is_stale_prepared_plan_error(exc: BaseException) -> bool:
     """True when asyncpg/SQLAlchemy rejects a cached plan after schema change."""
     name = type(exc).__name__
@@ -100,37 +123,79 @@ async def dispose_async_pool(reason: str = "manual") -> None:
         _db_forensics_logger.warning("DB_POOL_DISPOSE_FAILED | reason=%s | err=%s", reason, exc)
 
 
-@event.listens_for(engine.sync_engine, "connect")
-def set_postgres_timeouts(dbapi_connection, connection_record):
-    if engine.name != "postgresql":
-        return
-    cursor = dbapi_connection.cursor()
-    cursor.execute("SET statement_timeout = '30s'")
-    cursor.execute("SET lock_timeout = '5s'")
-    cursor.execute("SET idle_in_transaction_session_timeout = '30s'")
-    cursor.close()
-
-AsyncSessionLocal = async_sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, class_=AsyncSession)
-
-@event.listens_for(engine.sync_engine, "checkout")
-def _log_pool_checkout(dbapi_connection, connection_record, connection_proxy):
-    """Log DB_POOL_STATUS on every connection checkout for pool exhaustion forensics."""
-    try:
-        pool = engine.pool
-        _db_forensics_logger.info(
-            "DB_POOL_STATUS | pool_size=%s | checked_out=%s | overflow=%s | checkedin=%s",
-            pool.size(), pool.checkedout(), pool.overflow(), pool.checkedin(),
-        )
-    except Exception:
-        pass  # pool status is best-effort diagnostic
-
-@event.listens_for(engine.sync_engine, "invalidate")
-def _log_pool_invalidate(dbapi_connection, connection_record, exception):
-    """Log DB_RECONNECT when a connection is invalidated (disconnect detected)."""
-    _db_forensics_logger.warning(
-        "DB_RECONNECT | reason=connection_invalidated | exception=%s",
-        str(exception)[:200] if exception else "unknown",
+def rebind_async_engine(new_engine) -> None:
+    """Replace the process-wide async engine and session factory (test isolation)."""
+    global engine
+    old_engine = engine
+    engine = new_engine
+    new_factory = async_sessionmaker(
+        bind=new_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        class_=AsyncSession,
     )
+    AsyncSessionLocal.rebind(new_factory)
+    try:
+        old_engine.sync_engine.dispose(close=True)
+    except Exception:
+        pass
+    _attach_engine_listeners(engine)
+
+
+def _attach_engine_listeners(target_engine) -> None:
+    """Idempotent-ish attach of pool forensics listeners to the active engine."""
+    sync_eng = target_engine.sync_engine
+
+    # Avoid duplicate handlers when rebinding frequently in tests
+    if getattr(sync_eng, "_ts_forensics_attached", False):
+        return
+
+    @event.listens_for(sync_eng, "connect")
+    def set_postgres_timeouts(dbapi_connection, connection_record):  # noqa: ANN001
+        if target_engine.name != "postgresql":
+            return
+        cursor = dbapi_connection.cursor()
+        cursor.execute("SET statement_timeout = '30s'")
+        cursor.execute("SET lock_timeout = '5s'")
+        cursor.execute("SET idle_in_transaction_session_timeout = '30s'")
+        cursor.close()
+
+    @event.listens_for(sync_eng, "checkout")
+    def _log_pool_checkout(dbapi_connection, connection_record, connection_proxy):  # noqa: ANN001
+        try:
+            pool = target_engine.pool
+            _db_forensics_logger.info(
+                "DB_POOL_STATUS | pool_size=%s | checked_out=%s | overflow=%s | checkedin=%s",
+                pool.size(),
+                pool.checkedout(),
+                pool.overflow(),
+                pool.checkedin(),
+            )
+        except Exception:
+            pass
+
+    @event.listens_for(sync_eng, "invalidate")
+    def _log_pool_invalidate(dbapi_connection, connection_record, exception):  # noqa: ANN001
+        _db_forensics_logger.warning(
+            "DB_RECONNECT | reason=connection_invalidated | exception=%s",
+            str(exception)[:200] if exception else "unknown",
+        )
+
+    sync_eng._ts_forensics_attached = True  # type: ignore[attr-defined]
+
+
+_attach_engine_listeners(engine)
+
+AsyncSessionLocal = RebindableAsyncSessionLocal(
+    async_sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        class_=AsyncSession,
+    )
+)
 
 main_event_loop = None
 

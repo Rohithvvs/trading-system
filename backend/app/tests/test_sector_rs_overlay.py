@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from unittest.mock import patch, MagicMock
 
 from app.schemas import FinalRecommendation, RecommendationReasoning

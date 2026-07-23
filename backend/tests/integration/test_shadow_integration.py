@@ -144,6 +144,12 @@ def _enable_shadow_hook(monkeypatch, *, stage: str = "SHADOW") -> None:
     monkeypatch.setattr(settings, "shadow_mode_enabled", True)
     monkeypatch.setattr(settings, "shadow_mode_stage", stage)
     monkeypatch.setattr(settings, "shadow_mode_ruleset", "experimental_v1")
+    # Candidate features submit to ShadowThreadPool after persist; stub so tests
+    # do not spawn background DB retries against the non-test SessionLocal.
+    monkeypatch.setattr(
+        "app.services.shadow_executor.ShadowThreadPool.submit_task",
+        MagicMock(return_value=None),
+    )
 
 
 def _capture_shadow_logger(monkeypatch) -> tuple[list[str], list[str]]:

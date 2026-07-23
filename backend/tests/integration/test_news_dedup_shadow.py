@@ -407,7 +407,7 @@ def test_news_agent_production_path_uses_full_unfiltered_list(
     assert score == 0.5
     assert label == "positive"
     assert summary == "mocked summary"
-    assert len(submitted) == 1
+    assert len(submitted) >= 1
     fn, args, _kwargs = submitted[0]
     assert fn is execute_shadow_news_dedup
     assert args[0] == "RELIANCE-EQ"

@@ -1032,7 +1032,9 @@ class OrchestratorAgent:
             backtest=best_backtest,
             recommendation=recommendation,
             sector_overlay=sector_overlay,
-            market_regime=market_regime
+            market_regime=market_regime,
+            symbol=symbol,
+            articles=articles
         )
 
         # FEAT-011 Spec 1: Shadow Execution Context hook
@@ -1100,6 +1102,17 @@ class OrchestratorAgent:
                     exc_info=True,
                 )
 
+            # FEAT-018 / FEAT-016: independent candidate submissions (audit H1/H3/H4).
+            # Isolated from the experimental ruleset executor so a ruleset failure
+            # cannot skip shadow candidate telemetry. Submitted AFTER history persist
+            # so telemetry attaches to the current AnalysisHistory row.
+            self._submit_shadow_candidate_features(
+                symbol=symbol,
+                stock_id=stock_id,
+                articles=articles or [],
+                bulk_technical_results=bulk_technical_results,
+            )
+
         self.logger.info(
             "Completed symbol analysis | symbol=%s | recommendation=%s | confidence=%s | score=%s | challenger=%s | market_regime=%s",
             symbol,
@@ -1141,8 +1154,20 @@ class OrchestratorAgent:
         recommendation: Any,
         sector_overlay: Any = None,
         market_regime: Any = None,
+        symbol: str = None,
+        articles: list[Any] = None,
     ) -> None:
         from ..db.session import AsyncSessionLocal
+        from ..services.taxonomy_classifier import determine_situation_tags
+
+        situation_tags = determine_situation_tags(
+            symbol=symbol,
+            recommendation=recommendation.action,
+            sentiment_score=sentiment_score,
+            articles=articles,
+            market_regime=market_regime
+        )
+
         async with AsyncSessionLocal() as db:
             analysis_entry = AnalysisHistory(
                 stock_id=stock_id,
@@ -1168,6 +1193,7 @@ class OrchestratorAgent:
                 market_volatility_state=market_regime.volatility_state if market_regime else None,
                 market_new_entry_allowed=market_regime.new_entry_allowed if market_regime else None,
                 market_risk_multiplier=market_regime.risk_multiplier if market_regime else None,
+                situation_tags=situation_tags,
             )
             db.add(analysis_entry)
 
@@ -1226,6 +1252,99 @@ class OrchestratorAgent:
 
     def _primary_candle_set(self, candles_by_mode: dict[AnalysisMode, list]) -> list:
         return candles_by_mode.get(AnalysisMode.swing) or next(iter(candles_by_mode.values()))
+
+    @staticmethod
+    def _universe_breadth_items_from_bulk(
+        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]] | None,
+    ) -> list[dict[str, Any]]:
+        """Build universe-level (price, sma_200) rows from bulk technical results (FR-004).
+
+        Prefers swing-mode results when present; otherwise uses the first available mode.
+        """
+        if not bulk_technical_results:
+            return []
+
+        mode_map: dict[str, TechnicalAnalysisResult] | None = None
+        if AnalysisMode.swing in bulk_technical_results:
+            mode_map = bulk_technical_results[AnalysisMode.swing]
+        else:
+            mode_map = next(iter(bulk_technical_results.values()), None)
+
+        if not mode_map:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for sym, tech in mode_map.items():
+            inds = getattr(tech, "indicators", None) or {}
+            items.append(
+                {
+                    "symbol": sym,
+                    "current_price": inds.get("close") or inds.get("current_price"),
+                    "sma_200": inds.get("sma_200") or inds.get("sma200"),
+                }
+            )
+        return items
+
+    def _submit_shadow_candidate_features(
+        self,
+        *,
+        symbol: str,
+        stock_id: int | None,
+        articles: list[Any],
+        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]] | None,
+    ) -> None:
+        """Submit FEAT-018 / FEAT-016 after AnalysisHistory persist (audit H1/H3/H4/C1).
+
+        Each feature is isolated in its own try/except so one failure cannot block
+        the other or the production path.
+        """
+        try:
+            from ..services.shadow_executor import (
+                ShadowThreadPool,
+                execute_shadow_market_breadth,
+                execute_shadow_sentiment_decay,
+            )
+        except Exception as import_exc:
+            shadow_logger.warning(
+                "Shadow candidate import failed | symbol=%s | error=%s",
+                symbol,
+                import_exc,
+            )
+            return
+
+        # FEAT-018: Sentiment Time-Decay — independent of news_dedup lifecycle (H1),
+        # post-persist so history exists (H3). Empty article lists are allowed.
+        try:
+            ShadowThreadPool.submit_task(
+                execute_shadow_sentiment_decay,
+                symbol,
+                list(articles or []),
+                None,
+                stock_id,
+            )
+        except Exception as sent_exc:
+            shadow_logger.warning(
+                "Shadow sentiment_decay submit failed | symbol=%s | error=%s",
+                symbol,
+                sent_exc,
+            )
+
+        # FEAT-016: Market Breadth — full bulk universe (C1), isolated from ruleset executor (H4).
+        try:
+            breadth_items = self._universe_breadth_items_from_bulk(bulk_technical_results)
+            ShadowThreadPool.submit_task(
+                execute_shadow_market_breadth,
+                symbol,
+                breadth_items,
+                None,
+                stock_id,
+            )
+        except Exception as breadth_exc:
+            shadow_logger.warning(
+                "Shadow market_breadth submit failed | symbol=%s | error=%s",
+                symbol,
+                breadth_exc,
+            )
 
     def _default_data_source_label(self) -> str:
         if self.fyers_service._is_fyers_configured():
