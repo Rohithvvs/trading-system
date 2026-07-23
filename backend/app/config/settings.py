@@ -59,11 +59,11 @@ def normalize_database_url(raw_value: str) -> str:
 
 class Settings(BaseSettings):
     app_name: str = "Trading System"
-    app_env: str = "development"
+    app_env: str = Field(default="development", alias="APP_ENV")
     google_client_id: str = ""
     quarantine_mode: bool = False
-    app_host: str = "127.0.0.1"
-    app_port: int = 8000
+    app_host: str = Field(default="0.0.0.0", alias="HOST")   # ← critical change
+    app_port: int = Field(default=8000, alias="PORT")
     frontend_url: str = Field(default="http://localhost:5173", alias="FRONTEND_URL")
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
     redis_url: str = "redis://localhost:6379/0"
