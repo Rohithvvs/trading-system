@@ -21,6 +21,9 @@ _COMMAND_ROUTES: dict[str, str] = {
     "experiment.list": "app.governance.experiment_cli:experiment_cli list",
     "experiment.show": "app.governance.experiment_cli:experiment_cli show",
     "experiment.metric": "app.governance.experiment_cli:experiment_cli metric",
+    "experiment.report": "app.governance.experiment_cli:experiment_cli report",
+    "experiment.promote": "app.governance.experiment_cli:experiment_cli promote",
+    "experiment.kill": "app.governance.experiment_cli:experiment_cli kill",
     "audit.export": "app.governance.experiment_cli:experiment_cli audit export",
 }
 

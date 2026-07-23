@@ -206,3 +206,20 @@ def pytest_runtest_makereport(item, call):
                 (ARTIFACT_DIR / "db" / f"{re.sub(r'[^A-Za-z0-9_.-]+', '_', rep.nodeid)}_db_error.txt").write_text(str(e))
             except Exception:
                 pass
+
+
+@pytest.fixture(autouse=True)
+def reset_rule_manager():
+    """Reset the RuleManager singleton before and after each test."""
+    try:
+        from app.governance.rule_manager import RuleManager
+        RuleManager.reset_instance()
+    except ImportError:
+        pass
+    yield
+    try:
+        from app.governance.rule_manager import RuleManager
+        RuleManager.reset_instance()
+    except ImportError:
+        pass
+

@@ -1,0 +1,9 @@
+{
+  "news_dedup": {
+    "false_positive_rate": 0.15,
+    "deduplication_rate": 0.0,
+    "total_recommendations": 100,
+    "total_articles": 1500,
+    "average_sentiment_score": 0.65
+  }
+}

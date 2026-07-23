@@ -146,6 +146,38 @@ Sprint 4 integrates the headless Fyers login token automation utility with datab
   pytest tests/test_token_persistence.py
   ```
 
+## Validation & Minimal Promotion (Sprint 5)
+
+Sprint 5 implements the validation report, promotion gate, and dynamic routing for candidates moving from shadow mode to production:
+
+- **Challenger Validation Report**:
+  Generates key performance and false-positive metrics over the last 14 days of shadow execution data for a rule:
+  ```bash
+  python -m app.governance.experiment_cli report --rule news_dedup
+  ```
+  Saves report results to `governance/reports/challenger_report_news_dedup.json` and `.md`.
+
+- **Minimal Promotion Gate**:
+  Promotes a rule from `shadow` to `production` execution after verifying human checklist completion:
+  ```bash
+  python -m app.governance.experiment_cli promote --rule news_dedup --checklist-approved --reason "14-day shadow window is complete and checklist is verified"
+  ```
+  *Note: Checklist verification references `docs/FEAT_010_REVIEW_CHECKLIST.md`.*
+
+- **Emergency Kill Switch (Rollback)**:
+  Instantly disables any active rule to revert recommendation pipelines back to baseline:
+  ```bash
+  python -m app.governance.experiment_cli kill --rule news_dedup --reason "Emergency rollback: sentiment anomalies detected"
+  ```
+
+- **Testing**:
+  ```bash
+  pytest backend/tests/unit/test_validation_report.py
+  pytest backend/tests/unit/test_rule_manager.py
+  pytest backend/tests/integration/test_promotion_flow.py
+  ```
+
+
 
 
 
