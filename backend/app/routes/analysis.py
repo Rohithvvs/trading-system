@@ -91,7 +91,7 @@ def rankings(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> Ra
 @router.post("/screener/full")
 async def screener_full(payload: ScreenerRequest):
     logger.info(
-        "API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
+        "[SCAN] API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
         payload.mode.value,
         payload.top_n,
         payload.timeframe.lookback_window,
@@ -99,49 +99,92 @@ async def screener_full(payload: ScreenerRequest):
         len(payload.symbols),
     )
 
-    q = asyncio.Queue()
+    q: asyncio.Queue = asyncio.Queue(maxsize=200)
+
+    # Seed the queue immediately so the SSE stream has something to send as soon
+    # as the client connects — never leave the UI at "Connecting data feed..."
+    # with no server events while the lock/DB is still starting.
+    await q.put(
+        {
+            "stage": "Connecting data feed...",
+            "progress": 1,
+            "heartbeat": True,
+        }
+    )
 
     from ..services.scan_execution_service import ScanExecutionService
     from ..services.lock_service import LockAcquisitionError
 
     try:
         await ScanExecutionService.execute_scan(payload, progress_queue=q, trigger_source="ui")
-    except LockAcquisitionError:
+        logger.info("[SCAN] Worker started; opening SSE stream")
+    except LockAcquisitionError as lock_exc:
+        logger.warning("[SCAN] Lock denied | reason=%s", lock_exc)
         return JSONResponse(
             status_code=200,
-            content={"status": "scan_in_progress"},
+            content={
+                "status": "scan_in_progress",
+                "message": str(lock_exc) or "Scan is already in progress.",
+            },
+        )
+    except Exception as start_exc:
+        logger.exception("[SCAN] Failed to start scan worker: %s", start_exc)
+        await q.put(
+            {
+                "status": "error",
+                "message": f"Failed to start scanner: {start_exc}",
+            }
         )
 
     async def event_stream():
         """SSE generator with server-side heartbeat to prevent proxy timeouts.
 
-        Yields keepalive comments every 5 seconds when no progress data is
-        available, ensuring the connection is never considered idle by
-        Reverse proxies (Render, Vercel, nginx, Cloudflare).
+        Yields structured progress events (not only comment keepalives) so the
+        frontend can leave "Connecting data feed..." and show real stages.
         """
         import time as _time
+
         last_yield_time = _time.monotonic()
         HEARTBEAT_INTERVAL = 5.0
+        idle_ticks = 0
 
         while True:
             try:
-                # Wait for queue data with a short timeout to allow heartbeat
                 msg = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_INTERVAL)
-                # Got real data — yield it
+                idle_ticks = 0
                 if "status" in msg and msg["status"] in ("complete", "error"):
-                    # Add elapsed time for diagnostics
                     if "elapsed_sec" not in msg:
                         msg["elapsed_sec"] = round(_time.monotonic() - last_yield_time, 1)
                     yield f"event: result\ndata: {json.dumps(msg)}\n\n"
                     break
                 else:
-                    # Ensure progress events have a heartbeat timestamp
                     if "heartbeat" not in msg:
                         msg["heartbeat"] = True
+                    if not msg.get("stage"):
+                        msg["stage"] = "Scanning..."
                     yield f"event: progress\ndata: {json.dumps(msg)}\n\n"
                     last_yield_time = _time.monotonic()
             except asyncio.TimeoutError:
-                # No data for HEARTBEAT_INTERVAL seconds — send keepalive
+                idle_ticks += 1
+                # Prefer a real progress event over a silent SSE comment so the
+                # UI updates instead of freezing at Connecting data feed...
+                wait_msg = {
+                    "stage": (
+                        "Waiting for broker response..."
+                        if idle_ticks >= 6
+                        else "Connecting data feed..."
+                    ),
+                    "progress": min(5 + idle_ticks, 12),
+                    "heartbeat": True,
+                    "idle_ticks": idle_ticks,
+                }
+                if idle_ticks >= 6:
+                    logger.warning(
+                        "[SCAN] SSE idle %ss — still waiting for worker progress",
+                        idle_ticks * HEARTBEAT_INTERVAL,
+                    )
+                yield f"event: progress\ndata: {json.dumps(wait_msg)}\n\n"
+                # Comment keepalive for proxies that ignore event frames
                 yield f": heartbeat {_time.time():.0f}\n\n"
                 last_yield_time = _time.monotonic()
 

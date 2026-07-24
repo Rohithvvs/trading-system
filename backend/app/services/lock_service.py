@@ -76,16 +76,32 @@ class DistributedLockService:
                         # We already own it, just extend
                         await self.heartbeat()
                         return True
-                    
-                    # Check for stale lock
-                    stale_threshold = now - timedelta(seconds=self.ttl_seconds)
-                    if existing.expires_at < now and existing.heartbeat_at < stale_threshold:
-                        logger.warning("stale_lock_detected", extra={
-                            "lock_name": self.lock_name,
-                            "old_owner": existing.locked_by,
-                            "expires_at": existing.expires_at.isoformat()
-                        })
-                    
+
+                    # Stale if expires_at passed OR no heartbeat within 2 intervals.
+                    # Previously required BOTH expires_at AND heartbeat to be stale,
+                    # so a crashed worker held the lock for the full TTL (up to 1h)
+                    # and every new scan hung at "Connecting data feed..." / lock denied.
+                    hb = existing.heartbeat_at
+                    if hb is not None and hb.tzinfo is None:
+                        hb = hb.replace(tzinfo=timezone.utc)
+                    exp = existing.expires_at
+                    if exp is not None and exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    heartbeat_interval = max(30.0, self.ttl_seconds / 3.0)
+                    heartbeat_stale_after = timedelta(seconds=heartbeat_interval * 2)
+                    is_expired = exp is not None and exp < now
+                    is_heartbeat_stale = hb is None or hb < (now - heartbeat_stale_after)
+                    if is_expired or is_heartbeat_stale:
+                        logger.warning(
+                            "stale_lock_detected | lock_name=%s | old_owner=%s | expires_at=%s | heartbeat_at=%s | expired=%s | hb_stale=%s",
+                            self.lock_name,
+                            existing.locked_by,
+                            exp.isoformat() if exp else None,
+                            hb.isoformat() if hb else None,
+                            is_expired,
+                            is_heartbeat_stale,
+                        )
+
                         # Atomic steal: UPDATE where locked_by = existing.locked_by
                         update_stmt = update(SystemLock).where(
                             SystemLock.lock_name == self.lock_name,
@@ -98,7 +114,11 @@ class DistributedLockService:
                         )
                         res = await db.execute(update_stmt)
                         if res.rowcount > 0:
-                            logger.info("stale_lock_recovered", extra={"lock_name": self.lock_name, "new_owner": self.worker_id})
+                            logger.info(
+                                "stale_lock_recovered | lock_name=%s | new_owner=%s",
+                                self.lock_name,
+                                self.worker_id,
+                            )
                             return True
                 return False
 
@@ -134,14 +154,15 @@ class DistributedLockService:
                 await db.execute(stmt)
             
     async def _heartbeat_loop(self):
-        sleep_interval = self.ttl_seconds / 3.0
+        # Heartbeat often enough that a dead worker is recoverable in ~2 minutes.
+        sleep_interval = min(60.0, max(15.0, self.ttl_seconds / 6.0))
         while self._is_locked:
             await asyncio.sleep(sleep_interval)
             try:
                 await self.heartbeat()
-                logger.debug("lock_heartbeat", extra={"lock_name": self.lock_name})
+                logger.debug("lock_heartbeat | lock_name=%s | worker=%s", self.lock_name, self.worker_id)
             except Exception as e:
-                logger.error("Heartbeat failed", extra={"error": str(e)})
+                logger.error("Heartbeat failed | lock_name=%s | error=%s", self.lock_name, e, exc_info=True)
 
     def start_heartbeat(self):
         if self._is_locked and self._heartbeat_task is None:

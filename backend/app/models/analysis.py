@@ -74,7 +74,7 @@ class AnalysisHistory(Base):
     sector_filter_triggered: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     original_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
     challenger_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    reason_codes: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reason_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # SR-004 Market Permission Engine Audit Columns
     market_state: Mapped[str | None] = mapped_column(String(20), nullable=True)

@@ -19,6 +19,106 @@ from .feat004_regime_overlay import apply_feat004_regime_overlay
 
 logger = logging.getLogger("app.recommendation_service")
 
+# Pure score-based signal thresholds (production classification).
+# Final recommendation is decided ONLY after all analysis modules complete.
+BUY_SCORE_THRESHOLD = 70.0
+WATCH_SCORE_THRESHOLD = 55.0
+ANALYSIS_FAILED_REASON = "Analysis Failed"
+
+
+def classify_signal_from_score(score: float) -> str:
+    """Classify BUY / WATCH / REJECT from composite score only.
+
+    Rules (applied only after mandatory analysis preconditions pass):
+      score >= 70 → BUY
+      55 <= score < 70 → WATCH
+      score < 55 → REJECT
+    """
+    if math.isnan(score) or math.isinf(score):
+        return "REJECT"
+    if score >= BUY_SCORE_THRESHOLD:
+        return "BUY"
+    if score >= WATCH_SCORE_THRESHOLD:
+        return "WATCH"
+    return "REJECT"
+
+
+def is_trade_plan_complete(plan: Any) -> bool:
+    """True when entry, stop-loss, and target are present and usable."""
+    if plan is None:
+        return False
+    try:
+        entry_low = float(getattr(plan, "entry_low", 0) or 0)
+        entry_high = float(getattr(plan, "entry_high", 0) or 0)
+        stop_loss = float(getattr(plan, "stop_loss", 0) or 0)
+        target_1 = float(getattr(plan, "target_1", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if entry_low <= 0 or entry_high <= 0 or stop_loss <= 0 or target_1 <= 0:
+        return False
+    # Entry band must be ordered; stop/target must be finite numbers.
+    if entry_high < entry_low:
+        return False
+    return True
+
+
+def analysis_preconditions_ok(
+    *,
+    score: float,
+    confidence: float | None,
+    trade_plans: list[Any] | None,
+    data_quality: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Mandatory preconditions before score-based signal assignment.
+
+    Returns (ok, reason). reason is ANALYSIS_FAILED_REASON when not ok.
+
+    Data is considered valid when:
+      - not explicitly mock/empty, AND
+      - minimum swing candles met (when data_quality supplied), AND
+      - a complete trade plan (entry / SL / target) exists, AND
+      - score + confidence are finite.
+
+    Source labels such as "unknown" with a full candle series are accepted
+    (prefetched shortlist path). Do not invent Score=100 on failure.
+    """
+    # Score calculated and finite
+    try:
+        score_f = float(score)
+    except (TypeError, ValueError):
+        return False, ANALYSIS_FAILED_REASON
+    if math.isnan(score_f) or math.isinf(score_f):
+        return False, ANALYSIS_FAILED_REASON
+
+    # Confidence calculated and finite
+    try:
+        conf_f = float(confidence) if confidence is not None else float("nan")
+    except (TypeError, ValueError):
+        return False, ANALYSIS_FAILED_REASON
+    if math.isnan(conf_f) or math.isinf(conf_f):
+        return False, ANALYSIS_FAILED_REASON
+
+    # Market / OHLC / price data valid when data_quality is provided
+    if data_quality is not None:
+        if bool(data_quality.get("mock_warning")):
+            return False, ANALYSIS_FAILED_REASON
+        if not bool(data_quality.get("minimum_swing_candles_met")):
+            return False, ANALYSIS_FAILED_REASON
+        # Accept production sources + prefetched/unknown series that already
+        # cleared mock_warning and candle-count checks above.
+        source = str(data_quality.get("source") or "")
+        if source in {"MOCK_FALLBACK", "NO_DATA", "NONE"}:
+            return False, ANALYSIS_FAILED_REASON
+
+    # Trade plan with entry, stop loss, and target
+    plans = trade_plans or []
+    if not plans:
+        return False, ANALYSIS_FAILED_REASON
+    if not any(is_trade_plan_complete(p) for p in plans):
+        return False, ANALYSIS_FAILED_REASON
+
+    return True, ""
+
 
 class RecommendationService:
     def build(
@@ -91,8 +191,14 @@ class RecommendationService:
         )
         if math.isnan(raw_backtest) or math.isinf(raw_backtest):
             raw_backtest = 0.0
-        raw_news = sentiment_score * 100  # -100 to 100
-        raw_fund = fundamental_score * 100  # -100 to 100
+        # sentiment_score is in [-1.0, 1.0] (0.0 = neutral) from SentimentService.
+        # Map to 0–100 so neutral contributes 50 (not 0), matching fundamental mapping.
+        # Prior bug: `sentiment_score * 100` treated neutral as 0 and crushed catalyst-regime scores.
+        raw_news = max(0.0, min(100.0, (float(sentiment_score) + 1.0) / 2.0 * 100.0))
+        # fundamental_score is in [-1.0, 1.0] range where 0.0 is neutral
+        # Prior bug: `fundamental_score * 100` mapped neutral/missing 0.0 → 0 points with 25% weight
+        # (~12.5pt composite drag), so strong technicals often never reached the BUY threshold of 68.
+        raw_fund = max(0.0, min(100.0, (float(fundamental_score) + 1.0) / 2.0 * 100.0))
 
         if breadth_active:
             # Stage 2: rebalanced 100-point matrix + live soft contribution
@@ -143,24 +249,42 @@ class RecommendationService:
         trade_plans = self._build_trade_plans(technical_results, backtests, candles_by_mode)
 
         # ------------------------------------------------------------------
-        # [EXISTING] Initial label from raw composite score
-        # raw_technical_score is the unmodified TA score consumed by the
-        # Strict Buy Gate. FEAT-004 must NEVER mutate this value.
+        # Final recommendation is ONLY score-based, AFTER all analysis:
+        # technical / sentiment / fundamental / backtest / trade plans /
+        # AI reasoning have already run above.
+        #
+        # BUY  >= 70 | WATCH 55–69.99 | REJECT < 55
+        # Overlays (FEAT-004 / FEAT-007) may still run for telemetry, but
+        # MUST NOT change the production score or action.
         # ------------------------------------------------------------------
-        raw_technical_score: float = technical_score  # gate sentinel — do not modify
+        raw_technical_score: float = technical_score  # retained for diagnostics
+        _ = raw_technical_score
 
-        if score >= 72:
-            action = "BUY"
-        elif score >= 55:
-            action = "WATCH"
-        else:
+        final_confidence = round(min(0.95, max(0.35, score / 100)), 2)
+
+        # Soft precheck (service-level): score, confidence, trade plan fields.
+        # Orchestrator re-validates with data_quality after full analysis path.
+        preconditions_ok, _pre_reason = analysis_preconditions_ok(
+            score=score,
+            confidence=final_confidence,
+            trade_plans=trade_plans,
+            data_quality=None,
+        )
+        if not preconditions_ok:
             action = "REJECT"
+            logger.info(
+                "ANALYSIS_FAILED | symbol=%s | stage=recommendation_service | score=%.2f | plans=%s | reason=%s",
+                symbol,
+                score,
+                len(trade_plans),
+                ANALYSIS_FAILED_REASON,
+            )
+        else:
+            action = classify_signal_from_score(score)
 
         # ------------------------------------------------------------------
-        # [FEAT-004] Market Regime Overlay
-        # Fires AFTER composite score and initial label are determined.
-        # Returns adjusted_score and adjusted_label for use in final output.
-        # raw_technical_score is NOT passed to FEAT-004 and is NOT modified.
+        # [FEAT-004] Market Regime Overlay — SHADOW telemetry only.
+        # Score / label adjustments are ignored for production signals.
         # ------------------------------------------------------------------
         _cfg = feat004_config or {"enabled": False}
         feat004_score, feat004_action, feat004_log = apply_feat004_regime_overlay(
@@ -176,32 +300,11 @@ class RecommendationService:
         )
 
         # ------------------------------------------------------------------
-        # [EXISTING] Strict Buy Gate evaluation
-        # Uses raw_technical_score — unchanged by FEAT-004.
-        # The gate may downgrade BUY -> WATCH independently.
-        # If both FEAT-004 and the gate downgrade, final label is WATCH.
-        # ------------------------------------------------------------------
-        # NOTE: Strict Buy Gate logic is defined in the orchestrator/caller
-        # and operates on raw_technical_score passed from outside this method.
-        # This service returns feat004_action as the post-overlay label for
-        # the gate to evaluate further if needed.
-        # raw_technical_score is preserved here for gate callers:
-        # _ = raw_technical_score  # noqa: kept for gate handoff clarity
-
-        # Use FEAT-004 adjusted values for the final output
-        final_score = feat004_score
-        final_action = feat004_action
-        final_confidence = round(min(0.95, max(0.35, final_score / 100)), 2)
-
-        # ------------------------------------------------------------------
-        # [FEAT-007] Sector Relative Strength Overlay
-        # Fires AFTER FEAT-004 and BEFORE the final output.
-        # Uses the difference-formula sector_rs_value from SR-003.
-        # Per FEAT-007 v1.1 spec and ADR-003 (difference formula canonical).
+        # [FEAT-007] Sector Relative Strength Overlay — SHADOW telemetry only.
         # ------------------------------------------------------------------
         feat007_log = self._apply_feat007_overlay(
-            composite_score=final_score,
-            current_label=final_action,
+            composite_score=score,
+            current_label=action,
             symbol=symbol,
             sector_rs_value=sector_rs_value,
             sector_index_symbol=sector_index_symbol,
@@ -211,13 +314,13 @@ class RecommendationService:
             feat007_config=feat007_config,
         )
 
-        if feat007_log is not None:
-            final_score = feat007_log["feat007_post_adjustment_score"]
-            final_action = feat007_log["feat007_adjusted_label"]
-            final_confidence = round(min(0.95, max(0.35, final_score / 100)), 2)
+        # Production output is always pure composite score + score thresholds
+        # (or REJECT + Analysis Failed when preconditions fail).
+        final_score = score
+        final_action = action
 
         logger.debug(
-            "[%s] composite=%.2f action=%s | feat004: score=%.2f action=%s stage=%s regime=%s",
+            "[%s] composite=%.2f action=%s | feat004_telemetry: score=%.2f action=%s stage=%s regime=%s | overlays_do_not_override_signal=true",
             symbol,
             score,
             action,
@@ -245,6 +348,10 @@ class RecommendationService:
             reasoning=reasoning,
             trade_plans=trade_plans,
             summary=summary,
+            # Component scores for multi-condition Strict BUY Gate (0–100 scale).
+            technical_score=round(float(raw_tech), 2),
+            backtest_score=round(float(raw_backtest), 2),
+            fundamental_score=round(float(raw_fund), 2),
         )
         # Attach FEAT-004 metadata to the recommendation object.
         # feat004 is a declared Optional schema field, so direct assignment
@@ -320,21 +427,26 @@ class RecommendationService:
             setup_type = self._setup_type(technical.mode, technical.signal)
             timeframe = "intraday execution" if technical.mode == AnalysisMode.intraday else "multi-session swing"
 
+            recent_lows = [c.low for c in candles[-10:]]
+            recent_highs = [c.high for c in candles[-20:]]
+            lowest_low = min(recent_lows) if recent_lows else current_price - avg_range
+            highest_high = max(recent_highs) if recent_highs else current_price + avg_range
+
             if direction >= 0:
-                entry_low = round(current_price - avg_range * 0.25, 2)
-                entry_high = round(current_price + avg_range * 0.15, 2)
-                stop_loss = round(entry_low - avg_range * 0.9, 2)
-                target_1 = round(entry_high + avg_range * 1.2, 2)
-                target_2 = round(entry_high + avg_range * 2.1, 2)
-                target_3 = round(entry_high + avg_range * 3.0, 2)
+                entry_low = round(current_price - avg_range * 0.2, 2)
+                entry_high = round(current_price + avg_range * 0.1, 2)
+                stop_loss = round(min(entry_low - avg_range * 0.6, lowest_low - avg_range * 0.1), 2)
+                target_1 = round(max(entry_high + avg_range * 1.6, highest_high + avg_range * 0.2), 2)
+                target_2 = round(entry_high + (entry_high - stop_loss) * 2.0, 2)
+                target_3 = round(entry_high + (entry_high - stop_loss) * 3.0, 2)
                 bias = "long"
             else:
-                entry_low = round(current_price - avg_range * 0.15, 2)
-                entry_high = round(current_price + avg_range * 0.25, 2)
-                stop_loss = round(entry_high + avg_range * 0.9, 2)
-                target_1 = round(entry_low - avg_range * 1.2, 2)
-                target_2 = round(entry_low - avg_range * 2.1, 2)
-                target_3 = round(entry_low - avg_range * 3.0, 2)
+                entry_low = round(current_price - avg_range * 0.1, 2)
+                entry_high = round(current_price + avg_range * 0.2, 2)
+                stop_loss = round(max(entry_high + avg_range * 0.6, highest_high + avg_range * 0.1), 2)
+                target_1 = round(min(entry_low - avg_range * 1.6, lowest_low - avg_range * 0.2), 2)
+                target_2 = round(entry_low - (stop_loss - entry_low) * 2.0, 2)
+                target_3 = round(entry_low - (stop_loss - entry_low) * 3.0, 2)
                 bias = "short"
 
             if direction == 0:
@@ -416,7 +528,7 @@ class RecommendationService:
             delta_strength = float(feat007_config.get("score_delta_strength", 1.5))
             delta_weak = float(feat007_config.get("score_delta_weak", -3.0))
             downgrade_threshold = float(feat007_config.get("buy_downgrade_threshold", 74.0))
-            buy_threshold = float(feat007_config.get("buy_threshold", 72.0))
+            buy_threshold = float(feat007_config.get("buy_threshold", 68.0))
             strength_cap_enabled = bool(feat007_config.get("strength_cap_enabled", True))
 
             # Safe degradation: no sector RS data

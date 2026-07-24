@@ -135,7 +135,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
           <p className="detail-summary">{row.recommendationSummary}</p>
         </div>
         <div className="detail-header-metrics">
-          <MetricTile label="Score" value={row.score.toFixed(1)} help="Weighted final score after full analysis." />
+          <MetricTile label="Score" value={row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)} help="Weighted final score after full analysis." />
           <MetricTile
             label="Confidence"
             value={row.confidence === null ? "--" : `${Math.round(row.confidence * 100)}%`}
@@ -283,7 +283,7 @@ function OverviewTab({
       <section className="subpanel">
         <h3>Ranking context</h3>
         <div className="score-breakdown">
-          <MetricTile label="Final score" value={row.score.toFixed(1)} help="Combined recommendation score." />
+          <MetricTile label="Final score" value={row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)} help="Combined recommendation score." />
           <MetricTile label="Technical" value={row.screenerMatch?.technical_score.toFixed(1) ?? "--"} help="Technical engine strength before recommendation." />
           <MetricTile label="Scanner" value={row.screenerMatch?.screener_score.toFixed(1) ?? "--"} help="Weighted screener score used for shortlisting." />
           <MetricTile

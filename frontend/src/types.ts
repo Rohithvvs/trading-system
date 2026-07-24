@@ -210,7 +210,8 @@ export type CandidateRow = {
   rank: number | null;
   symbol: string;
   signal: "BUY" | "WATCH" | "REJECT";
-  score: number;
+  /** Composite recommendation score; null when full analysis did not complete. */
+  score: number | null;
   confidence: number | null;
   entryLow: number | null;
   entryHigh: number | null;
@@ -218,6 +219,8 @@ export type CandidateRow = {
   target1: number | null;
   target2: number | null;
   riskReward: number | null;
+  /** True when analysis failed and fields should render as N/A. */
+  analysisFailed?: boolean;
   trend: string;
   momentum: string;
   volume: string;

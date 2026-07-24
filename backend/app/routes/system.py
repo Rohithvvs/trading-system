@@ -15,7 +15,8 @@ async def shadow_run_status(db: AsyncSession = Depends(get_db)):
         "latest_scheduler_runs": diagnostics.scheduler_runs[-5:], # last 5 to keep it reasonable
         "db_health": db_health,
         "fyers_health": diagnostics.fyers_metrics,
-        "memory_metrics": memory_metrics
+        "memory_metrics": memory_metrics,
+        "token_scanner_bootstrap": getattr(diagnostics, "token_scanner_bootstrap", None),
     }
 
 @router.get("/report")

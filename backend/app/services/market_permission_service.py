@@ -55,6 +55,27 @@ class MarketPermissionService:
         if df.empty:
             fyers = fyers_symbol(canon, is_index=is_index)
             df = await self.md_service.load_full_history(fyers, "1D")
+            if df.empty:
+                try:
+                    from .fyers_service import FyersService
+                    from ..schemas import AnalysisMode
+                    fs = FyersService()
+                    points = await fs.fetch_ohlcv(fyers, AnalysisMode.swing, "1D", 250)
+                    if points:
+                        data = [
+                            {
+                                "timestamp": p.timestamp,
+                                "open": p.open,
+                                "high": p.high,
+                                "low": p.low,
+                                "close": p.close,
+                                "volume": p.volume,
+                            }
+                            for p in points
+                        ]
+                        df = pd.DataFrame(data).set_index("timestamp")
+                except Exception as exc:
+                    logger.warning("Live fallback fetch for index %s failed: %s", symbol, exc)
         return df.sort_index() if not df.empty else df
 
     async def evaluate_market_permission(self, scan_date: datetime) -> MarketRegimeResult:

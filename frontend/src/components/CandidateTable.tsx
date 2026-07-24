@@ -118,7 +118,17 @@ const CandidateCard = memo(({
   }, [livePrice, row.stopLoss, row.target1]);
 
   const backtestData = row.analysisItem?.backtests?.[0];
-  const equityCurve: BacktestEquityPoint[] = backtestData?.equity_curve || [];
+  const equityCurve: BacktestEquityPoint[] = useMemo(() => {
+    const fromBt = backtestData?.equity_curve || [];
+    if (fromBt.length > 0) return fromBt;
+    // Fallback: price series from OHLCV so cards with full analysis never show empty charts.
+    const ohlcv = row.analysisItem?.ohlcv || [];
+    if (ohlcv.length === 0) return [];
+    return ohlcv.slice(-60).map((c, i) => ({
+      label: String(i),
+      equity: c.close,
+    }));
+  }, [backtestData, row.analysisItem?.ohlcv]);
   const regime = row.newsSentiment === "Bullish" || row.newsSentiment === "Bearish" ? "CATALYST" : "STANDARD";
 
   return (
@@ -127,7 +137,7 @@ const CandidateCard = memo(({
       onClick={() => onSelect(row.symbol)}
       tabIndex={0}
       role="button"
-      aria-label={`${row.symbol} - ${row.signal} - Score ${row.score.toFixed(1)}`}
+      aria-label={`${row.symbol} - ${row.signal} - Score ${row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)}`}
       {...prefetchProps}
     >
       {/* Top row: Rank + Symbol + Signal */}
@@ -150,14 +160,14 @@ const CandidateCard = memo(({
           <div
             className="candidate-card__score-fill"
             style={{
-              width: `${Math.min(row.score, 100)}%`,
+              width: `${Math.min(row.score ?? 0, 100)}%`,
               background: "var(--accent)",
             }}
           />
         </div>
         <div className="candidate-card__score-label">
-          <span>Score <strong>{row.score.toFixed(1)}</strong></span>
-          <span>Conf <strong>{row.confidence === null ? "--" : `${Math.round(row.confidence * 100)}%`}</strong></span>
+          <span>Score <strong>{row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)}</strong></span>
+          <span>Conf <strong>{row.confidence === null || row.confidence === undefined ? "N/A" : `${Math.round(row.confidence * 100)}%`}</strong></span>
         </div>
       </div>
 
@@ -285,7 +295,16 @@ const CandidateTableRow = memo(({
   }, [livePrice, row.stopLoss, row.target1]);
 
   const backtestData = row.analysisItem?.backtests?.[0];
-  const equityCurve: BacktestEquityPoint[] = backtestData?.equity_curve || [];
+  const equityCurve: BacktestEquityPoint[] = useMemo(() => {
+    const fromBt = backtestData?.equity_curve || [];
+    if (fromBt.length > 0) return fromBt;
+    const ohlcv = row.analysisItem?.ohlcv || [];
+    if (ohlcv.length === 0) return [];
+    return ohlcv.slice(-60).map((c, i) => ({
+      label: String(i),
+      equity: c.close,
+    }));
+  }, [backtestData, row.analysisItem?.ohlcv]);
 
   // Determine Regime
   const regime = row.newsSentiment === "Bullish" || row.newsSentiment === "Bearish" ? "CATALYST" : "STANDARD";
@@ -329,16 +348,16 @@ const CandidateTableRow = memo(({
           <div style={{ marginBottom: "6px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "2px" }}>
               <span>Score</span>
-              <strong>{row.score.toFixed(1)}</strong>
+              <strong>{row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)}</strong>
             </div>
             <div style={{ width: "100%", height: "4px", background: "var(--bg-surface-elevated)", borderRadius: "2px", overflow: "hidden" }}>
-              <div style={{ width: `${Math.min(row.score, 100)}%`, height: "100%", background: "var(--accent-primary)" }}></div>
+              <div style={{ width: `${Math.min(row.score ?? 0, 100)}%`, height: "100%", background: "var(--accent-primary)" }}></div>
             </div>
           </div>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "2px", color: "var(--text-secondary)" }}>
               <span>Conviction</span>
-              <strong>{row.confidence === null ? "--" : `${Math.round(row.confidence * 100)}%`}</strong>
+              <strong>{row.confidence === null || row.confidence === undefined ? "N/A" : `${Math.round(row.confidence * 100)}%`}</strong>
             </div>
             <div style={{ width: "100%", height: "4px", background: "var(--bg-surface-elevated)", borderRadius: "2px", overflow: "hidden" }}>
               <div style={{ width: `${Math.min((row.confidence || 0) * 100, 100)}%`, height: "100%", background: "var(--text-muted)" }}></div>

@@ -314,12 +314,13 @@ def test_stock_failing_volume_not_eligible_even_with_high_score():
 # 6. Strict Buy Gate and RecommendationService not modified
 # ---------------------------------------------------------------------------
 
-def test_strict_buy_gate_not_modified():
-    """Strict Buy Gate still checks technical_score >= 75 (unchanged)."""
+def test_strict_buy_gate_score_based_policy():
+    """Score-based signal policy: classify by score thresholds, not tech>=75 gate."""
     import inspect
     from backend.app.agents.orchestrator_agent import OrchestratorAgent
     source = inspect.getsource(OrchestratorAgent._enforce_strict_buy_gate)
-    assert "75" in source
+    assert "classify_signal_from_score" in source
+    assert "SCORE SIGNAL" in source
 
 
 def test_recommendation_service_not_modified():

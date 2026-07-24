@@ -62,7 +62,8 @@ from .services.fyers_service import FyersService
 from .services.market_engine_service import market_engine
 from .db.locks import acquire_singleton_lease
 from .core.task_supervisor import TaskSupervisor
-# token_service refresh automation removed — manual access-token workflow only
+# Daily access-token automation: see token_scanner_bootstrap_service
+# (startup: ensure today's token → auto Market Scanner once/day).
 import asyncio
 from .schemas import AnalysisMode
 from .observability.scan_diagnostics import (
@@ -549,52 +550,38 @@ async def lifespan(app: FastAPI):
     QUARANTINED_SYMBOLS.clear()
     logger.info("FYERS in-memory symbol quarantine cleared on startup")
 
-    # FYERS refresh automation removed. Manual access-token workflow only.
+    # Scheduler + automatic daily Access Token → Market Scanner bootstrap.
+    # Token generation uses existing fyers_token retry policy; scanner starts only
+    # after a confirmed valid token is saved and cached (once per IST day).
     if not settings.quarantine_mode:
         scheduler.start()
         logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", str(scheduler.timezone), len(scheduler.get_jobs()))
     else:
         logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 
-    # Log DB path
+    # Log DB path + schedule automatic token→scanner workflow
     try:
         from .db.session import engine
-        from .services.token_service import get_current_access_token
 
         config_logger.info("DATABASE URL: %s", engine.url)
-
-        # Verify token is present
-        try:
-            async with AsyncSessionLocal() as db:
-                from .services.token_service import get_fyers_token_row
-                token = await get_current_access_token(db)
-                token_row = await get_fyers_token_row(db)
-                token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
-                token_age_min = 0.0
-                if token_row and token_row.access_token_saved_at:
-                    token_age_min = (datetime.now(token_row.access_token_saved_at.tzinfo) - token_row.access_token_saved_at).total_seconds() / 60.0
-                logger.info(
-                    "STARTUP_TOKEN_VERIFICATION | token_found=%s | saved_at=%s | age_minutes=%.1f",
-                    bool(token), token_saved_at, token_age_min,
-                )
-                if token:
-                    logger.info("STARTUP: FYERS access token loaded from DB successfully")
-                    # Lightweight FYERS validation
-                    try:
-                        fyers_svc = FyersService()
-                        await asyncio.wait_for(
-                            asyncio.to_thread(fyers_svc.validate_token_sync, token),
-                            timeout=10.0,
-                        )
-                        logger.info("TOKEN_VALIDATION_SUCCESS | saved_at=%s | age_minutes=%.1f", token_saved_at, token_age_min)
-                    except Exception as val_exc:
-                        logger.error("TOKEN_VALIDATION_FAILED | saved_at=%s | age_minutes=%.1f | error=%s", token_saved_at, token_age_min, val_exc)
-                else:
-                    logger.warning("STARTUP: No FYERS access token found in DB. Please add via UI.")
-        except Exception:
-            logger.exception("Failed to read FYERS access token from DB on startup")
     except Exception:
         logger.exception("Failed to log database engine/url on startup")
+
+    if not settings.quarantine_mode:
+        try:
+            from .services.token_scanner_bootstrap_service import schedule_startup_bootstrap
+
+            schedule_startup_bootstrap(app.state)
+            logger.info(
+                "STARTUP: Automatic token→scanner bootstrap scheduled "
+                "(generate/validate/save if needed, then scanner once/day)"
+            )
+        except Exception:
+            logger.exception(
+                "Failed to schedule automatic token→scanner bootstrap on startup"
+            )
+    else:
+        logger.info("QUARANTINE MODE: Automatic token→scanner bootstrap bypassed.")
 
     # Start the backend-driven market engine. The service boundary is intentionally
     # separate so the same loop can later be hosted in a dedicated worker process.

@@ -1608,7 +1608,7 @@ function OrderTicketCard({
             <p>{scannerCandidate.recommendationSummary}</p>
           </div>
           <div className="scan-prefill-metrics">
-            <Metric label="Score" value={scannerCandidate.score.toFixed(1)} />
+            <Metric label="Score" value={scannerCandidate.score === null || scannerCandidate.score === undefined ? "N/A" : scannerCandidate.score.toFixed(1)} />
             <Metric label="Confidence" value={scannerCandidate.confidence === null ? "--" : `${Math.round(scannerCandidate.confidence * 100)}%`} />
             <Metric label="RR" value={scannerCandidate.riskReward?.toFixed(2) ?? "--"} />
             <Metric label="Scan time" value={lastScanAt ? new Date(lastScanAt).toLocaleTimeString() : "--"} />
@@ -2472,7 +2472,7 @@ function buildTicketFromCandidate(
     sourceConfidence: confidence ?? null,
     notes: appendTicketNote(
       current.notes,
-      `Auto-filled from ${scanText}: ${candidate.signal}, score ${candidate.score.toFixed(1)}, confidence ${confidence === undefined ? "n/a" : Math.round(confidence * 100) + "%"}.`,
+      `Auto-filled from ${scanText}: ${candidate.signal}, score ${candidate.score === null || candidate.score === undefined ? "N/A" : candidate.score.toFixed(1)}, confidence ${confidence === undefined || confidence === null ? "n/a" : Math.round(confidence * 100) + "%"}.`,
     ),
   };
 }

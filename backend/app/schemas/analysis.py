@@ -168,6 +168,11 @@ class FinalRecommendation(BaseModel):
     reasoning: RecommendationReasoning
     trade_plans: list[TradePlan]
     summary: str
+    # Component scores on 0–100 scale (pre-overlay) for Strict BUY Gate multi-condition checks.
+    # Optional so older callers / tests that omit them still construct cleanly.
+    technical_score: float | None = None
+    backtest_score: float | None = None
+    fundamental_score: float | None = None
     # FEAT-004 — Market Regime Overlay (optional logging/metadata fields)
     # Defaults to None; populated when FEAT-004 runs. Contains the full
     # feat004 log payload (regime, benchmark trend inputs, score adjustment,

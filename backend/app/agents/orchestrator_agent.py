@@ -44,6 +44,7 @@ shadow_logger = get_logger("app.shadow_executor")
 # Hardening (audit M4): bound shadow executor latency on the request path.
 # Spec 5 may move execution off-thread; until then never wait indefinitely.
 _SHADOW_EXECUTOR_TIMEOUT_SECONDS = 5.0
+_TRUSTED_OHLCV_SOURCES = {"FYERS_PRIMARY", "CANDLE_CACHE_DB"}
 
 
 class OrchestratorAgent:
@@ -270,9 +271,9 @@ class OrchestratorAgent:
 
     async def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         if progress_callback:
-            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 10, "heartbeat": True})
+            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 15, "heartbeat": True})
         self.logger.info(
-            "Starting screener flow | top_n=%s | mode=%s | lookback=%s | custom_symbol_count=%s",
+            "[SCAN] Starting screener flow | top_n=%s | mode=%s | lookback=%s | custom_symbol_count=%s",
             request.top_n,
             request.mode.value,
             request.timeframe.lookback_window,
@@ -300,9 +301,10 @@ class OrchestratorAgent:
 
         if progress_callback:
             progress_callback({"stage": "Loading Market Universe...", "progress": 20, "heartbeat": True})
+        self.logger.info("[SCAN] Loading universe...")
         universes = await self._prioritized_universes()
         self.logger.info(
-            "Universe scan plan | stages=%s | stage_list=%s",
+            "[SCAN] Universe loaded | stages=%s | stage_list=%s",
             len(universes),
             ",".join(name for name, _ in universes),
         )
@@ -388,12 +390,22 @@ class OrchestratorAgent:
         progress_callback=None,
     ) -> ScreenerResponse:
         if progress_callback:
-            progress_callback({"stage": "Fetching Historical OHLCV Data...", "progress": 40, "heartbeat": True})
+            progress_callback({"stage": "Downloading candles...", "progress": 35, "heartbeat": True})
+        self.logger.info(
+            "[SCAN] Downloading candles | stage=%s | symbols=%s",
+            stage_name,
+            len(source_universe),
+        )
         screener_results = await self.screener_service.screen_symbols_swing(
             source_universe,
             lookback_window=request.timeframe.lookback_window,
             stage_name=stage_name,
             progress_callback=progress_callback,
+        )
+        self.logger.info(
+            "[SCAN] Candle/screener stage complete | stage=%s | results=%s",
+            stage_name,
+            len(screener_results),
         )
         data_valid_symbols = [
             item.symbol
@@ -476,12 +488,35 @@ class OrchestratorAgent:
                             ))
                         if len(points) >= 220:
                             prefetched_candles[sym] = {AM.swing: points}
+                            # Register source so _data_quality_payload does not mark
+                            # prefetched screener candles as unknown/mock (which was
+                            # falsely triggering Analysis Failed → REJECT and stripping
+                            # trade plans from the UI via analysis_items filtering).
+                            try:
+                                resolution = self._resolution_for_mode(AM.swing, analysis_request)
+                                self.fyers_service._store_ohlcv_cache(
+                                    (
+                                        self.fyers_service._cache_symbol(sym),
+                                        AM.swing.value,
+                                        str(resolution).lower(),
+                                    ),
+                                    analysis_request.timeframe.lookback_window,
+                                    points,
+                                    "CANDLE_CACHE_DB",
+                                )
+                            except Exception as cache_exc:
+                                self.logger.debug(
+                                    "prefetch source register failed | symbol=%s | error=%s",
+                                    sym,
+                                    cache_exc,
+                                )
             # Release frames from memory after extracting prefetched candles
             screener_frames.clear()
             self.screener_service.last_fetched_frames.clear()
             shortlist_analysis = await self.run_full(analysis_request, progress_callback, prefetched_candles=prefetched_candles or None)
             buy_items = [item for item in shortlist_analysis.items if item.recommendation.action == "BUY"]
             watch_items = [item for item in shortlist_analysis.items if item.recommendation.action == "WATCH"]
+            reject_items = [item for item in shortlist_analysis.items if item.recommendation.action == "REJECT"]
             buy_candidate_symbols = [item.symbol for item in buy_items]
             watch_candidate_symbols = [item.symbol for item in watch_items]
             self.logger.info(
@@ -489,12 +524,16 @@ class OrchestratorAgent:
                 stage_name,
                 len(buy_items),
                 len(watch_items),
-                len([item for item in shortlist_analysis.items if item.recommendation.action == 'REJECT']),
+                len(reject_items),
             )
-            analysis_items = buy_items + watch_items
+            # Keep REJECT results in the payload so the UI still receives the real
+            # composite score, confidence, trade plan, and equity curve.
+            # (Previously only BUY+WATCH were returned, so REJECT rows fell back to
+            # screener_score — often ~100 — with empty entry/SL/TP/confidence.)
+            analysis_items = buy_items + watch_items + reject_items
             analysis = FullAnalysisResponse(
                 items=analysis_items,
-                rankings=self.ranking_agent.run(analysis_items),
+                rankings=self.ranking_agent.run(buy_items + watch_items),
                 disclaimer=advisory_payload(),
                 generated_at=shortlist_analysis.generated_at,
             )
@@ -1195,6 +1234,10 @@ class OrchestratorAgent:
             market_regime=market_regime
         )
 
+        reason_codes_value = sector_overlay.downgrade_reason if sector_overlay else None
+        if reason_codes_value and len(reason_codes_value) > 450:
+            reason_codes_value = reason_codes_value[:447] + "..."
+
         async with AsyncSessionLocal() as db:
             analysis_entry = AnalysisHistory(
                 stock_id=stock_id,
@@ -1212,7 +1255,7 @@ class OrchestratorAgent:
                 sector_filter_triggered=sector_overlay.downgrade_triggered if sector_overlay else None,
                 original_signal=sector_overlay.original_action if sector_overlay else None,
                 challenger_signal=sector_overlay.challenger_action if sector_overlay else None,
-                reason_codes=sector_overlay.downgrade_reason if sector_overlay else None,
+                reason_codes=reason_codes_value,
                 # SR-004 Audit fields
                 market_state=market_regime.market_state if market_regime else None,
                 market_trend_state=market_regime.trend_state if market_regime else None,
@@ -1278,7 +1321,9 @@ class OrchestratorAgent:
         return request.timeframe.swing
 
     def _primary_candle_set(self, candles_by_mode: dict[AnalysisMode, list]) -> list:
-        return candles_by_mode.get(AnalysisMode.swing) or next(iter(candles_by_mode.values()))
+        if not candles_by_mode:
+            return []
+        return candles_by_mode.get(AnalysisMode.swing) or next(iter(candles_by_mode.values()), [])
 
     @staticmethod
     def _universe_breadth_items_from_bulk(
@@ -1455,19 +1500,37 @@ class OrchestratorAgent:
         symbol: str,
     ) -> dict[str, str | int | bool | float]:
         primary = self._primary_candle_set(candles_by_mode)
-        primary_mode = AnalysisMode.swing if AnalysisMode.swing in candles_by_mode else next(iter(candles_by_mode.keys()))
-        primary_source = self.fyers_service.get_ohlcv_source(
-            symbol,
-            primary_mode,
-            self._resolution_for_mode(primary_mode, request),
+        if AnalysisMode.swing in candles_by_mode:
+            primary_mode = AnalysisMode.swing
+        elif candles_by_mode:
+            primary_mode = next(iter(candles_by_mode.keys()))
+        else:
+            primary_mode = AnalysisMode.swing
+
+        primary_source = (
+            self.fyers_service.get_ohlcv_source(
+                symbol,
+                primary_mode,
+                self._resolution_for_mode(primary_mode, request),
+            )
+            if candles_by_mode
+            else "NONE"
         )
+        # Prefetched shortlist candles may not have registered a source key yet.
+        # When we have a full OHLC series, treat data as real (not mock).
+        if primary_source in {"unknown", "NONE"} and len(primary) >= 220:
+            primary_source = "CANDLE_CACHE_DB"
         latest_timestamp = primary[-1].timestamp.isoformat() if primary else "n/a"
+        # Explicitly untrusted / empty sources only — do NOT treat warm-cache or
+        # prefetched series as mock just because the label was missing.
+        _EXPLICIT_MOCK = {"MOCK_FALLBACK", "NO_DATA", "NONE"}
+        mock_warning = primary_source in _EXPLICIT_MOCK or len(primary) == 0
         return {
             "source": primary_source,
             "candles": len(primary),
             "candles_fetched": len(primary),
             "latest_timestamp": latest_timestamp,
-            "mock_warning": primary_source != "FYERS_PRIMARY",
+            "mock_warning": mock_warning,
             "minimum_swing_candles_met": len(primary) >= 220,
         }
 
@@ -1516,11 +1579,14 @@ class OrchestratorAgent:
             use_realistic_for_composite = settings.feat008_composite_uses_realistic
             skip_on_missing_next_bar = settings.feat008_skip_on_missing_next_bar
         for mode in self._resolve_modes(request.mode):
-            technical_results.append(
-                self.technical_agent.service.analyze(symbol, candles_by_mode.get(mode, []), mode)
-                if candles_by_mode.get(mode)
-                else self._empty_technical_result(mode)
-            )
+            # TechnicalAnalysisService only exposes analyze_bulk (no single-symbol analyze).
+            tech_res = None
+            if candles_by_mode.get(mode):
+                bulk = self.technical_agent.service.analyze_bulk(
+                    {symbol: candles_by_mode[mode]}, mode
+                )
+                tech_res = bulk.get(symbol)
+            technical_results.append(tech_res or self._empty_technical_result(mode))
             backtests.append(self.backtest_agent.run(
                 symbol, mode, candles_by_mode.get(mode, []),
                 execution_model=exec_model,
@@ -1599,92 +1665,118 @@ class OrchestratorAgent:
         candles_by_mode: dict[AnalysisMode, list],
         data_quality: dict[str, str | int | bool | float],
     ):
-        # If recommendation is not BUY, nothing to enforce
-        if recommendation.action != "BUY":
-            self.logger.debug("STRICT BUY GATE SKIP | symbol=%s | recommendation=%s", symbol, recommendation.action)
-            return recommendation
+        """Final recommendation gate — runs ONLY after full analysis pipeline.
 
+        All technical, AI, sector, backtest, and trade-plan work is already done
+        by the time this method is called. This gate does NOT re-run analysis.
+
+        Production signal policy (score-based only):
+          score >= 70 → BUY
+          55 <= score < 70 → WATCH
+          score < 55 → REJECT
+
+        Informational only (never override the score decision):
+          Risk:Reward, conviction, AI confidence threshold, trend strength,
+          market regime, breakout confirmation, feature flags, safety overrides.
+
+        Mandatory preconditions (any failure → REJECT, reason=Analysis Failed):
+          market data, valid price/OHLC, trade plan with entry/SL/target,
+          score calculated, confidence calculated, analysis completed.
+        """
+        from ..services.recommendation_service import (
+            ANALYSIS_FAILED_REASON,
+            analysis_preconditions_ok,
+            classify_signal_from_score,
+        )
+
+        composite_score = float(getattr(recommendation, "score", 0.0) or 0.0)
+        confidence = getattr(recommendation, "confidence", None)
         primary_plan = recommendation.trade_plans[0] if recommendation.trade_plans else None
-        best_technical = max(technical_results, key=lambda item: item.score)
-        best_backtest = max(backtests, key=lambda item: item.total_return)
+        best_technical = max(technical_results, key=lambda item: item.score) if technical_results else None
+        best_backtest = max(backtests, key=lambda item: item.total_return) if backtests else None
+        _ = best_backtest  # retained for diagnostics only
 
-        # Log a compact diagnostic snapshot for debugging why BUY may be blocked
         try:
             self.logger.info(
-                "STRICT BUY GATE EVALUATE | symbol=%s | rec_score=%.2f | rec_conf=%.2f | best_tech_score=%.2f | backtest_verdict=%s | backtest_return=%.2f | plan_rw=%s | data_source=%s | mock_warning=%s | min_candles_met=%s",
+                "SCORE SIGNAL POLICY | symbol=%s | score=%.2f | conf=%s | plans=%s | source=%s | mock_warning=%s | min_candles_met=%s | tech=%.2f | rr=%s",
                 symbol,
-                float(recommendation.score),
-                float(recommendation.confidence),
-                float(best_technical.score) if best_technical is not None else 0.0,
-                getattr(best_backtest, "verdict", "n/a"),
-                float(getattr(best_backtest, "total_return", 0.0)),
-                (primary_plan.risk_reward_ratio if primary_plan and getattr(primary_plan, "risk_reward_ratio", None) is not None else None),
+                composite_score,
+                confidence,
+                len(recommendation.trade_plans or []),
                 data_quality.get("source"),
                 data_quality.get("mock_warning"),
                 data_quality.get("minimum_swing_candles_met"),
+                float(best_technical.score) if best_technical is not None else 0.0,
+                (
+                    primary_plan.risk_reward_ratio
+                    if primary_plan is not None and getattr(primary_plan, "risk_reward_ratio", None) is not None
+                    else None
+                ),
             )
         except Exception:
-            # Don't let logging issues break flow
             pass
 
-        strong_live_data = (
-            not bool(data_quality.get("mock_warning"))
-            and bool(data_quality.get("minimum_swing_candles_met"))
-            and data_quality.get("source") == "FYERS_PRIMARY"
-        )
-        strong_execution = bool(
-            primary_plan is not None
-            and getattr(primary_plan, "risk_reward_ratio", None) is not None
-            and primary_plan.risk_reward_ratio >= 1.25
-        )
-        supportive_backtest = bool(
-            best_backtest is not None
-            and getattr(best_backtest, "verdict", None) in {"favorable", "mixed"}
-        )
-        strong_technical = bool(best_technical is not None and float(best_technical.score) >= 75)
+        # Analysis-completed check: technical results present for the symbol path
+        analysis_completed = bool(technical_results) and best_technical is not None
 
-        self.logger.debug(
-            "STRICT BUY GATE CHECK | symbol=%s | strong_live_data=%s | strong_technical=%s | strong_execution=%s | supportive_backtest=%s",
+        ok, reason = analysis_preconditions_ok(
+            score=composite_score,
+            confidence=confidence,
+            trade_plans=recommendation.trade_plans,
+            data_quality=data_quality,
+        )
+        if not analysis_completed:
+            ok = False
+            reason = ANALYSIS_FAILED_REASON
+
+        if not ok:
+            updated_risks = list(recommendation.reasoning.risk_factors)
+            if ANALYSIS_FAILED_REASON not in updated_risks:
+                updated_risks.append(ANALYSIS_FAILED_REASON)
+            self.logger.info(
+                "SCORE SIGNAL REJECT | symbol=%s | reason=%s | prior_score=%.2f | source=%s | plans=%s",
+                symbol,
+                reason or ANALYSIS_FAILED_REASON,
+                composite_score,
+                data_quality.get("source"),
+                len(recommendation.trade_plans or []),
+            )
+            # True analysis failure: never invent a high score. Clear score /
+            # confidence / trade plans so the UI shows N/A rather than Score=100
+            # or leftover fields from a partial path.
+            return recommendation.model_copy(
+                update={
+                    "action": "REJECT",
+                    "score": 0.0,
+                    "confidence": 0.0,
+                    "trade_plans": [],
+                    "reasoning": recommendation.reasoning.model_copy(update={"risk_factors": updated_risks}),
+                    "summary": (
+                        f"{recommendation.summary} Signal=REJECT ({ANALYSIS_FAILED_REASON}). "
+                        "Score/Entry/SL/Target are unavailable because analysis did not complete."
+                    ),
+                }
+            )
+
+        # Pure score classification — no R:R / tech / regime overrides.
+        score_action = classify_signal_from_score(composite_score)
+        if recommendation.action != score_action:
+            self.logger.info(
+                "SCORE SIGNAL RECLASSIFY | symbol=%s | from=%s | to=%s | score=%.2f",
+                symbol,
+                recommendation.action,
+                score_action,
+                composite_score,
+            )
+            return recommendation.model_copy(update={"action": score_action})
+
+        self.logger.info(
+            "SCORE SIGNAL PASS | symbol=%s | action=%s | score=%.2f",
             symbol,
-            strong_live_data,
-            strong_technical,
-            strong_execution,
-            supportive_backtest,
+            score_action,
+            composite_score,
         )
-
-        # Only allow BUY when all strict confirmations are present
-        if strong_live_data and strong_technical and strong_execution:
-            self.logger.info("STRICT BUY GATE PASS | symbol=%s | BUY allowed", symbol)
-            return recommendation
-
-        # Downgrade to WATCH and log reasons
-        updated_risks = list(recommendation.reasoning.risk_factors)
-        updated_risks.append(
-            "Strict BUY gate blocked this setup because live-data quality, backtest strength, or risk-reward confirmation was not strong enough."
-        )
-        try:
-            self.logger.info(
-                "STRICT BUY GATE DOWNGRADE | symbol=%s | downgraded_to=WATCH | rec_score=%.2f | rec_conf=%.2f | best_tech_score=%.2f | plan_rw=%s | data_source=%s | mock_warning=%s | min_candles_met=%s | backtest_verdict=%s",
-                symbol,
-                float(recommendation.score),
-                float(recommendation.confidence),
-                float(best_technical.score) if best_technical is not None else 0.0,
-                (primary_plan.risk_reward_ratio if primary_plan and getattr(primary_plan, "risk_reward_ratio", None) is not None else None),
-                data_quality.get("source"),
-                data_quality.get("mock_warning"),
-                data_quality.get("minimum_swing_candles_met"),
-                getattr(best_backtest, "verdict", "n/a"),
-            )
-        except Exception:
-            pass
-
-        return recommendation.model_copy(
-            update={
-                "action": "WATCH",
-                "reasoning": recommendation.reasoning.model_copy(update={"risk_factors": updated_risks}),
-                "summary": f"{recommendation.summary} BUY was downgraded to WATCH by the strict confirmation gate.",
-            }
-        )
+        return recommendation
 
     def _trade_readiness(self, recommendation, technical_results: list, data_quality: dict[str, str | int | bool | float]) -> str:
         best_technical = max(technical_results, key=lambda item: item.score)

@@ -215,7 +215,12 @@ export default function Dashboard() {
         if (filters.signal === 'REJECT') return sig === 'reject' || sig === 'bearish' || sig === 'sell';
         return true;
       })
-      .filter((row) => row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1])
+      .filter((row) => {
+        if (row.score === null || row.score === undefined) {
+          return filters.signal === "REJECT" || filters.signal === "ALL";
+        }
+        return row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1];
+      })
       .filter((row) => (filters.onlyHighConfidence ? (row.confidence ?? 0) >= 0.7 : true))
       .filter((row) => (searchTerm ? row.symbol.includes(searchTerm) : true))
       .sort((left, right) => compareRows(left, right, filters.sortBy));
@@ -639,18 +644,34 @@ function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateR
       signal = "WATCH";
     }
 
+    const rec = analysis?.recommendation;
+    const riskFactors = rec?.reasoning?.risk_factors ?? [];
+    const hasPlans = Boolean(plan) || Boolean(rec?.trade_plans?.length);
+    const analysisFailed =
+      !analysis ||
+      riskFactors.some((r) => typeof r === "string" && r.toLowerCase().includes("analysis failed")) ||
+      (Boolean(rec) && rec!.score === 0 && !hasPlans);
+
+    // Never use screener_score as recommendation score (can be 100 with empty trade plan).
+    const compositeScore = analysisFailed
+      ? null
+      : typeof rec?.score === "number"
+        ? rec.score
+        : null;
+
     return {
       rank: ranking?.rank ?? null,
       symbol,
       signal,
-      score: analysis?.recommendation.score ?? match?.screener_score ?? 0,
-      confidence: analysis?.recommendation.confidence ?? null,
+      score: compositeScore,
+      confidence: analysisFailed ? null : rec?.confidence ?? null,
       entryLow: plan?.entry_low ?? null,
       entryHigh: plan?.entry_high ?? null,
       stopLoss: plan?.stop_loss ?? null,
       target1: plan?.target_1 ?? null,
       target2: plan?.target_2 ?? null,
       riskReward: plan?.risk_reward_ratio ?? null,
+      analysisFailed: Boolean(analysisFailed),
       trend: formatTrend(technical, match),
       momentum: formatMomentum(technical, match),
       volume: formatVolume(technical, match),

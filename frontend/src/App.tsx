@@ -196,7 +196,13 @@ export default function App() {
         if (filters.signal === "REJECT") return sig === "reject" || sig === "bearish" || sig === "sell";
         return true;
       })
-      .filter((row) => row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1])
+      .filter((row) => {
+        // Keep analysis-failed rows visible under REJECT; do not invent Score=100.
+        if (row.score === null || row.score === undefined) {
+          return filters.signal === "REJECT" || filters.signal === "ALL";
+        }
+        return row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1];
+      })
       .filter((row) => (filters.onlyHighConfidence ? (row.confidence ?? 0) >= 0.7 : true))
       .filter((row) => (searchTerm ? row.symbol.includes(searchTerm) : true))
       .sort((left, right) => compareRows(left, right, filters.sortBy));
@@ -680,18 +686,37 @@ function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateR
       signal = "WATCH";
     }
 
+    const rec = analysis?.recommendation;
+    const riskFactors = rec?.reasoning?.risk_factors ?? [];
+    const hasPlans = Boolean(plan) || Boolean(rec?.trade_plans?.length);
+    const analysisFailed =
+      !analysis ||
+      riskFactors.some((r) => typeof r === "string" && r.toLowerCase().includes("analysis failed")) ||
+      // Backend clears score/plans on true analysis failure (never invent Score=100).
+      (Boolean(rec) && rec!.score === 0 && !hasPlans);
+
+    // NEVER fall back to screener_score as the recommendation score.
+    // Screener scores can hit 100 and look like a fake "perfect" composite.
+    // Only use the real composite score from the completed analysis pipeline.
+    const compositeScore = analysisFailed
+      ? null
+      : typeof rec?.score === "number"
+        ? rec.score
+        : null;
+
     return {
       rank: ranking?.rank ?? null,
       symbol,
       signal,
-      score: analysis?.recommendation.score ?? match?.screener_score ?? 0,
-      confidence: analysis?.recommendation.confidence ?? null,
+      score: compositeScore,
+      confidence: analysisFailed ? null : rec?.confidence ?? null,
       entryLow: plan?.entry_low ?? null,
       entryHigh: plan?.entry_high ?? null,
       stopLoss: plan?.stop_loss ?? null,
       target1: plan?.target_1 ?? null,
       target2: plan?.target_2 ?? null,
       riskReward: plan?.risk_reward_ratio ?? null,
+      analysisFailed: Boolean(analysisFailed),
       trend: formatTrend(technical, match),
       momentum: formatMomentum(technical, match),
       volume: formatVolume(technical, match),
@@ -739,7 +764,7 @@ function compareRows(left: CandidateRow, right: CandidateRow, sortBy: SortKey) {
   if (sortBy === "rank") return (left.rank ?? 999) - (right.rank ?? 999);
   if (sortBy === "confidence") return (right.confidence ?? -1) - (left.confidence ?? -1);
   if (sortBy === "riskReward") return (right.riskReward ?? -1) - (left.riskReward ?? -1);
-  return right.score - left.score;
+  return (right.score ?? -1) - (left.score ?? -1);
 }
 
 function formatTrend(
