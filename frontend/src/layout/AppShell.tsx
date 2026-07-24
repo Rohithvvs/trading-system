@@ -6,6 +6,7 @@ import { useDensity } from "../hooks/useDensity";
 import { useDeveloperMode } from "../hooks/useDeveloperMode";
 import { ADMIN_NAV, RETAIL_NAV, isNavActive } from "./navConfig";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
 
 type Props = {
   children: ReactNode;
@@ -196,7 +197,12 @@ export function AppShell({ children, topActions, title }: Props) {
               type="button"
               className="ds-btn ds-btn--buy ds-btn--sm"
               data-testid="global-buy-cta"
-              onClick={() => navigate("/paper?side=BUY")}
+              onClick={() =>
+                navigateToPaperOrder(navigate, {
+                  side: "BUY",
+                  returnTo: `${location.pathname}${location.search || ""}`,
+                })
+              }
             >
               BUY
             </button>
@@ -204,7 +210,12 @@ export function AppShell({ children, topActions, title }: Props) {
               type="button"
               className="ds-btn ds-btn--sell ds-btn--sm"
               data-testid="global-sell-cta"
-              onClick={() => navigate("/paper?side=SELL")}
+              onClick={() =>
+                navigateToPaperOrder(navigate, {
+                  side: "SELL",
+                  returnTo: `${location.pathname}${location.search || ""}`,
+                })
+              }
             >
               SELL
             </button>
@@ -278,7 +289,7 @@ export function AppShell({ children, topActions, title }: Props) {
 
       {/* Mobile bottom navigation */}
       <nav className="app-bottom-nav" aria-label="Primary">
-        {RETAIL_NAV.slice(0, 5).map((item) => {
+        {RETAIL_NAV.slice(0, 4).map((item) => {
           const active = isNavActive(location.pathname, item);
           return (
             <NavLink

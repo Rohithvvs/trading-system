@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { fetchUserProfile, patchUserProfile } from "../api";
 import {
@@ -8,12 +7,12 @@ import {
   profileFromApi,
   type ProfilePreferences,
 } from "../utils/profilePrefs";
-import { Card, CardHeader, EmptyState, Button, ConfirmDialog, useToast } from "../design-system";
-import { ListSkeleton } from "../components/Skeleton";
+import { useToast, Button, EmptyState } from "../design-system";
+import { ListSkeleton } from "./Skeleton";
+import { ConfirmDialog } from "../design-system";
 
-export function WatchlistPage() {
+export function WatchlistTab() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const toast = useToast();
   const [prefs, setPrefs] = useState<ProfilePreferences>(() => loadProfilePrefs(user?.id));
   const [loading, setLoading] = useState(true);
@@ -55,7 +54,7 @@ export function WatchlistPage() {
     }
     const previous = prefs;
     const next = { ...prefs, watchlist: nextList };
-    setPrefs(next); // optimistic
+    setPrefs(next);
     try {
       const updated = await patchUserProfile({
         preferences: { watchlist: nextList },
@@ -86,31 +85,36 @@ export function WatchlistPage() {
     void persist(watchlist.filter((s) => s !== sym)).then(() => toast.info(`Removed ${sym}`));
   }
 
-  return (
-    <div className="page-container">
-      <header className="page-hero">
-        <div>
-          <p className="ds-label">Watchlist</p>
-          <h1 className="ds-display">Favorites</h1>
-          <p className="ds-muted">
-            Track symbols you care about. Saved to your account — available on every device.
-          </p>
-        </div>
-        <div className="page-hero__actions">
-          <Button variant="trade" onClick={() => navigate("/scanner")}>
-            TRADE
-          </Button>
-        </div>
-      </header>
+  function handleBuy(sym: string) {
+    window.dispatchEvent(
+      new CustomEvent("paper:open-order", {
+        detail: { symbol: sym, side: "BUY", returnTo: "/paper" },
+      }),
+    );
+  }
 
-      <Card>
-        <CardHeader label="Add symbol" title="Build your list" />
+  return (
+    <section>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="section-label">Favorites</p>
+            <h2>Watchlist</h2>
+          </div>
+          {sorted.length > 0 ? (
+            <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>
+              Clear all
+            </Button>
+          ) : null}
+        </div>
+
         <form
           className="watchlist-add-form"
           onSubmit={(e) => {
             e.preventDefault();
             addSymbol();
           }}
+          style={{ marginBottom: 12, display: "flex", gap: 8 }}
         >
           <input
             value={newSymbol}
@@ -118,88 +122,56 @@ export function WatchlistPage() {
             placeholder="e.g. RELIANCE"
             aria-label="Symbol to add"
             maxLength={24}
+            style={{ flex: 1 }}
           />
           <Button type="submit" variant="secondary">
             Add
           </Button>
         </form>
-      </Card>
 
-      <Card>
-        <CardHeader
-          label="Your favorites"
-          title={loading ? "Loading…" : `${sorted.length} symbol${sorted.length === 1 ? "" : "s"}`}
-          actions={
-            sorted.length > 0 ? (
-              <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>
-                Clear all
-              </Button>
-            ) : null
-          }
-        />
         {loading ? (
           <ListSkeleton items={5} />
         ) : sorted.length === 0 ? (
           <EmptyState
             title="No watchlist"
             description="Add NSE symbols you want to follow, or star them from scanner results."
-            primaryAction={{ label: "Open Scanner", onClick: () => navigate("/scanner"), variant: "trade" }}
-            secondaryAction={{ label: "Paper Desk", onClick: () => navigate("/paper"), variant: "ghost" }}
           />
         ) : (
-          <ul className="markets-symbol-list watchlist-list">
-            {sorted.map((sym) => (
-              <li key={sym}>
-                <div className="markets-symbol-row">
-                  <button
-                    type="button"
-                    className="watchlist-sym-btn"
-                    onClick={() => navigate(`/scanner?symbol=${encodeURIComponent(sym)}`)}
-                  >
-                    <strong>{sym}</strong>
-                    <span className="ds-caption">Open in scanner</span>
-                  </button>
-                  <div className="watchlist-row-actions">
-                    <Button
-                      variant="buy"
-                      size="sm"
-                      onClick={() => {
-                        navigate(`/paper-order?symbol=${encodeURIComponent(sym)}&side=BUY`, {
-                          state: {
-                            symbol: sym,
-                            side: "BUY",
-                            returnTo: "/watchlist",
-                          },
-                        });
-                      }}
-                    >
-                      BUY
-                    </Button>
-                    <Button
-                      variant="sell"
-                      size="sm"
-                      onClick={() => {
-                        navigate(`/paper-order?symbol=${encodeURIComponent(sym)}&side=SELL`, {
-                          state: {
-                            symbol: sym,
-                            side: "SELL",
-                            returnTo: "/watchlist",
-                          },
-                        });
-                      }}
-                    >
-                      SELL
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => removeSymbol(sym)} aria-label={`Remove ${sym}`}>
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="table-scroll">
+            <table className="candidate-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Scanner Score</th>
+                  <th>Confidence</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((sym) => (
+                  <tr key={sym}>
+                    <td>
+                      <strong>{sym}</strong>
+                    </td>
+                    <td className="number-cell">--</td>
+                    <td className="number-cell">--</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Button variant="buy" size="sm" onClick={() => handleBuy(sym)}>
+                          BUY
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => removeSymbol(sym)} aria-label={`Remove ${sym}`}>
+                          Remove
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </Card>
+      </div>
 
       <ConfirmDialog
         open={confirmClear}
@@ -215,8 +187,6 @@ export function WatchlistPage() {
         confirmLabel="Clear all"
         tone="danger"
       />
-    </div>
+    </section>
   );
 }
-
-export default WatchlistPage;

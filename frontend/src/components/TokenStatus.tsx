@@ -53,6 +53,8 @@ type BrokerMeta = {
 type HistoryRow = {
   id: number | string;
   saved_at: string;
+  saved_date?: string | null;
+  saved_time?: string | null;
   broker?: string;
   access_token_masked?: string | null;
   status?: string | null;
@@ -721,7 +723,8 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
             <table className="token-mgmt__table">
               <thead>
                 <tr>
-                  <th>Saved At</th>
+                  <th>Saved Date</th>
+                  <th>Saved Time</th>
                   <th>Broker</th>
                   <th>Masked Token</th>
                   <th>Status</th>
@@ -732,12 +735,13 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
               <tbody>
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="token-mgmt__table-empty">No history yet</td>
+                    <td colSpan={7} className="token-mgmt__table-empty">No history yet</td>
                   </tr>
                 ) : (
                   history.map((h) => (
                     <tr key={h.id}>
-                      <td className="token-mgmt__table-cell--date">{formatDate(h.saved_at)}</td>
+                      <td className="token-mgmt__table-cell--date">{h.saved_date ?? formatDate(h.saved_at)}</td>
+                      <td className="token-mgmt__table-cell--time">{h.saved_time ?? formatTime(h.saved_at)}</td>
                       <td>{h.broker || broker}</td>
                       <td className="token-mgmt__mono">{maskToken(h.access_token_masked)}</td>
                       <td>
@@ -784,6 +788,20 @@ function formatDate(dateStr: string): string {
     });
   } catch {
     return dateStr;
+  }
+}
+
+function formatTime(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return "—";
   }
 }
 

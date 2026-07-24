@@ -32,10 +32,15 @@ import { ScannerProgress } from "./components/ScannerProgress";
 import { StatusCards } from "./components/StatusCards";
 import { AdminRoute } from "./components/AdminRoute";
 import FyersCallback from "./components/FyersCallback";
+import { PaperOrderProvider } from "./contexts/PaperOrderContext";
+import { navigateToPaperOrder } from "./utils/paperOrderNavigation";
 
 /** Code-split heavy modules — shell/nav paint first */
 const PaperTradingPage = lazy(() =>
   import("./components/PaperTradingPage").then((m) => ({ default: m.PaperTradingPage })),
+);
+const PaperOrderPage = lazy(() =>
+  import("./pages/PaperOrderPage").then((m) => ({ default: m.PaperOrderPage })),
 );
 const UserProfilePage = lazy(() =>
   import("./components/profile/UserProfilePage").then((m) => ({ default: m.UserProfilePage })),
@@ -51,9 +56,6 @@ const StockDetailPanel = lazy(() =>
 );
 const MarketsPage = lazy(() =>
   import("./pages/MarketsPage").then((m) => ({ default: m.MarketsPage })),
-);
-const WatchlistPage = lazy(() =>
-  import("./pages/WatchlistPage").then((m) => ({ default: m.WatchlistPage })),
 );
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage").then((m) => ({ default: m.PerformancePage })),
@@ -369,7 +371,7 @@ export default function App() {
 
   const sendRowToPaperTrading = useCallback((row: CandidateRow, suggestedEntry?: number | null) => {
     const sig = (row as any).signal || (row as any).recommendation;
-    if (sig === "BUY") {
+    if (sig === "BUY" || !sig) {
       const check = checkCanPlaceBuyOrder();
       if (!check.allowed) {
         showMarketClosedAlert(check);
@@ -377,11 +379,23 @@ export default function App() {
       }
     }
     const prefill = buildPaperTradingPrefill(row);
-    setPaperTradingPrefill({
+    const updatedPrefill = {
       ...prefill,
       suggested_entry: suggestedEntry ?? prefill.suggested_entry,
+    };
+
+    // Dedicated full-page order ticket — never open a drawer on Scanner
+    navigateToPaperOrder(navigate, {
+      symbol: row.symbol,
+      side: "BUY",
+      prefill: updatedPrefill,
+      currentPrice: suggestedEntry ?? updatedPrefill.suggested_entry ?? null,
+      signal: String(row.signal ?? "BUY"),
+      score: row.score ?? null,
+      confidence: row.confidence ?? null,
+      riskReward: row.riskReward ?? null,
+      returnTo: `${window.location.pathname}${window.location.search || ""}`,
     });
-    navigate("/paper");
   }, [navigate]);
 
   const scannerListView = useMemo(() => (
@@ -542,98 +556,130 @@ export default function App() {
   ), [navigate]);
 
   return (
-    <AppShell>
-      <Suspense fallback={<ViewFallback />}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/scanner" replace />} />
-          <Route path="/home" element={<Navigate to="/scanner" replace />} />
-          <Route
-            path="/markets"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <MarketsPage
-                  onLoadSavedScan={loadSavedScan}
-                  screenerResult={screenerResult}
-                  isLoading={isLoading}
-                  scanError={error}
-                  marketStatus={marketStatus}
-                  selectedUniverse={selectedUniverse}
-                  timeframe={timeframe}
-                  summaryMetrics={summaryMetrics}
-                  onRunScanner={handleRunScanner}
-                  search={filters.search}
-                  onSearchChange={handleSearchChange}
-                  topN={topN}
-                  lookback={lookback}
-                  universe={selectedUniverse}
-                  universes={universesMapped}
-                  onTopNChange={setTopN}
-                  onLookbackChange={setLookback}
-                  onTimeframeChange={setTimeframe}
-                  onUniverseChange={setSelectedUniverse}
-                  theme={theme}
-                  onThemeToggle={toggleTheme}
-                  progressData={progressData}
-                  scanStartTime={scanStartTime}
-                />
-              </Suspense>
-            }
-          />
-          <Route path="/scanner" element={scannerView} />
-          <Route
-            path="/watchlist"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <WatchlistPage />
-              </Suspense>
-            }
-          />
-          <Route path="/paper" element={paperDeskView} />
-          <Route path="/paper/:section" element={paperDeskView} />
-          <Route
-            path="/performance"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <PerformancePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/diagnostics"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <DiagnosticsPage />
-              </Suspense>
-            }
-          />
-          <Route path="/profile" element={profileView} />
-          <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
-          <Route
-            path="/admin/logs"
-            element={
-              <AdminRoute>
+    <PaperOrderProvider>
+      <AppShell>
+        <Suspense fallback={<ViewFallback />}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/scanner" replace />} />
+            <Route path="/home" element={<Navigate to="/scanner" replace />} />
+            <Route
+              path="/markets"
+              element={
                 <Suspense fallback={<ViewFallback />}>
-                  <SystemLogs />
+                  <MarketsPage
+                    onLoadSavedScan={loadSavedScan}
+                    screenerResult={screenerResult}
+                    isLoading={isLoading}
+                    scanError={error}
+                    marketStatus={marketStatus}
+                    selectedUniverse={selectedUniverse}
+                    timeframe={timeframe}
+                    summaryMetrics={summaryMetrics}
+                    onRunScanner={handleRunScanner}
+                    search={filters.search}
+                    onSearchChange={handleSearchChange}
+                    topN={topN}
+                    lookback={lookback}
+                    universe={selectedUniverse}
+                    universes={universesMapped}
+                    onTopNChange={setTopN}
+                    onLookbackChange={setLookback}
+                    onTimeframeChange={setTimeframe}
+                    onUniverseChange={setSelectedUniverse}
+                    theme={theme}
+                    onThemeToggle={toggleTheme}
+                    progressData={progressData}
+                    scanStartTime={scanStartTime}
+                  />
                 </Suspense>
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/command"
-            element={
-              <AdminRoute>
+              }
+            />
+            <Route path="/scanner" element={scannerView} />
+            <Route path="/watchlist" element={<Navigate to="/paper?tab=watchlist" replace />} />
+            <Route path="/paper" element={paperDeskView} />
+            <Route path="/paper/:section" element={paperDeskView} />
+            <Route
+              path="/paper-order"
+              element={
                 <Suspense fallback={<ViewFallback />}>
-                  <CentralCommand />
+                  <PaperOrderPage />
                 </Suspense>
-              </AdminRoute>
-            }
-          />
-          <Route path="/fyers/callback" element={<FyersCallback />} />
-          <Route path="*" element={<Navigate to="/scanner" replace />} />
-        </Routes>
-      </Suspense>
-    </AppShell>
+              }
+            />
+            <Route
+              path="/performance"
+              element={
+                <Suspense fallback={<ViewFallback />}>
+                  <PerformancePage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/diagnostics"
+              element={
+                <Suspense fallback={<ViewFallback />}>
+                  <DiagnosticsPage />
+                </Suspense>
+              }
+            />
+            <Route path="/profile" element={profileView} />
+            <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
+            <Route
+              path="/admin/logs"
+              element={
+                <AdminRoute>
+                  <Suspense fallback={<ViewFallback />}>
+                    <SystemLogs />
+                  </Suspense>
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/command"
+              element={
+                <AdminRoute>
+                  <Suspense fallback={<ViewFallback />}>
+                    <CentralCommand />
+                  </Suspense>
+                </AdminRoute>
+              }
+            />
+            <Route path="/fyers/callback" element={<FyersCallback />} />
+            <Route path="*" element={<Navigate to="/scanner" replace />} />
+          </Routes>
+        </Suspense>
+      </AppShell>
+      {/* Global BUY/SELL bus → dedicated /paper-order page (no drawer) */}
+      <PaperOrderRouteBridge />
+    </PaperOrderProvider>
   );
+}
+
+/** Listens for paper:open-order and navigates to the full-page order ticket. */
+function PaperOrderRouteBridge() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail || {};
+      navigateToPaperOrder(navigate, {
+        symbol: detail.symbol,
+        side: detail.side ?? "BUY",
+        prefill: detail.prefill ?? null,
+        orderId: detail.orderId ?? null,
+        returnTo: detail.returnTo,
+        currentPrice: detail.currentPrice ?? null,
+        signal: detail.signal ?? null,
+        score: detail.score ?? null,
+        confidence: detail.confidence ?? null,
+        riskReward: detail.riskReward ?? null,
+      });
+    };
+    window.addEventListener("paper:open-order", handler);
+    return () => window.removeEventListener("paper:open-order", handler);
+  }, [navigate]);
+
+  return null;
 }
 
 function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillRequest {
@@ -647,7 +693,7 @@ function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillReque
     suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
     recommendation_meta: {
       signal: row.signal,
-      score: row.score,
+      score: row.score ?? 0,
       confidence: Math.round((row.confidence ?? 0) * 100) / 100,
     },
   };

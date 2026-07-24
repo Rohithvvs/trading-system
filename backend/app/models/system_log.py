@@ -1,19 +1,17 @@
-from datetime import datetime, timezone
+from datetime import datetime
+
 from sqlalchemy import Integer, JSON, String, Text, DateTime, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
-
-
-def get_utc_now():
-    return datetime.now(timezone.utc)
+from ..utils.datetime_utils import utc_now
 
 
 class SystemLog(Base):
     __tablename__ = "system_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=get_utc_now, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
     level: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     source: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     module: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
@@ -27,7 +25,7 @@ class SystemLog(Base):
     symbol: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     orderId: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     environment: Mapped[str | None] = mapped_column(String, default="DEV", index=True, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class DeadLetterJob(Base):
@@ -38,8 +36,8 @@ class DeadLetterJob(Base):
     payload: Mapped[dict | list] = mapped_column(JSON, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int | None] = mapped_column(Integer, default=0)
-    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class ApiRequestLog(Base):
@@ -51,7 +49,7 @@ class ApiRequestLog(Base):
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class ServiceHealth(Base):
@@ -61,5 +59,7 @@ class ServiceHealth(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     last_heartbeat: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     metadata_json: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, index=True
+    )

@@ -389,10 +389,24 @@ export const MarketsPage = memo(function MarketsPage({
         <Card>
           <CardHeader label="Quick trade" title="Paper Desk" description="Practice orders with real market context." />
           <div className="markets-quick-trade">
-            <Button variant="buy" onClick={() => navigate("/paper?side=BUY")}>
+            <Button
+              variant="buy"
+              onClick={() => {
+                navigate("/paper-order?side=BUY", {
+                  state: { side: "BUY", returnTo: "/markets" },
+                });
+              }}
+            >
               BUY
             </Button>
-            <Button variant="sell" onClick={() => navigate("/paper?side=SELL")}>
+            <Button
+              variant="sell"
+              onClick={() => {
+                navigate("/paper-order?side=SELL", {
+                  state: { side: "SELL", returnTo: "/markets" },
+                });
+              }}
+            >
               SELL
             </Button>
             <Button variant="secondary" onClick={() => navigate("/paper")}>

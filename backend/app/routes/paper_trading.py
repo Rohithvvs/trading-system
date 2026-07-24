@@ -440,11 +440,52 @@ def get_workspace(symbol: str, service: PaperTradingService = Depends(get_servic
 
 @router.get("/symbols/{symbol}/quote", response_model=PaperQuoteResponse)
 def get_quote(symbol: str, service: PaperTradingService = Depends(get_service)) -> PaperQuoteResponse:
+    """Live quote for paper trading. Always returns a structured payload.
+
+    Provider failures are degraded inside the service (last-known / candle
+    fallback) rather than hard-failing the poller. Invalid symbols still 400.
+    """
+    logger = logging.getLogger("app.paper_trading")
+    started = time.perf_counter()
     try:
         response = service.get_quote(symbol.strip().upper())
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "QUOTE_HTTP_OK | symbol=%s | market_status=%s | source=%s | latency_ms=%s | status_code=200",
+            response.symbol,
+            getattr(response, "market_status", "live"),
+            response.source,
+            latency_ms,
+        )
+        return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
     except ValueError as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        logger.warning(
+            "QUOTE_HTTP_REJECTED | symbol=%s | status_code=400 | latency_ms=%s | exception=ValueError | error=%s",
+            symbol,
+            latency_ms,
+            str(exc)[:200],
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return JSONResponse(content=sanitize_for_json(response.model_dump(mode="json")))
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        logger.exception(
+            "QUOTE_HTTP_FAILURE | symbol=%s | status_code=503 | latency_ms=%s | exception=%s | error=%s",
+            symbol,
+            latency_ms,
+            type(exc).__name__,
+            str(exc)[:200],
+        )
+        # Structured degraded status instead of generic 500 so UI can recover
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "market_status": "degraded",
+                "reason": "Quote Provider Timeout" if "timeout" in str(exc).lower() else "Market data service unavailable",
+                "symbol": symbol.strip().upper(),
+                "exception": type(exc).__name__,
+            },
+        ) from exc
 
 
 @router.get("/notifications/unread", response_model=list[NotificationItem])

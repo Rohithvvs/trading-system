@@ -26,11 +26,6 @@ import { cachedFetch, CACHE_KEYS, invalidateCache, setCached } from "./utils/app
 
 export { toUserFacingApiMessage, ApiClientError } from "./utils/apiErrors";
 
-const DEFAULT_JSON_HEADERS = {
-  "Content-Type": "application/json",
-  Accept: "application/json",
-} as const;
-
 const IS_DEV = typeof window !== "undefined" && (window as any).__VITE_DEV__;
 
 function apiLog(...args: unknown[]) {
@@ -51,13 +46,19 @@ async function fetchWithDiagnostics(
   apiLog(`[api] ${label} -> ${url}`);
 
   try {
+    const method = (init?.method ?? "GET").toUpperCase();
+    // Avoid Content-Type on GET/HEAD — it forces CORS preflight on every poll.
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...((init?.headers as Record<string, string> | undefined) ?? {}),
+    };
+    if (method !== "GET" && method !== "HEAD" && !headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
     const fetchInit: RequestInit = {
       ...init,
       credentials: "include",
-      headers: {
-        ...DEFAULT_JSON_HEADERS,
-        ...(init?.headers ?? {}),
-      },
+      headers,
     };
     const response = await fetch(url, fetchInit);
     const elapsedMs = Math.round(performance.now() - startedAt);
@@ -375,10 +376,41 @@ export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: s
 }
 
 export async function fetchPaperQuote(symbol: string): Promise<PaperQuoteResponse> {
-  const response = await fetchWithDiagnostics(`/paper-trading/symbols/${encodeURIComponent(symbol)}/quote`, undefined, "Paper quote");
+  const response = await fetchWithDiagnostics(
+    `/paper-trading/symbols/${encodeURIComponent(symbol)}/quote`,
+    undefined,
+    "Paper quote",
+  );
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Failed to load live paper trading quote");
+    let detail: unknown = null;
+    let message = "";
+    try {
+      detail = await response.json();
+      if (detail && typeof detail === "object") {
+        const d = detail as Record<string, unknown>;
+        const nested = d.detail;
+        if (nested && typeof nested === "object") {
+          message = String((nested as Record<string, unknown>).reason ?? (nested as Record<string, unknown>).message ?? "");
+        } else if (typeof nested === "string") {
+          message = nested;
+        } else {
+          message = String(d.reason ?? d.message ?? "");
+        }
+      }
+    } catch {
+      try {
+        message = await response.text();
+      } catch {
+        message = "";
+      }
+    }
+    const err = new Error(message || "Failed to load live paper trading quote") as Error & {
+      status?: number;
+      detail?: unknown;
+    };
+    err.status = response.status;
+    err.detail = detail;
+    throw err;
   }
   return response.json() as Promise<PaperQuoteResponse>;
 }
@@ -411,6 +443,7 @@ export async function placePaperOrder(ticket: PaperOrderTicketState, idempotency
       symbol: ticket.symbol,
       side: ticket.side,
       type: ticket.type,
+      product_type: ticket.productType ?? "CNC",
       qty: ticket.qty,
       limit_price: ticket.limitPrice,
       stop_price: ticket.stopPrice,

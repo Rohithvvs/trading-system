@@ -7847,3 +7847,203 @@ body {
   color: var(--negative-text);
   border-color: rgba(239, 68, 68, 0.25);
 }
+
+/* ===== Dedicated Paper Order page (/paper-order) ===== */
+.paper-order-page {
+  padding-bottom: 96px;
+}
+
+.paper-order-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.paper-order-page__header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.paper-order-page__back {
+  margin-top: 4px;
+}
+
+.paper-order-page__title {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.paper-order-page__header-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.paper-order-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--surface-2, #1e2430);
+  color: var(--text, #f0f4f8);
+  border: 1px solid var(--border, #2a303a);
+}
+
+.paper-order-badge--buy {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border-color: rgba(63, 185, 80, 0.35);
+}
+
+.paper-order-badge--sell {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  border-color: rgba(248, 81, 73, 0.35);
+}
+
+.paper-order-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 960px) {
+  .paper-order-layout {
+    grid-template-columns: 1.1fr 1fr;
+    grid-template-areas:
+      "summary summary"
+      "form risk";
+  }
+  .paper-order-summary { grid-area: summary; }
+  .paper-order-form { grid-area: form; }
+  .paper-order-risk { grid-area: risk; }
+}
+
+.paper-order-section-title {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.paper-order-summary__top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.paper-order-summary__symbol {
+  margin: 4px 0 0;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+
+.paper-order-summary__price {
+  margin-top: 4px;
+  font-size: clamp(1.4rem, 2.5vw, 1.9rem);
+  font-weight: 700;
+  color: var(--text, #f0f4f8);
+  font-variant-numeric: tabular-nums;
+}
+
+.paper-order-summary__metrics,
+.paper-order-risk__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.paper-order-page__actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 0 8px;
+  margin-top: 20px;
+  background: linear-gradient(180deg, transparent, var(--bg, #0e1116) 28%);
+  border-top: 1px solid var(--border, #2a303a);
+}
+
+.paper-order-page__loading {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: #f85149;
+}
+
+.paper-order-confirm__lead {
+  margin: 0 0 8px;
+  color: var(--text-secondary, #9eacbb);
+}
+
+.paper-order-confirm__qty {
+  margin: 0 0 16px;
+  font-size: 1.15rem;
+  line-height: 1.4;
+}
+
+.paper-order-confirm__dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin: 0 0 16px;
+}
+
+.paper-order-confirm__dl dt {
+  font-size: 0.75rem;
+  color: var(--text-muted, #8b949e);
+  margin: 0;
+}
+
+.paper-order-confirm__dl dd {
+  margin: 2px 0 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.paper-order-confirm__notice {
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.22);
+}
+
+.paper-order-confirm__notice p {
+  margin: 6px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary, #9eacbb);
+}
+
+@media (max-width: 640px) {
+  .paper-order-confirm__dl {
+    grid-template-columns: 1fr;
+  }
+  .paper-order-page__actions {
+    flex-direction: column-reverse;
+  }
+  .paper-order-page__actions .ds-btn,
+  .paper-order-page__actions .button {
+    width: 100%;
+  }
+}

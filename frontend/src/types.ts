@@ -538,8 +538,12 @@ export type SymbolDetail = {
 export type PaperQuoteResponse = {
   symbol: string;
   current_price: number;
-  source: "FYERS_QUOTE" | "CANDLE_FALLBACK";
+  source: "FYERS_QUOTE" | "CANDLE_FALLBACK" | "NO_DATA" | "TEST_MOCK";
   updated_at: string;
+  market_status?: "live" | "degraded" | "unavailable";
+  reason?: string | null;
+  is_stale?: boolean;
+  last_successful_at?: string | null;
 };
 
 export type PaperTradingDashboardResponse = {

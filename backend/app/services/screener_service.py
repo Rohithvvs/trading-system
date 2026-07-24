@@ -847,13 +847,32 @@ class ScreenerService:
 
         stage_timings["scoring_ms"] = (time.perf_counter() - score_t0) * 1000
 
-        # Store frames for orchestrator reuse (avoids duplicate fetch in run_full)
-        new_frames = {s: df.copy() for s, df in symbol_frames.items() if df is not None and not df.empty and len(df) >= MINIMUM_SWING_CANDLES}
-        # Cap memory: keep only the most recent _LAST_FRAMES_MAX entries
+        # Store frames for orchestrator reuse (avoids duplicate fetch in run_full).
+        # Prefer matched symbols so shortlist analysis always has candle data.
+        new_frames = {
+            s: df.copy()
+            for s, df in symbol_frames.items()
+            if df is not None and not df.empty and len(df) >= MINIMUM_SWING_CANDLES
+        }
+        matched_syms = {r.symbol for r in results if getattr(r, "matched", False)}
         if len(new_frames) > ScreenerService._LAST_FRAMES_MAX:
-            sorted_items = sorted(new_frames.items(), key=lambda kv: len(kv[1]), reverse=True)
-            new_frames = dict(sorted_items[:ScreenerService._LAST_FRAMES_MAX])
+            # Always keep matched symbols first, then fill by longest history
+            priority = [s for s in new_frames if s in matched_syms]
+            rest = sorted(
+                (s for s in new_frames if s not in matched_syms),
+                key=lambda s: len(new_frames[s]),
+                reverse=True,
+            )
+            keep = priority + rest
+            keep = keep[: ScreenerService._LAST_FRAMES_MAX]
+            new_frames = {s: new_frames[s] for s in keep}
         ScreenerService.last_fetched_frames = new_frames
+        self.logger.info(
+            "SCREENER_FRAMES_STORED | total_frames=%s | matched_kept=%s | matched_total=%s",
+            len(new_frames),
+            len(matched_syms & set(new_frames)),
+            len(matched_syms),
+        )
         # Release symbol_frames explicitly after scoring loop
         del symbol_frames
 

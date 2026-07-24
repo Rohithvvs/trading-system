@@ -35,14 +35,6 @@ export const RETAIL_NAV: NavItem[] = [
     icon: icon("M11 5a7 7 0 1 0 4.5 12.3L21 21 M11 8v3h3"),
   },
   {
-    id: "watchlist",
-    label: "Watchlist",
-    path: "/watchlist",
-    match: "/watchlist",
-    testId: "nav-watchlist",
-    icon: icon("M12 3l2.4 6.6H21l-5.4 4 2 6.4L12 16.2 6.4 20l2-6.4L3 9.6h6.6z"),
-  },
-  {
     id: "paper",
     label: "Paper Desk",
     path: "/paper",

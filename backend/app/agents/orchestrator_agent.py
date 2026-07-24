@@ -72,89 +72,122 @@ class OrchestratorAgent:
         import asyncio
         
         modes = self._resolve_modes(request.mode)
-        
-        # Use pre-fetched candles when available (avoids duplicate OHLCV fetch from screener)
-        if prefetched_candles is not None:
-            candles_by_symbol_and_mode = prefetched_candles
-        else:
-            candles_by_symbol_and_mode = {}
-            
-            async def fetch_for_symbol(symbol: str):
-                import time
-                from ..services.market_data_service import MarketDataService
-                start = time.perf_counter()
-                candles_by_mode = {}
-                md_service = MarketDataService()
-                for mode in modes:
-                    resolution = self._resolution_for_mode(mode, request)
-                    if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
-                        try:
-                            df = await md_service.load_full_history(symbol, "1D")
-                            if df is not None and not df.empty and len(df) >= 220:
-                                points: list = []
-                                for ts, row in df.iterrows():
-                                    dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-                                    if getattr(dt, "tzinfo", None) is not None:
-                                        dt = dt.replace(tzinfo=None)
-                                    points.append(
-                                        OHLCVPoint(
-                                            timestamp=dt,
-                                            open=float(row["open"]),
-                                            high=float(row["high"]),
-                                            low=float(row["low"]),
-                                            close=float(row["close"]),
-                                            volume=safe_int(row["volume"], symbol=symbol, field="volume"),
-                                        )
+
+        # Seed from screener prefetched candles when available (avoids duplicate OHLCV fetch).
+        # IMPORTANT: prefetched dict may be a *partial* map (shortlist ∩ frames with ≥220 bars).
+        # Always fill missing request.symbols so analysis never KeyErrors.
+        candles_by_symbol_and_mode: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = (
+            dict(prefetched_candles) if prefetched_candles else {}
+        )
+        prefetched_count = len(candles_by_symbol_and_mode)
+        missing_for_fetch = [s for s in request.symbols if s not in candles_by_symbol_and_mode]
+        self.logger.info(
+            "ANALYSIS_CANDLE_INPUT | requested=%s | prefetched=%s | missing_need_fetch=%s | missing_symbols=%s",
+            len(request.symbols),
+            prefetched_count,
+            len(missing_for_fetch),
+            ",".join(missing_for_fetch[:20]) + ("..." if len(missing_for_fetch) > 20 else ""),
+        )
+
+        async def fetch_for_symbol(symbol: str) -> dict[AnalysisMode, list[OHLCVPoint]]:
+            import time
+            from ..services.market_data_service import MarketDataService
+            start = time.perf_counter()
+            candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]] = {}
+            md_service = MarketDataService()
+            for mode in modes:
+                resolution = self._resolution_for_mode(mode, request)
+                if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
+                    try:
+                        df = await md_service.load_full_history(symbol, "1D")
+                        if df is not None and not df.empty and len(df) >= 220:
+                            points: list = []
+                            for ts, row in df.iterrows():
+                                dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                                if getattr(dt, "tzinfo", None) is not None:
+                                    dt = dt.replace(tzinfo=None)
+                                points.append(
+                                    OHLCVPoint(
+                                        timestamp=dt,
+                                        open=float(row["open"]),
+                                        high=float(row["high"]),
+                                        low=float(row["low"]),
+                                        close=float(row["close"]),
+                                        volume=safe_int(row["volume"], symbol=symbol, field="volume"),
                                     )
-                                candles_by_mode[mode] = points
-                                self.fyers_service._store_ohlcv_cache(
-                                    (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
-                                    request.timeframe.lookback_window,
-                                    points,
-                                    "CANDLE_CACHE_DB",
                                 )
-                                continue
-                        except Exception as exc:
-                            self.logger.warning(
-                                "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
-                                symbol,
-                                exc,
+                            candles_by_mode[mode] = points
+                            self.fyers_service._store_ohlcv_cache(
+                                (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
+                                request.timeframe.lookback_window,
+                                points,
+                                "CANDLE_CACHE_DB",
                             )
+                            continue
+                    except Exception as exc:
+                        self.logger.warning(
+                            "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
+                            symbol,
+                            exc,
+                        )
+                try:
                     candles_by_mode[mode] = await self.fyers_service.fetch_ohlcv(
                         symbol=symbol,
                         mode=mode,
                         resolution=resolution,
                         lookback_window=request.timeframe.lookback_window,
                     )
-                elapsed = time.perf_counter() - start
-                total_rows = sum(len(c) for c in candles_by_mode.values())
-                candles_by_symbol_and_mode[symbol] = candles_by_mode
-                
-            async def prefetch_all():
+                except Exception as exc:
+                    self.logger.error(
+                        "OHLCV_FETCH_FAILED | symbol=%s | mode=%s | error=%s | marking empty",
+                        symbol,
+                        mode.value,
+                        exc,
+                    )
+                    candles_by_mode[mode] = []
+            elapsed = time.perf_counter() - start
+            total_rows = sum(len(c) for c in candles_by_mode.values())
+            self.logger.info(
+                "OHLCV_FETCH_DONE | symbol=%s | rows=%s | elapsed_ms=%.0f",
+                symbol,
+                total_rows,
+                elapsed * 1000,
+            )
+            return candles_by_mode
+
+        if missing_for_fetch:
+            async def prefetch_missing():
                 sem = asyncio.Semaphore(20)
 
                 async def _bounded(symbol: str):
                     async with sem:
-                        await fetch_for_symbol(symbol)
+                        candles_by_symbol_and_mode[symbol] = await fetch_for_symbol(symbol)
 
-                await asyncio.gather(*(_bounded(symbol) for symbol in request.symbols))
-                
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-                
-            if loop and loop.is_running():
-                await prefetch_all()
-            else:
-                asyncio.run(prefetch_all())
-            
+                await asyncio.gather(*(_bounded(symbol) for symbol in missing_for_fetch))
+
+            await prefetch_missing()
+
+        downloaded = [
+            s for s in request.symbols
+            if any(candles_by_symbol_and_mode.get(s, {}).get(m) for m in modes)
+        ]
+        still_missing = [s for s in request.symbols if s not in downloaded]
+        self.logger.info(
+            "ANALYSIS_CANDLE_READY | downloaded=%s | data_unavailable=%s | unavailable_symbols=%s",
+            len(downloaded),
+            len(still_missing),
+            ",".join(still_missing[:20]) + ("..." if len(still_missing) > 20 else ""),
+        )
+
         # Build the bulk candles dictionary for the technical matrix
         candles_dict_by_mode = {mode: {} for mode in modes}
         for symbol, c_map in candles_by_symbol_and_mode.items():
+            if not isinstance(c_map, dict):
+                continue
             for mode in modes:
-                if c_map[mode]:
-                    candles_dict_by_mode[mode][symbol] = c_map[mode]
+                series = c_map.get(mode) or []
+                if series:
+                    candles_dict_by_mode[mode][symbol] = series
                     
         if progress_callback:
             progress_callback({"stage": "Calculating Technical Indicators...", "progress": 55, "heartbeat": True})
@@ -206,28 +239,40 @@ class OrchestratorAgent:
 
             async def _one(symbol: str):
                 async with agent_sem:
+                    candles_by_mode = candles_by_symbol_and_mode.get(symbol)
                     try:
-                        result = await self._analyze_symbol_post_bulk(
-                            symbol,
-                            request,
-                            candles_by_symbol_and_mode[symbol],
-                            bulk_technical_results,
-                            feat004_config=feat004_config,
-                            benchmark_ohlcv=benchmark_ohlcv,
-                            benchmark_failure_reason=benchmark_failure_reason,
-                            benchmark_symbol=benchmark_symbol,
-                            feat007_config=feat007_config,
-                            stock_id=stock_ids.get(symbol),
-                            market_regime=_market_regime,
-                        )
+                        if not candles_by_mode or not any(candles_by_mode.get(m) for m in modes):
+                            self.logger.warning(
+                                "DATA_UNAVAILABLE | symbol=%s | reason=no_ohlcv_after_prefetch_and_fetch | continuing",
+                                symbol,
+                            )
+                            result = self._unavailable_analysis_result(
+                                symbol, request, candles_by_mode or {}
+                            )
+                        else:
+                            result = await self._analyze_symbol_post_bulk(
+                                symbol,
+                                request,
+                                candles_by_mode,
+                                bulk_technical_results,
+                                feat004_config=feat004_config,
+                                benchmark_ohlcv=benchmark_ohlcv,
+                                benchmark_failure_reason=benchmark_failure_reason,
+                                benchmark_symbol=benchmark_symbol,
+                                feat007_config=feat007_config,
+                                stock_id=stock_ids.get(symbol),
+                                market_regime=_market_regime,
+                            )
                     except Exception as exc:
                         self.logger.error(
-                            "SYMBOL_ANALYSIS_FAILED | symbol=%s | error=%s | skipping",
+                            "SYMBOL_ANALYSIS_FAILED | symbol=%s | error=%s | marking DATA_UNAVAILABLE",
                             symbol,
                             exc,
                             exc_info=True,
                         )
-                        result = self._unavailable_analysis_result(symbol, request, candles_by_symbol_and_mode.get(symbol, {}))
+                        result = self._unavailable_analysis_result(
+                            symbol, request, candles_by_symbol_and_mode.get(symbol) or {}
+                        )
 
                     completed_count["n"] += 1
                     done = completed_count["n"]
@@ -244,9 +289,16 @@ class OrchestratorAgent:
                     return result
 
             return await asyncio.gather(*(_one(symbol) for symbol in request.symbols))
-            
+
         items = await run_remaining_agents()
-            
+        self.logger.info(
+            "ANALYSIS_OUTPUT | input_symbols=%s | analyzed_items=%s | buy=%s | watch=%s | reject_or_other=%s",
+            len(request.symbols),
+            len(items),
+            sum(1 for i in items if getattr(i.recommendation, "action", "").upper() == "BUY"),
+            sum(1 for i in items if getattr(i.recommendation, "action", "").upper() == "WATCH"),
+            sum(1 for i in items if getattr(i.recommendation, "action", "").upper() not in {"BUY", "WATCH"}),
+        )
 
         if progress_callback:
             progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85, "heartbeat": True})
@@ -465,55 +517,79 @@ class OrchestratorAgent:
                 timeframe=request.timeframe,
             )
             self.logger.info("STEP 6/8 | Run full analysis only on top set | stage=%s | count=%s", stage_name, len(shortlisted_symbols))
-            # Reuse OHLCV data from screener phase (avoids duplicate FYERS fetch)
+            # Reuse OHLCV data from screener phase (avoids duplicate FYERS fetch).
+            # May be partial — run_full fills any shortlisted symbol still missing.
             prefetched_candles: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = {}
-            screener_frames = getattr(self.screener_service, "last_fetched_frames", {})
-            if screener_frames:
-                from ..schemas import AnalysisMode as AM
-                for sym in shortlisted_symbols:
-                    df = screener_frames.get(sym)
-                    if df is not None and not df.empty:
-                        points = []
-                        for ts, row in df.iterrows():
-                            dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-                            if getattr(dt, "tzinfo", None) is not None:
-                                dt = dt.replace(tzinfo=None)
-                            points.append(OHLCVPoint(
-                                timestamp=dt,
-                                open=float(row["open"]),
-                                high=float(row["high"]),
-                                low=float(row["low"]),
-                                close=float(row["close"]),
-                                volume=safe_int(row["volume"], symbol=sym, field="volume"),
-                            ))
-                        if len(points) >= 220:
-                            prefetched_candles[sym] = {AM.swing: points}
-                            # Register source so _data_quality_payload does not mark
-                            # prefetched screener candles as unknown/mock (which was
-                            # falsely triggering Analysis Failed → REJECT and stripping
-                            # trade plans from the UI via analysis_items filtering).
-                            try:
-                                resolution = self._resolution_for_mode(AM.swing, analysis_request)
-                                self.fyers_service._store_ohlcv_cache(
-                                    (
-                                        self.fyers_service._cache_symbol(sym),
-                                        AM.swing.value,
-                                        str(resolution).lower(),
-                                    ),
-                                    analysis_request.timeframe.lookback_window,
-                                    points,
-                                    "CANDLE_CACHE_DB",
-                                )
-                            except Exception as cache_exc:
-                                self.logger.debug(
-                                    "prefetch source register failed | symbol=%s | error=%s",
-                                    sym,
-                                    cache_exc,
-                                )
+            screener_frames = getattr(self.screener_service, "last_fetched_frames", {}) or {}
+            # Build canonical→frame key index so RAIN-EQ finds RAIN / NSE:RAIN-EQ frames
+            frame_by_canonical: dict[str, str] = {}
+            for frame_key in screener_frames.keys():
+                frame_by_canonical[self._canonical_symbol(frame_key)] = frame_key
+
+            from ..schemas import AnalysisMode as AM
+            for sym in shortlisted_symbols:
+                df = screener_frames.get(sym)
+                if df is None:
+                    alt_key = frame_by_canonical.get(self._canonical_symbol(sym))
+                    if alt_key is not None:
+                        df = screener_frames.get(alt_key)
+                        if df is not None:
+                            self.logger.info(
+                                "PREFETCH_SYMBOL_KEY_MAP | shortlist=%s | frame_key=%s",
+                                sym,
+                                alt_key,
+                            )
+                if df is not None and not getattr(df, "empty", True):
+                    points = []
+                    for ts, row in df.iterrows():
+                        dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                        if getattr(dt, "tzinfo", None) is not None:
+                            dt = dt.replace(tzinfo=None)
+                        points.append(OHLCVPoint(
+                            timestamp=dt,
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=safe_int(row["volume"], symbol=sym, field="volume"),
+                        ))
+                    if len(points) >= 220:
+                        prefetched_candles[sym] = {AM.swing: points}
+                        try:
+                            resolution = self._resolution_for_mode(AM.swing, analysis_request)
+                            self.fyers_service._store_ohlcv_cache(
+                                (
+                                    self.fyers_service._cache_symbol(sym),
+                                    AM.swing.value,
+                                    str(resolution).lower(),
+                                ),
+                                analysis_request.timeframe.lookback_window,
+                                points,
+                                "CANDLE_CACHE_DB",
+                            )
+                        except Exception as cache_exc:
+                            self.logger.debug(
+                                "prefetch source register failed | symbol=%s | error=%s",
+                                sym,
+                                cache_exc,
+                            )
+            missing_prefetch = [s for s in shortlisted_symbols if s not in prefetched_candles]
+            self.logger.info(
+                "PREFETCH_FROM_SCREENER | shortlisted=%s | prefetched=%s | missing=%s | missing_symbols=%s",
+                len(shortlisted_symbols),
+                len(prefetched_candles),
+                len(missing_prefetch),
+                ",".join(missing_prefetch) if missing_prefetch else "none",
+            )
             # Release frames from memory after extracting prefetched candles
-            screener_frames.clear()
-            self.screener_service.last_fetched_frames.clear()
-            shortlist_analysis = await self.run_full(analysis_request, progress_callback, prefetched_candles=prefetched_candles or None)
+            if hasattr(screener_frames, "clear"):
+                screener_frames.clear()
+            self.screener_service.last_fetched_frames = {}
+            shortlist_analysis = await self.run_full(
+                analysis_request,
+                progress_callback,
+                prefetched_candles=prefetched_candles,
+            )
             buy_items = [item for item in shortlist_analysis.items if item.recommendation.action == "BUY"]
             watch_items = [item for item in shortlist_analysis.items if item.recommendation.action == "WATCH"]
             reject_items = [item for item in shortlist_analysis.items if item.recommendation.action == "REJECT"]

@@ -276,6 +276,10 @@ class ScanExecutionService:
             from ..models.market_data import ScanSnapshot
             from sqlalchemy import update
 
+            # Lifecycle phase 1: insert exactly one RUNNING parent row for this scan_id.
+            # Phase 2 (after screener): persist_successful_scan(scan_id=...) must UPDATE
+            # that same row — never INSERT a second parent (see UniqueViolationError on
+            # ix_scan_snapshots_scan_id).
             try:
                 async with AsyncSessionLocal() as db:
                     snapshot = ScanSnapshot(
@@ -292,11 +296,17 @@ class ScanExecutionService:
                     )
                     db.add(snapshot)
                     await db.commit()
-                logger.info("[SCAN] Snapshot row created | scan_id=%s | status=RUNNING", scan_id)
+                logger.info(
+                    "[SCAN] Snapshot RUNNING created (single parent) | scan_id=%s | "
+                    "phase=1_of_2 | next=persist_successful_scan_UPDATE",
+                    scan_id,
+                )
             except Exception as snap_exc:
                 # Do not abort the scan if snapshot insert fails (schema/status quirks).
+                # Persist path will INSERT if no row exists.
                 logger.error(
-                    "[SCAN] Snapshot insert failed (continuing) | scan_id=%s | error=%s",
+                    "[SCAN] Snapshot RUNNING insert failed (continuing; persist may INSERT) | "
+                    "scan_id=%s | error=%s",
                     scan_id,
                     snap_exc,
                     exc_info=True,
@@ -407,6 +417,18 @@ class ScanExecutionService:
                     cache_universe, payload.mode.value, payload.timeframe.swing or "1d", result
                 )
 
+                # Lifecycle phase 2: single persist call for this scan_id (UPSERT parent).
+                # Do not call persist_successful_scan more than once per scan_id here.
+                logger.info(
+                    "[SCAN] PERSIST_BEGIN | phase=2_of_2 | scan_id=%s | shortlisted=%s | "
+                    "buy=%s | watch=%s | analysis_items=%s | expect=UPDATE_running_row",
+                    scan_id,
+                    len(response.shortlisted_symbols or []),
+                    len(response.buy_candidate_symbols or []),
+                    len(response.watch_candidate_symbols or []),
+                    len(response.analysis.items) if response.analysis and response.analysis.items else 0,
+                )
+
                 try:
                     async with AsyncSessionLocal() as db:
                         scan_service = LatestScanService(db)
@@ -414,6 +436,13 @@ class ScanExecutionService:
                             response, duration_ms, scan_id=scan_id
                         )
                         await db.commit()
+                    logger.info(
+                        "[SCAN] PERSIST_COMMIT_OK | scan_id=%s | buy=%s | watch=%s | "
+                        "persist_calls=1",
+                        scan_id,
+                        len(response.buy_candidate_symbols or []),
+                        len(response.watch_candidate_symbols or []),
+                    )
                 except Exception as persist_exc:
                     logger.error(
                         "[SCAN] Persist failed (results still returned) | scan_id=%s | error=%s",
@@ -424,6 +453,13 @@ class ScanExecutionService:
 
                 try:
                     await save_latest_scan(result)
+                    logger.info(
+                        "[SCAN] SAVE_LATEST_OK | scan_id=%s | shortlisted=%s | buy=%s | watch=%s",
+                        scan_id,
+                        len(response.shortlisted_symbols or []),
+                        len(response.buy_candidate_symbols or []),
+                        len(response.watch_candidate_symbols or []),
+                    )
                 except Exception as save_exc:
                     logger.error(
                         "[SCAN] save_latest_scan failed | scan_id=%s | error=%s",

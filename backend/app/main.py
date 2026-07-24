@@ -24,9 +24,18 @@ try:
 except Exception:
     pass
 
-from datetime import datetime, timezone
 from time import perf_counter
 from contextlib import asynccontextmanager
+
+from .utils.datetime_utils import (
+    age_minutes,
+    ensure_utc,
+    ist_now,
+    minutes_between,
+    parse_utc,
+    to_iso_utc,
+    utc_now,
+)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -91,11 +100,10 @@ _job_starts = {}
 def _scheduler_listener(event):
     from .services.diagnostics_service import diagnostics
     import time
-    import datetime
-    
+
     scheduled_time = getattr(event, "scheduled_run_time", None)
     scheduled_time_str = scheduled_time.isoformat() if scheduled_time else "unknown"
-    actual_time_str = datetime.datetime.now(timezone.utc).isoformat()
+    actual_time_str = utc_now().isoformat()
     
     if event.code == EVENT_JOB_SUBMITTED:
         _job_starts[event.job_id] = time.perf_counter()
@@ -288,6 +296,13 @@ async def lifespan(app: FastAPI):
     
     logger.info("APP_START | Application is starting")
     try:
+        # Make DB target visible immediately — avoids confusion when multiple Neon projects exist.
+        db_target = settings.database_url.split("@")[-1] if "@" in settings.database_url else "(local/unknown)"
+        # Never log credentials; host/db path only.
+        logger.info("DATABASE_TARGET | %s", db_target.split("?")[0])
+    except Exception:
+        pass
+    try:
         from .core.server_state import read_shutdown_time
         last_shutdown = read_shutdown_time()
         if last_shutdown:
@@ -336,7 +351,29 @@ async def lifespan(app: FastAPI):
             logger.exception("Failed to write shutdown time on shutdown")
         return
 
-    worker_lease = await acquire_singleton_lease("trading-system:singleton-workers")
+    try:
+        worker_lease = await acquire_singleton_lease("trading-system:singleton-workers")
+    except Exception as db_exc:
+        # Common local-dev failure: Neon free-tier data transfer / compute quota.
+        msg = str(db_exc)
+        logger.error("DATABASE_STARTUP_FAILURE | error_type=%s | error=%s", type(db_exc).__name__, msg[:300])
+        if "data transfer quota" in msg.lower() or "exceeded" in msg.lower() and "quota" in msg.lower():
+            logger.error(
+                "DATABASE_QUOTA_EXCEEDED | Neon (or your cloud Postgres) rejected the connection because "
+                "the project data-transfer quota is exhausted. The API cannot start until DATABASE_URL "
+                "points at a reachable database. Fix options: (1) upgrade/reset Neon quota, "
+                "(2) create a new Neon project and update DATABASE_URL in the repo root .env, "
+                "(3) install local PostgreSQL and set DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
+            )
+        elif "connect" in msg.lower() or "refused" in msg.lower() or "timeout" in msg.lower():
+            logger.error(
+                "DATABASE_UNREACHABLE | Could not connect using DATABASE_URL. "
+                "Check that Postgres is running and DATABASE_URL in the repo root .env is correct."
+            )
+        raise RuntimeError(
+            f"Database unavailable during startup ({type(db_exc).__name__}). "
+            "See DATABASE_* log lines above for fix steps."
+        ) from db_exc
     app.state.singleton_worker_lease = worker_lease
     app.state.task_supervisor = TaskSupervisor()
     
@@ -661,7 +698,7 @@ async def lifespan(app: FastAPI):
                                 alert.condition == "<=" and ltp <= alert.target_price
                             )
                             if triggered:
-                                alert.last_triggered_at = datetime.now(timezone.utc)
+                                alert.last_triggered_at = utc_now()
                                 alert.last_message = f"{alert.symbol} {alert.condition} {alert.target_price} hit at {round(ltp, 2)}"
                         await db.commit()
                     except Exception:
@@ -983,11 +1020,18 @@ async def automated_screening_job():
                 return
             
             logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
-            # Token forensics
+            # Token forensics — all arithmetic uses aware UTC via datetime_utils
+            token_saved_at: str | None = None
+            token_age: float = 0.0
             try:
                 token_row = await token_service.get_fyers_token_row(db)
-                token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
-                token_age = (datetime.now(timezone.utc) - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
+                if token_row and token_row.access_token_saved_at:
+                    saved_utc = ensure_utc(token_row.access_token_saved_at)
+                    token_saved_at = to_iso_utc(saved_utc)
+                    token_age = age_minutes(saved_utc)
+                else:
+                    token_saved_at = "N/A"
+                    token_age = 0.0
                 log_token_status(
                     scan_ctx,
                     token_exists=bool(token),
@@ -998,20 +1042,17 @@ async def automated_screening_job():
                 )
             except Exception:
                 logger.exception("Failed to log token status for scan")
-                
+
             # Emit full SCAN_ENVIRONMENT block
             try:
                 from .observability.scan_diagnostics import _PROCESS_START_TIME
                 from .db.session import engine
                 from .services.latest_scan_service import LatestScanService
                 from .services.candle_store import get_all_cached_symbols
-                import datetime
-                
-                startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
-                if startup_dt.tzinfo is None:
-                    startup_dt = startup_dt.replace(tzinfo=datetime.timezone.utc)
-                app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
-                
+
+                startup_dt = parse_utc(_PROCESS_START_TIME)
+                app_uptime = age_minutes(startup_dt) if startup_dt is not None else 0.0
+
                 # Use centralized service for accurate market status (weekends + holidays)
                 try:
                     from .services.trading_hours_service import trading_hours
@@ -1023,95 +1064,104 @@ async def automated_screening_job():
                     market_open = False
                     market_session = "unknown"
 
-                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                # Display clock in IST (aware); never mix with UTC arithmetic by stripping tz
+                exchange_now = ist_now()
                 if mkt is None:
-                    market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
-                    if ist_now.weekday() >= 5:
+                    market_open = (
+                        exchange_now.weekday() < 5
+                        and (9 <= exchange_now.hour <= 15)
+                        and not (exchange_now.hour == 9 and exchange_now.minute < 15)
+                        and not (exchange_now.hour == 15 and exchange_now.minute > 30)
+                    )
+                    if exchange_now.weekday() >= 5:
                         market_session = "closed"
-                    elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
+                    elif exchange_now.hour < 9 or (exchange_now.hour == 9 and exchange_now.minute < 15):
                         market_session = "pre_open"
-                    elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
+                    elif exchange_now.hour > 15 or (exchange_now.hour == 15 and exchange_now.minute > 30):
                         market_session = "post_close"
                     else:
                         market_session = "open"
-                
+
                 pool = engine.pool
-                
+
                 last_scan = await LatestScanService(db).get_latest_completed_scan()
                 if last_scan:
                     last_scan_ts = last_scan.get("scan_timestamp")
-                    last_scan_dt = datetime.datetime.fromisoformat(last_scan_ts)
-                    if last_scan_dt.tzinfo is None:
-                        last_scan_dt = last_scan_dt.replace(tzinfo=datetime.timezone.utc)
-                    minutes_since = (datetime.datetime.now(timezone.utc) - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
+                    last_scan_dt = parse_utc(last_scan_ts)
+                    if last_scan_dt is not None:
+                        # Both sides UTC-aware — never strip tzinfo for subtraction
+                        minutes_since = minutes_between(utc_now(), last_scan_dt)
+                    else:
+                        minutes_since = 0.0
                     last_scan_res = "SUCCESS" if last_scan.get("valid_symbols", 0) > 0 else "NO_DATA"
                 else:
                     last_scan_ts = None
                     minutes_since = 0.0
                     last_scan_res = "NONE"
-                    
+
                 cache_entries = len(get_all_cached_symbols())
-                
+
                 log_scan_environment(
                     ctx=scan_ctx,
                     token_loaded=bool(token),
                     token_source="memory" if token_service.has_cached_token() else "database",
-                    token_saved_at=token_saved_at if 'token_row' in locals() and token_row else None,
-                    token_age_minutes=token_age if 'token_age' in locals() else 0.0,
+                    token_saved_at=token_saved_at,
+                    token_age_minutes=token_age,
                     token_hash=hash_token_prefix(token),
                     app_uptime_minutes=app_uptime,
                     market_open=market_open,
                     market_session=market_session,
-                    exchange_time=ist_now.strftime("%H:%M:%S"),
-                    weekday=ist_now.strftime("%A"),
+                    exchange_time=exchange_now.strftime("%H:%M:%S"),
+                    weekday=exchange_now.strftime("%A"),
                     db_connected=True,
                     pool_size=pool.size(),
                     checked_out=pool.checkedout(),
                     overflow=pool.overflow(),
                     fyers_validation_result="success",
-                    fyers_validation_latency_ms=val_latency_ms if 'val_latency_ms' in locals() else 0,
+                    fyers_validation_latency_ms=val_latency_ms if "val_latency_ms" in locals() else 0,
                     last_scan_timestamp=last_scan_ts,
                     last_scan_result=last_scan_res,
                     last_scan_source="db",
                     minutes_since_last_scan=minutes_since,
                     cache_enabled=True,
                     cache_entries=cache_entries,
-                    cache_health="ok" if cache_entries > 0 else "empty"
+                    cache_health="ok" if cache_entries > 0 else "empty",
                 )
             except Exception:
                 logger.exception("Failed to emit SCAN_ENVIRONMENT block")
-            import datetime, os
+
+            import os
             try:
                 import psutil
             except ImportError:
                 psutil = None
-            start_t_iso = datetime.datetime.now(timezone.utc).isoformat()
-            
+            start_t_iso = utc_now().isoformat()
+
             # Record scanner memory before run
             from .services.diagnostics_service import diagnostics
             mem_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
-            
+
             diagnostics.set_scanner_running()
             start_t = perf_counter()
             response = await agent.run_screener(request)
             duration_ms = int((perf_counter() - start_t) * 1000)
-            
+
             # Record scanner memory after run
             mem_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
             diagnostics.set_scanner_memory(mem_before, mem_after)
-            
+
             # Record scanner execution log
             diagnostics.record_scanner_run({
                 "scan_id": response.screener_name or f"scan-{start_t_iso}",
                 "start_time": start_t_iso,
-                "end_time": datetime.datetime.now(timezone.utc).isoformat(),
+                "end_time": utc_now().isoformat(),
                 "duration_ms": duration_ms,
                 "requested_symbols": response.scanned_symbols,
                 "valid_symbols": len(response.data_valid_symbols),
                 "buy_count": len(response.buy_candidate_symbols),
                 "watch_count": len(response.watch_candidate_symbols),
                 "rejected_count": response.scanned_symbols - len(response.matched_symbols),
-                "exception_count": response.duplicate_symbols_skipped
+                "exception_count": response.duplicate_symbols_skipped,
             })
             # Update scan context counters from response
             scan_ctx.valid = len(response.data_valid_symbols)

@@ -4,6 +4,7 @@ import base64
 import json
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import logging
 from typing import Any, List
 import os
@@ -11,6 +12,7 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import FyersToken, FyersTokenHistory
+from ..utils.datetime_utils import ensure_utc as _ensure_utc, utc_now
 
 logger = logging.getLogger("app.token")
 
@@ -21,19 +23,6 @@ _TOKEN_CACHE_TTL = timedelta(minutes=int(os.getenv("FYERS_TOKEN_CACHE_MINUTES", 
 
 import threading
 _TOKEN_LOCK = threading.Lock()
-
-
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    """Normalize naive/aware datetimes to UTC-aware for safe comparisons.
-
-    Fixes TypeError when cache expiry/saved_at was set with naive datetimes
-    (e.g. datetime.utcnow()) while callers compare against datetime.now(timezone.utc).
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 
 
 def _decode_jwt_expiry(token: str) -> datetime | None:
@@ -70,14 +59,14 @@ def _clear_token_cache() -> None:
 def has_cached_token() -> bool:
     expiry = _ensure_utc(_TOKEN_EXPIRY)
     return bool(
-        _CACHED_TOKEN and expiry and datetime.now(timezone.utc) < expiry
+        _CACHED_TOKEN and expiry and utc_now() < expiry
     )
 
 
 def _set_token_cache(access_token: str, saved_at: datetime | None = None) -> None:
     global _CACHED_TOKEN, _TOKEN_EXPIRY, _TOKEN_SAVED_AT
     _CACHED_TOKEN = access_token
-    _TOKEN_EXPIRY = datetime.now(timezone.utc) + _TOKEN_CACHE_TTL
+    _TOKEN_EXPIRY = utc_now() + _TOKEN_CACHE_TTL
     if saved_at is not None:
         _TOKEN_SAVED_AT = _ensure_utc(saved_at)
 
@@ -118,7 +107,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         "Token preview    : %s",
         _mask_token(access_token) if access_token else "empty",
     )
-    logger.info("Timestamp (UTC)  : %s", datetime.now(timezone.utc).isoformat())
+    logger.info("Timestamp (UTC)  : %s", utc_now().isoformat())
 
     # Live broker validation — skip only in automated test env (APP_ENV=test)
     # so integration suites stay offline and deterministic.
@@ -173,7 +162,7 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
 
     try:
         async with db.begin():
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             
             # Step 1: Deactivate existing tokens
             logger.info("STEP 1: Deactivating existing tokens...")
@@ -255,7 +244,16 @@ async def save_access_token(access_token: str, db: AsyncSession) -> dict:
         logger.info("%s", "=" * 60)
         logger.info("TOKEN_SAVE_SUCCESS | SAVE ACCESS TOKEN COMPLETED SUCCESSFULLY")
         logger.info("%s", "=" * 60)
-        return {"status": "ok", "saved_at": str(row.access_token_saved_at)}
+        IST = ZoneInfo("Asia/Kolkata")
+        saved = _ensure_utc(row.access_token_saved_at)
+        if saved is not None:
+            local = saved.astimezone(IST)
+            saved_date = local.strftime("%d %b %Y")
+            saved_time = local.strftime("%I:%M:%S %p").lstrip("0")
+        else:
+            saved_date = None
+            saved_time = None
+        return {"status": "ok", "saved_at": str(row.access_token_saved_at), "saved_date": saved_date, "saved_time": saved_time}
 
     except Exception as e:
         logger.error("%s", "=" * 60)
@@ -336,7 +334,7 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
         row = (
             await db.scalars(select(FyersToken).where(FyersToken.id == 1))
         ).first()
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     expires_at = None
     expires_in_seconds = None
     token_masked = None
@@ -353,8 +351,8 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
                 expires_at = _decode_jwt_expiry(plain)
             if expires_at:
                 try:
-                    exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
-                    remaining = (exp - now).total_seconds()
+                    exp = _ensure_utc(expires_at)
+                    remaining = (exp - now).total_seconds() if exp is not None else 0
                 except Exception:
                     remaining = 0
                 expires_in_seconds = max(0, int(remaining))
@@ -394,21 +392,31 @@ async def get_token_status(db: AsyncSession) -> dict[str, Any]:
 
 
 async def get_token_history(db: AsyncSession, limit: int = 50) -> List[dict[str, Any]]:
+    IST = ZoneInfo("Asia/Kolkata")
     rows = (await db.scalars(select(FyersTokenHistory).order_by(FyersTokenHistory.saved_at.desc()).limit(limit))).all()
-    return [
-        {
+    result: List[dict[str, Any]] = []
+    for r in rows:
+        saved_at = _ensure_utc(r.saved_at)
+        saved_date: str | None = None
+        saved_time: str | None = None
+        if saved_at is not None:
+            local = saved_at.astimezone(IST)
+            saved_date = local.strftime("%d %b %Y")
+            saved_time = local.strftime("%I:%M:%S %p").lstrip("0")
+        result.append({
             "id": r.id,
             "access_token_masked": r.access_token_masked,
-            "saved_at": r.saved_at.isoformat(),
+            "saved_at": r.saved_at.isoformat() if r.saved_at else None,
+            "saved_date": saved_date,
+            "saved_time": saved_time,
             "status": r.status,
             "note": r.note,
-        }
-        for r in rows
-    ]
+        })
+    return result
 
 
 async def get_current_access_token(db: AsyncSession) -> str | None:
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     expiry = _ensure_utc(_TOKEN_EXPIRY)
     if _CACHED_TOKEN and expiry and now < expiry:
         logger.info(
@@ -451,7 +459,7 @@ async def get_current_access_token(db: AsyncSession) -> str | None:
 
 
 def get_current_access_token_sync() -> tuple[str | None, str]:
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     expiry = _ensure_utc(_TOKEN_EXPIRY)
     if _CACHED_TOKEN and expiry and now < expiry:
         logger.info(
@@ -461,7 +469,7 @@ def get_current_access_token_sync() -> tuple[str | None, str]:
         return _CACHED_TOKEN, "cache"
 
     with _TOKEN_LOCK:
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         expiry = _ensure_utc(_TOKEN_EXPIRY)
         if _CACHED_TOKEN and expiry and now < expiry:
             logger.info("TOKEN_CACHE_HIT | source=memory_cache | reason=double_check")
@@ -571,7 +579,7 @@ async def exchange_auth_code(auth_code: str, db: AsyncSession) -> dict:
         len(access_token), expires_at.isoformat() if expires_at else "unknown", bool(refresh_token),
     )
 
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     try:
         # Dialect-safe upsert (SQLite tests + Postgres prod) — no Postgres-only ON CONFLICT.
         async with db.begin():
@@ -656,11 +664,10 @@ async def get_token_expiry_info(db: AsyncSession) -> dict:
             except Exception:
                 await db.rollback()
 
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     if expires_at:
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        remaining = (expires_at - now).total_seconds()
+        expires_at = _ensure_utc(expires_at)
+        remaining = (expires_at - now).total_seconds() if expires_at is not None else 0
         is_expired = remaining <= 0
     else:
         remaining = None
@@ -738,7 +745,7 @@ def _record_job_metric(
         _JOB_METRICS["last_outcome"] = outcome
         _JOB_METRICS["last_elapsed_ms"] = elapsed_ms
         _JOB_METRICS["last_error_type"] = error_type
-        _JOB_METRICS["last_at"] = datetime.now(timezone.utc).isoformat()
+        _JOB_METRICS["last_at"] = utc_now().isoformat()
 
 
 def mask_access_token_preview(token: str | None) -> str | None:
@@ -798,7 +805,7 @@ async def _record_generation_failure(db: AsyncSession, exc: BaseException) -> No
     Uses plain commit (no nested ``begin()``) so caller-owned sessions work.
     On DB unavailability: logs ERROR and returns — original job exception still propagates.
     """
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     err_text = _truncate_error_message(exc)
     try:
         await _rollback_quietly(db)
@@ -874,7 +881,7 @@ async def generate_and_persist_fyers_token(db: AsyncSession) -> dict[str, Any]:
 
     from fyers_token import generate_fyers_access_token
 
-    job_started = datetime.now(timezone.utc)
+    job_started = utc_now()
     logger.info(
         "TOKEN_PERSISTENCE_JOB | outcome=start | gen_timeout_sec=%s | db_write_timeout_sec=%s | started_at=%s",
         _TOKEN_GEN_TIMEOUT_SEC,
@@ -898,7 +905,7 @@ async def generate_and_persist_fyers_token(db: AsyncSession) -> dict[str, Any]:
         if not token or not str(token).strip():
             raise RuntimeError("Token generation returned an empty access token")
 
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         stored = _encrypt_for_storage(str(token))
         expires_at = _decode_jwt_expiry(str(token))
         masked = _mask_token(str(token))
@@ -951,7 +958,7 @@ async def generate_and_persist_fyers_token(db: AsyncSession) -> dict[str, Any]:
         _set_token_cache(str(token), now)
         await _invalidate_token_status_cache()
 
-        elapsed_ms = int((datetime.now(timezone.utc) - job_started).total_seconds() * 1000)
+        elapsed_ms = int((utc_now() - job_started).total_seconds() * 1000)
         _record_job_metric("Success", elapsed_ms=elapsed_ms)
         logger.info(
             "TOKEN_PERSISTENCE_JOB | outcome=Success | monitoring_persisted=true | "
@@ -969,7 +976,7 @@ async def generate_and_persist_fyers_token(db: AsyncSession) -> dict[str, Any]:
         }
 
     except Exception as exc:
-        elapsed_ms = int((datetime.now(timezone.utc) - job_started).total_seconds() * 1000)
+        elapsed_ms = int((utc_now() - job_started).total_seconds() * 1000)
         _record_job_metric(
             "Failed",
             elapsed_ms=elapsed_ms,
