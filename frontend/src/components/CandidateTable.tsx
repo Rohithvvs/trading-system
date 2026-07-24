@@ -3,7 +3,6 @@ import type { CandidateRow, BacktestEquityPoint } from "../types";
 import { InfoTooltip } from "./InfoTooltip";
 import { TOOLTIPS } from "../constants/tooltips";
 import { memo, useMemo, useState, useCallback } from "react";
-import { checkCanPlaceBuyOrder } from "../utils/tradingHours";
 import { SignalBadge as DsSignalBadge } from "../design-system";
 import { useResearchPrefetch } from "../hooks/useResearchPrefetch";
 
@@ -250,8 +249,8 @@ const CandidateCard = memo(({
             event.stopPropagation();
             onBuy?.(row);
           }}
-          disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
-          title={!checkCanPlaceBuyOrder().allowed ? "Market closed — BUY disabled" : "BUY on Paper Desk"}
+          disabled={!onBuy || row.signal === "REJECT"}
+          title={"BUY on Paper Desk"}
           aria-label={`Buy ${row.symbol}`}
         >
           BUY
@@ -423,8 +422,8 @@ const CandidateTableRow = memo(({
               event.stopPropagation();
               onBuy?.(row);
             }}
-            disabled={!onBuy || row.signal === "REJECT" || !checkCanPlaceBuyOrder().allowed}
-            title={!checkCanPlaceBuyOrder().allowed ? "Market closed — BUY disabled" : "BUY on Paper Desk"}
+            disabled={!onBuy || row.signal === "REJECT"}
+            title={"BUY on Paper Desk"}
             aria-label={`Buy ${row.symbol}`}
           >
             BUY

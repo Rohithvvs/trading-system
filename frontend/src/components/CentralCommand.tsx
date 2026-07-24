@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useTradingDashboard } from "../hooks/useTradingDashboard";
 import { cancelPaperOrder, placePaperOrder } from "../api";
-import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
 import type { PaperOrderTicketState, PaperPosition, ScreenerConditionResult } from "../types";
 
 export function CentralCommand() {
@@ -17,13 +16,6 @@ export function CentralCommand() {
 
   const handleBuy = async () => {
     if (!selectedStock || !isLiveDataActive) return;
-
-    // Block Buy orders outside market hours (no backend request)
-    const check = checkCanPlaceBuyOrder();
-    if (!check.allowed) {
-      showMarketClosedAlert(check);
-      return;
-    }
 
     const ticket: PaperOrderTicketState = {
       symbol: selectedStock.symbol,

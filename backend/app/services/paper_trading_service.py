@@ -171,17 +171,6 @@ class PaperTradingService:
         if not payload.idempotency_key:
             raise ValueError("Idempotency key is required.")
 
-        # === CENTRALIZED MARKET HOURS VALIDATION (applies to Paper + future Live) ===
-        # Only Buy orders are restricted. Sells/closes are allowed to manage risk.
-        if getattr(payload, "side", None) == "BUY":
-            from .trading_hours_service import trading_hours, MarketClosedError
-            try:
-                trading_hours.validate_can_place_buy_order()
-            except MarketClosedError as mce:
-                # Re-raise as ValueError so existing route error handling surfaces the friendly message.
-                # This ensures NO order is created, no fill attempted, and no backend side-effects.
-                raise ValueError(str(mce)) from mce
-
         account = self._get_or_create_account(for_update=True)
         from ..utils.symbol import canonical_symbol
 
@@ -466,7 +455,6 @@ class PaperTradingService:
         retry_count = 0
         exception_name: str | None = None
         status_code = 200
-        market_status: str = "live"
         reason: str | None = None
         is_stale = False
         last_successful_at: datetime | None = None
@@ -541,7 +529,6 @@ class PaperTradingService:
                     if close is not None and float(close) > 0:
                         ltp = float(close)
                         source = "CANDLE_FALLBACK"
-                        market_status = "degraded"
                         reason = reason or (
                             "Quote Provider Timeout"
                             if exception_name in {"TimeoutError", "CancelledError", "FuturesTimeoutError"}
@@ -580,7 +567,6 @@ class PaperTradingService:
                             if snap.source in {"FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"}
                             else "CANDLE_FALLBACK"
                         )
-                        market_status = "degraded"
                         reason = reason or (
                             "Quote Provider Timeout"
                             if exception_name in {"TimeoutError", "CancelledError", "FuturesTimeoutError"}
@@ -600,7 +586,6 @@ class PaperTradingService:
         if ltp is None or float(ltp) <= 0:
             ltp = 0.0
             source = "NO_DATA"
-            market_status = "degraded"
             reason = reason or (
                 "Quote Provider Timeout"
                 if exception_name in {"TimeoutError", "CancelledError", "FuturesTimeoutError"}
@@ -622,22 +607,20 @@ class PaperTradingService:
                 reason,
             )
         else:
-            if market_status == "live":
-                reason = None
-                is_stale = False
+            reason = None
+            is_stale = False
             self.logger.info(
-                "PAPER_PRICE_UPDATE | symbol=%s | ltp=%s | source=%s | market_status=%s",
+                "PAPER_PRICE_UPDATE | symbol=%s | ltp=%s | source=%s",
                 normalized_symbol,
                 ltp,
                 source,
-                market_status,
             )
 
         latency_ms = int((_time.perf_counter() - started) * 1000)
         self.logger.info(
             "QUOTE_REQUEST_SUCCESS | timestamp=%s | user=%s | broker=%s | symbol=%s | endpoint=%s | "
             "status_code=%s | latency_ms=%s | retry_count=%s | exception=%s | ltp=%s | source=%s | "
-            "market_status=%s | reason=%s",
+            "reason=%s",
             datetime.now(timezone.utc).isoformat(),
             user,
             broker,
@@ -649,7 +632,6 @@ class PaperTradingService:
             exception_name,
             ltp,
             source,
-            market_status,
             reason,
         )
 
@@ -680,7 +662,6 @@ class PaperTradingService:
             current_price=round(float(ltp), 2),
             source=source,  # type: ignore[arg-type]
             updated_at=now,
-            market_status=market_status,  # type: ignore[arg-type]
             reason=reason,
             is_stale=is_stale,
             last_successful_at=last_successful_at,
@@ -839,7 +820,7 @@ class PaperTradingService:
             return order, position, None, "Order is already terminal."
         if current_price <= 0:
             order.status = "PENDING"
-            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING"}:
                 order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Live market price unavailable; order remains pending."
 
@@ -871,7 +852,7 @@ class PaperTradingService:
 
         if not should_fill:
             order.status = "PENDING"
-            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING"}:
                 order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Order placed and kept pending."
 

@@ -30,7 +30,6 @@ type Props = {
   screenerResult?: ScreenerResponse | null;
   isLoading?: boolean;
   scanError?: string | null;
-  marketStatus?: string;
   selectedUniverse?: string;
   timeframe?: string;
   summaryMetrics?: SummaryMetric[];
@@ -75,7 +74,6 @@ export const MarketsPage = memo(function MarketsPage({
   screenerResult = null,
   isLoading = false,
   scanError = null,
-  marketStatus = "Closed",
   timeframe = "1d",
   summaryMetrics = [],
   onRunScanner,
@@ -290,7 +288,6 @@ export const MarketsPage = memo(function MarketsPage({
       {/* ── Swing Decision Dashboard (moved from Scanner) ── */}
       <SwingDecisionDashboard
         isLoading={isLoading}
-        marketStatus={marketStatus}
         search={search}
         onSearchChange={handleSearchChange}
         onRunScanner={handleRunScanner}

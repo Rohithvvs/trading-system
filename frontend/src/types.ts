@@ -263,18 +263,29 @@ export type ScanHistoryItem = {
   data_warning?: string | null;
 };
 
+/** Full paper account capital (dashboard.account + /account/summary). */
 export type PaperAccountSummary = {
   account_id: number;
   account_name: string;
   base_currency: string;
   starting_balance: number;
   balance: number;
+  /** Alias of balance (cash_balance column). */
+  cash_balance?: number;
   equity: number;
   realized_pnl: number;
   unrealized_pnl: number;
   total_invested: number;
   reserved_cash: number;
+  /** Cash available to buy after pending-order reservations. Source of truth. */
   available_cash: number;
+  /** Alias of available_cash for widget consumers. */
+  available_funds?: number;
+  total_capital?: number;
+  invested_value?: number;
+  total_pnl?: number;
+  daily_pnl?: number;
+  daily_pnl_pct?: number;
   open_positions_count: number;
   open_orders_count: number;
   max_risk_per_trade: number;
@@ -327,7 +338,6 @@ export type PaperOrder = {
     | "EXIT_FILLED"
     | "CANCELLED"
     | "TOKEN_EXPIRED_PAUSED"
-    | "MARKET_CLOSED_WAITING"
     | "ERROR_RETRYING";
   requested_entry_price?: number | null;
   monitor_enabled?: boolean;
@@ -540,7 +550,6 @@ export type PaperQuoteResponse = {
   current_price: number;
   source: "FYERS_QUOTE" | "CANDLE_FALLBACK" | "NO_DATA" | "TEST_MOCK";
   updated_at: string;
-  market_status?: "live" | "degraded" | "unavailable";
   reason?: string | null;
   is_stale?: boolean;
   last_successful_at?: string | null;
@@ -601,7 +610,6 @@ export type PaperOrderActionResponse = {
 
 export type MarketEngineStatus = {
   status: string;
-  market_hours_active: boolean;
   websocket_connected: boolean;
   token_status: string;
   paused_reason?: string | null;

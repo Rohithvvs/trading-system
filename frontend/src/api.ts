@@ -355,23 +355,20 @@ export async function fetchPaperAccountSummary(opts?: { force?: boolean }): Prom
         const message = await response.text();
         throw new Error(message || "Failed to load account summary");
       }
-      return response.json();
+      const payload = await response.json();
+      // Single source of truth for Desk + Order capital. Log raw API shape for diagnostics.
+      console.info("[paper-capital] api account_summary_response", {
+        available_cash: payload?.available_cash ?? null,
+        available_funds: payload?.available_funds ?? null,
+        balance: payload?.balance ?? payload?.cash_balance ?? null,
+        equity: payload?.equity ?? null,
+        reserved_cash: payload?.reserved_cash ?? null,
+        max_risk_per_trade: payload?.max_risk_per_trade ?? null,
+        keys: payload && typeof payload === "object" ? Object.keys(payload) : [],
+      });
+      return payload;
     },
     { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3000 },
-  );
-}
-
-export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: string; reason: string; current_ist?: string; next_open_ist?: string | null }> {
-  return cachedFetch(
-    CACHE_KEYS.marketStatus,
-    async () => {
-      const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
-      if (!response.ok) {
-        throw new Error("Market status unavailable");
-      }
-      return response.json();
-    },
-    { swr: true, ttlMs: 5 * 60 * 1000, softTimeoutMs: 2500 },
   );
 }
 

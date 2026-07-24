@@ -28,33 +28,6 @@ from ..schemas import AnalysisMode
 from .log_manager import trading_logger as logger
 
 
-MARKET_OPEN_HOUR = 9
-MARKET_OPEN_MIN = 15
-MARKET_CLOSE_HOUR = 15
-MARKET_CLOSE_MIN = 30
-
-
-def _is_market_hours(dt: datetime) -> bool:
-    """Return True if the datetime (aware) falls within NSE market hours in IST.
-    Delegates to centralized TradingHoursService when possible.
-    """
-    try:
-        from ..services.trading_hours_service import trading_hours
-        return trading_hours.is_market_open(dt)
-    except Exception:
-        # Fallback
-        try:
-            from zoneinfo import ZoneInfo
-            ist = ZoneInfo("Asia/Kolkata")
-        except Exception:
-            from datetime import timezone, timedelta
-            ist = timezone(timedelta(hours=5, minutes=30))
-        local = dt.astimezone(ist)
-        t = local.time()
-        from datetime import time
-        return time(MARKET_OPEN_HOUR, MARKET_OPEN_MIN) <= t <= time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MIN)
-
-
 async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
     summary: Dict = {
         "gap_start": None,
@@ -148,13 +121,12 @@ async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
                     logger.warning("[GAP_REPLAY] %s", warning)
                     continue
 
-                # Filter candles to gap period and market hours
-                market_candles = [c for c in candles if c.timestamp >= gap_start and c.timestamp <= gap_end and _is_market_hours(c.timestamp)]
+                # Filter candles to gap period
+                market_candles = [c for c in candles if c.timestamp >= gap_start and c.timestamp <= gap_end]
                 market_candles.sort(key=lambda c: c.timestamp)
 
                 if not market_candles:
-                    logger.info("[GAP_REPLAY] %s: No market-hour candles inside gap", symbol)
-                    summary["warnings"].append(f"{symbol}: Gap was outside market hours — no replay needed")
+                    logger.info("[GAP_REPLAY] %s: No candles inside gap", symbol)
                     continue
 
                 # Replay pending LIMIT BUY orders

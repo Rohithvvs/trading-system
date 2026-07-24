@@ -34,12 +34,24 @@ async function setupMocks(
     });
   });
 
-  // Mock account summary payload (uses dashboard.account)
+  // Mock account summary — same capital fields as production /account/summary
+  // (available_cash + available_funds aliases + widget fields).
   await page.route("**/paper-trading/account/summary**", async (route) => {
+    const acct = dashboardPayload.account ?? {};
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(dashboardPayload.account),
+      body: JSON.stringify({
+        ...acct,
+        available_cash: acct.available_cash ?? acct.balance ?? 0,
+        available_funds: acct.available_cash ?? acct.balance ?? 0,
+        cash_balance: acct.balance ?? acct.cash_balance ?? 0,
+        total_capital: acct.equity ?? acct.balance ?? 0,
+        invested_value: acct.total_invested ?? 0,
+        total_pnl: (acct.realized_pnl ?? 0) + (acct.unrealized_pnl ?? 0),
+        daily_pnl: 0,
+        daily_pnl_pct: 0,
+      }),
     });
   });
 

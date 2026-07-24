@@ -28,7 +28,7 @@ import { ResearchDashboard } from "./ResearchDashboard";
 type StockDetailPanelProps = {
   row: CandidateRow | null;
   onBack?: () => void;
-  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null) => void;
+  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null, side?: "BUY" | "SELL") => void;
 };
 
 const TABS: { id: DetailTab; label: string }[] = [
@@ -156,7 +156,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
           <button
             type="button"
             className="ds-btn ds-btn--buy"
-            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined, "BUY")}
             aria-label="Place buy trade"
           >
             BUY
@@ -164,7 +164,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
           <button
             type="button"
             className="ds-btn ds-btn--sell"
-            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined, "SELL")}
             aria-label="Place sell trade"
           >
             SELL / Trade
@@ -243,7 +243,7 @@ function OverviewTab({
   symbolDetail?: SymbolDetail | null;
   currentPrice?: number | null;
   loadingDetail?: boolean;
-  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null) => void;
+  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null, side?: "BUY" | "SELL") => void;
 }) {
   return (
     <div className="detail-grid">
@@ -324,7 +324,7 @@ function OverviewTab({
             <button
               type="button"
               className="ds-btn ds-btn--buy"
-              onClick={() => onSendToPaperTrading?.(row, currentPrice ?? undefined)}
+              onClick={() => onSendToPaperTrading?.(row, currentPrice ?? undefined, "BUY")}
               disabled={loadingDetail || !onSendToPaperTrading}
             >
               {loadingDetail ? "Loading…" : "BUY"}

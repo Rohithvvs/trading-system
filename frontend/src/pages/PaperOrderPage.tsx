@@ -9,8 +9,13 @@ import {
   updatePaperOrder,
   invalidatePaperCaches,
 } from "../api";
-import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
+
 import { toCanonicalSymbol } from "../utils/paperOrderNavigation";
+import {
+  extractPaperAvailableCash,
+  extractPaperMaxRiskPerTrade,
+  logPaperCapital,
+} from "../utils/paperCapital";
 import type { PaperOrderNavState } from "../types/paperOrderNav";
 import { isPaperOrderNavState } from "../types/paperOrderNav";
 import type { PaperOrderTicketState, RecommendationPrefillRequest } from "../types";
@@ -125,6 +130,8 @@ export function PaperOrderPage() {
 
   const [currentPrice, setCurrentPrice] = useState<number | null>(navState.currentPrice ?? null);
   const [availableCash, setAvailableCash] = useState<number | null>(null);
+  /** False until paper account capital has been applied (or hard-failed). */
+  const [accountLoaded, setAccountLoaded] = useState(false);
   const [maxRiskPercent, setMaxRiskPercent] = useState(0.02);
   const [quoteStatus, setQuoteStatus] = useState<"loading" | "live" | "degraded" | "error">("loading");
   const [isLoading, setIsLoading] = useState(true);
@@ -211,20 +218,38 @@ export function PaperOrderPage() {
 
     if (quote?.current_price != null && Number(quote.current_price) > 0) {
       setCurrentPrice(Number(quote.current_price));
-      setQuoteStatus(quote.market_status === "degraded" || quote.is_stale ? "degraded" : "live");
+      setQuoteStatus(quote.is_stale ? "degraded" : "live");
       logPaperOrder("api_response", {
         kind: "quote",
         symbol: canon,
         price: Number(quote.current_price),
-        status: quote.market_status,
+        status: quote.is_stale ? "degraded" : "live",
       });
     } else {
       setQuoteStatus("error");
       logPaperOrder("api_response", { kind: "quote", symbol: canon, price: null });
     }
     if (acct) {
-      setAvailableCash(Number(acct.available_cash ?? acct.cash_balance ?? null));
-      setMaxRiskPercent(Number(acct.max_risk_per_trade ?? 0.02));
+      const cash = extractPaperAvailableCash(acct);
+      const riskPct = extractPaperMaxRiskPerTrade(acct);
+      setAvailableCash(cash);
+      setMaxRiskPercent(riskPct);
+      setAccountLoaded(true);
+      logPaperCapital("paper-order", "account_loaded", acct, {
+        symbol: canon,
+        gen: myGen,
+        resolved_available_cash: cash,
+      });
+      logPaperOrder("api_response", {
+        kind: "account",
+        available_cash: cash,
+        balance: acct.balance ?? acct.cash_balance ?? null,
+        available_funds: acct.available_funds ?? null,
+      });
+    } else {
+      // Do not invent capital — leave cash null and mark load complete so UI can warn.
+      setAccountLoaded(true);
+      logPaperOrder("api_response", { kind: "account", available_cash: null, failed: true });
     }
   }, []);
 
@@ -254,6 +279,8 @@ export function PaperOrderPage() {
       }
 
       setIsLoading(true);
+      setAccountLoaded(false);
+      setAvailableCash(null);
       setLoadError(null);
       setPageError(null);
 
@@ -500,7 +527,7 @@ export function PaperOrderPage() {
           if (ac.signal.aborted) return;
           if (q?.current_price != null && Number(q.current_price) > 0) {
             setCurrentPrice(Number(q.current_price));
-            setQuoteStatus(q.market_status === "degraded" || q.is_stale ? "degraded" : "live");
+            setQuoteStatus(q.is_stale ? "degraded" : "live");
           }
         })
         .catch(() => {
@@ -524,56 +551,244 @@ export function PaperOrderPage() {
     }
   }
 
-  function validateTicket(): boolean {
+  /**
+   * Full frontend validation for Place Paper Order.
+   * Returns structured PASS/FAIL results + field errors with concrete values.
+   * Never collapses failures into a single generic message at the call site.
+   */
+  function validateTicket(): {
+    ok: boolean;
+    errors: Record<string, string>;
+    messages: string[];
+    results: Array<{ rule: string; status: "PASS" | "FAIL" | "SKIP"; detail?: string }>;
+  } {
     const errors: Record<string, string> = {};
+    const results: Array<{ rule: string; status: "PASS" | "FAIL" | "SKIP"; detail?: string }> = [];
     const qty = Number(ticket.qty);
-    if (!ticket.symbol?.trim()) errors.symbol = "Symbol is required.";
-    if (!Number.isFinite(qty) || qty < 1) errors.qty = "Quantity must be at least 1.";
+    const entry = entryReference != null && entryReference > 0 ? entryReference : null;
+    const entryLabel = entry != null ? formatInr(entry) : "—";
+
+    // Symbol
+    if (!ticket.symbol?.trim()) {
+      errors.symbol = "Symbol is required.";
+      results.push({ rule: "Symbol", status: "FAIL", detail: errors.symbol });
+    } else {
+      results.push({ rule: "Symbol", status: "PASS", detail: ticket.symbol });
+    }
+
+    // Side / Type / Product — informational (always valid enums from selects)
+    results.push({ rule: "Side", status: "PASS", detail: ticket.side });
+    results.push({ rule: "Order Type", status: "PASS", detail: ticket.type });
+    results.push({
+      rule: "Product",
+      status: "PASS",
+      detail: ticket.productType ?? "CNC",
+    });
+
+    // Quantity
+    if (!Number.isFinite(qty) || qty < 1) {
+      errors.qty = "Quantity must be at least 1.";
+      results.push({ rule: "Quantity", status: "FAIL", detail: errors.qty });
+    } else {
+      results.push({ rule: "Quantity", status: "PASS", detail: String(qty) });
+    }
+
+    // Limit / stop trigger price
     if (ticket.type !== "MARKET") {
       const priceField = ticket.type === "STOP" ? ticket.stopPrice : ticket.limitPrice;
+      const priceName =
+        ticket.type === "STOP" || ticket.type === "STOP_LIMIT" ? "Stop Trigger" : "Limit Price";
       if (priceField == null || priceField <= 0) {
+        errors.price = `${priceName} is required and must be greater than 0.`;
+        results.push({ rule: priceName, status: "FAIL", detail: errors.price });
+      } else {
+        results.push({
+          rule: priceName,
+          status: "PASS",
+          detail: formatInr(priceField),
+        });
+      }
+    } else {
+      results.push({ rule: "Limit Price", status: "SKIP", detail: "Not required for MARKET" });
+    }
+
+    // Entry reference used for SL/Target rules
+    if (entry == null) {
+      results.push({
+        rule: "Entry Price",
+        status: "FAIL",
+        detail: "Entry price is unavailable. Set limit/stop price or wait for a live quote.",
+      });
+      if (!errors.price) {
         errors.price =
-          ticket.type === "STOP" ? "Stop trigger is required." : "Limit price is required.";
+          "Entry price is unavailable. Set a limit/stop price or wait for a live quote before placing.";
       }
+    } else {
+      results.push({ rule: "Entry Price", status: "PASS", detail: entryLabel });
     }
-    if (ticket.stopLoss != null && entryReference != null && entryReference > 0) {
-      if (ticket.side === "BUY" && ticket.stopLoss >= entryReference) {
-        errors.stopLoss = "Stop-loss should be below entry for BUY.";
-      }
-      if (ticket.side === "SELL" && ticket.stopLoss <= entryReference) {
-        errors.stopLoss = "Stop-loss should be above entry for SELL.";
-      }
+
+    // Stop Loss vs Entry (BUY: SL < entry; SELL: SL > entry)
+    if (ticket.stopLoss == null) {
+      results.push({ rule: "Stop Loss", status: "SKIP", detail: "Optional — not set" });
+    } else if (entry == null) {
+      results.push({
+        rule: "Stop Loss",
+        status: "SKIP",
+        detail: "Skipped — entry price unavailable",
+      });
+    } else if (ticket.side === "BUY" && ticket.stopLoss >= entry) {
+      errors.stopLoss = `Stop Loss (${formatInr(ticket.stopLoss)}) must be below Entry Price (${entryLabel}) for BUY.`;
+      results.push({ rule: "Stop Loss", status: "FAIL", detail: errors.stopLoss });
+    } else if (ticket.side === "SELL" && ticket.stopLoss <= entry) {
+      errors.stopLoss = `Stop Loss (${formatInr(ticket.stopLoss)}) must be above Entry Price (${entryLabel}) for SELL.`;
+      results.push({ rule: "Stop Loss", status: "FAIL", detail: errors.stopLoss });
+    } else {
+      results.push({
+        rule: "Stop Loss",
+        status: "PASS",
+        detail: `${formatInr(ticket.stopLoss)} vs entry ${entryLabel} (${ticket.side})`,
+      });
     }
-    if (ticket.target != null && entryReference != null && entryReference > 0) {
-      if (ticket.side === "BUY" && ticket.target <= entryReference) {
-        errors.target = "Target should be above entry for BUY.";
-      }
-      if (ticket.side === "SELL" && ticket.target >= entryReference) {
-        errors.target = "Target should be below entry for SELL.";
-      }
+
+    // Target vs Entry (BUY: target > entry; SELL: target < entry)
+    if (ticket.target == null) {
+      results.push({ rule: "Target", status: "SKIP", detail: "Optional — not set" });
+    } else if (entry == null) {
+      results.push({
+        rule: "Target",
+        status: "SKIP",
+        detail: "Skipped — entry price unavailable",
+      });
+    } else if (ticket.side === "BUY" && ticket.target <= entry) {
+      errors.target = `Target (${formatInr(ticket.target)}) must be above Entry Price (${entryLabel}) for BUY.`;
+      results.push({ rule: "Target", status: "FAIL", detail: errors.target });
+    } else if (ticket.side === "SELL" && ticket.target >= entry) {
+      errors.target = `Target (${formatInr(ticket.target)}) must be below Entry Price (${entryLabel}) for SELL.`;
+      results.push({ rule: "Target", status: "FAIL", detail: errors.target });
+    } else {
+      results.push({
+        rule: "Target",
+        status: "PASS",
+        detail: `${formatInr(ticket.target)} vs entry ${entryLabel} (${ticket.side})`,
+      });
     }
-    if (availableCash != null && risk.estimatedCost > availableCash + 0.01) {
+
+    // Available cash (BUY only) — never treat "not loaded" as ₹0
+    if (ticket.side !== "BUY") {
+      results.push({
+        rule: "Available Cash",
+        status: "SKIP",
+        detail: "Cash check applies to BUY only",
+      });
+    } else if (!accountLoaded || availableCash == null) {
+      errors.cash = "Paper account capital is still loading. Wait a moment and try again.";
+      results.push({ rule: "Available Cash", status: "FAIL", detail: errors.cash });
+    } else if (risk.estimatedCost > availableCash + 0.01) {
       errors.cash = `Estimated cost ${formatInr(risk.estimatedCost)} exceeds available cash ${formatInr(availableCash)}.`;
+      results.push({
+        rule: "Available Cash",
+        status: "FAIL",
+        detail: errors.cash,
+      });
+    } else {
+      results.push({
+        rule: "Available Cash",
+        status: "PASS",
+        detail: `Cost ${formatInr(risk.estimatedCost)} ≤ cash ${formatInr(availableCash)}`,
+      });
     }
-    if (risk.riskPercent > maxRiskPercent * 100 + 0.01) {
-      errors.risk = `Risk ${risk.riskPercent.toFixed(2)}% exceeds guideline ${(maxRiskPercent * 100).toFixed(1)}%.`;
+
+    // Risk % of account (when SL is set so riskAmount > 0)
+    if (!accountLoaded) {
+      results.push({
+        rule: "Risk %",
+        status: "SKIP",
+        detail: "Account not loaded yet",
+      });
+    } else if (!(risk.riskAmount > 0)) {
+      results.push({
+        rule: "Risk %",
+        status: "SKIP",
+        detail: "No stop-loss risk amount to evaluate",
+      });
+    } else if (risk.riskPercent > maxRiskPercent * 100 + 0.01) {
+      errors.risk = `Risk ${risk.riskPercent.toFixed(2)}% of account exceeds guideline ${(maxRiskPercent * 100).toFixed(1)}% (risk amount ${formatInr(risk.riskAmount)}).`;
+      results.push({ rule: "Risk %", status: "FAIL", detail: errors.risk });
+    } else {
+      results.push({
+        rule: "Risk %",
+        status: "PASS",
+        detail: `${risk.riskPercent.toFixed(2)}% ≤ ${(maxRiskPercent * 100).toFixed(1)}% guideline`,
+      });
     }
+
+    // Cash allocation helper is optional UI only — not a hard order field
+    results.push({
+      rule: "Cash Allocation",
+      status: "SKIP",
+      detail: "Helper only — not a placement constraint",
+    });
+
+    const messages = Object.values(errors);
+    const ok = messages.length === 0;
+
+    logPaperOrder("validation_result", {
+      ok,
+      side: ticket.side,
+      type: ticket.type,
+      qty,
+      entry,
+      stopLoss: ticket.stopLoss,
+      target: ticket.target,
+      availableCash,
+      estimatedCost: risk.estimatedCost,
+      riskPercent: risk.riskPercent,
+      maxRiskPercent,
+      results,
+      errors,
+    });
+    console.info(
+      "[paper-order] Validation:\n" +
+        results.map((r) => `${r.rule}: ${r.status}${r.detail ? ` — ${r.detail}` : ""}`).join("\n"),
+    );
+
     setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
+    return { ok, errors, messages, results };
   }
 
   function handlePlaceClick() {
-    if (ticket.side === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        return;
-      }
-    }
-    if (!validateTicket()) {
-      toast.error("Fix validation errors", "Review quantity, prices, and risk before placing.");
+    if (!accountLoaded || (ticket.side === "BUY" && availableCash == null)) {
+      toast.error("Loading paper account", "Available cash is still loading. Please wait.");
       return;
     }
+
+    const validation = validateTicket();
+    if (!validation.ok) {
+      const title =
+        validation.messages.length === 1
+          ? "Order validation failed"
+          : `${validation.messages.length} validation errors`;
+      const summary =
+        validation.messages.length === 1
+          ? validation.messages[0]
+          : validation.messages.map((m, i) => `${i + 1}. ${m}`).join(" ");
+      // Title + every exact failure — never a generic-only "Fix validation errors" toast.
+      toast.toast(title, {
+        level: "error",
+        description: summary,
+        duration: Math.min(14_000, 6_000 + validation.messages.length * 2_500),
+        dedupeKey: "paper-order-validation",
+      });
+      // Persistent on-page alert so failures remain after the toast dismisses.
+      setPageError(
+        validation.messages.length === 1
+          ? validation.messages[0]
+          : `Cannot place order:\n${validation.messages.map((m) => `• ${m}`).join("\n")}`,
+      );
+      return;
+    }
+
+    setPageError(null);
     setConfirmOpen(true);
   }
 
@@ -905,9 +1120,22 @@ export function PaperOrderPage() {
                   min={0.01}
                   step="0.05"
                   value={ticket.stopLoss ?? ""}
-                  onChange={(e) => setTicket({ ...ticket, stopLoss: Number(e.target.value) || null })}
+                  onChange={(e) => {
+                    setTicket({ ...ticket, stopLoss: Number(e.target.value) || null });
+                    setFieldErrors((prev) => {
+                      if (!prev.stopLoss) return prev;
+                      const next = { ...prev };
+                      delete next.stopLoss;
+                      return next;
+                    });
+                    setPageError(null);
+                  }}
                 />
-                {fieldErrors.stopLoss ? <span className="field-error">{fieldErrors.stopLoss}</span> : null}
+                {fieldErrors.stopLoss ? (
+                  <span className="field-error" data-testid="paper-order-sl-error">
+                    {fieldErrors.stopLoss}
+                  </span>
+                ) : null}
               </label>
 
               <label className="filter-field">
@@ -921,9 +1149,22 @@ export function PaperOrderPage() {
                   min={0.01}
                   step="0.05"
                   value={ticket.target ?? ""}
-                  onChange={(e) => setTicket({ ...ticket, target: Number(e.target.value) || null })}
+                  onChange={(e) => {
+                    setTicket({ ...ticket, target: Number(e.target.value) || null });
+                    setFieldErrors((prev) => {
+                      if (!prev.target) return prev;
+                      const next = { ...prev };
+                      delete next.target;
+                      return next;
+                    });
+                    setPageError(null);
+                  }}
                 />
-                {fieldErrors.target ? <span className="field-error">{fieldErrors.target}</span> : null}
+                {fieldErrors.target ? (
+                  <span className="field-error" data-testid="paper-order-target-error">
+                    {fieldErrors.target}
+                  </span>
+                ) : null}
               </label>
             </div>
 
@@ -983,7 +1224,16 @@ export function PaperOrderPage() {
             <h3 className="paper-order-section-title">Risk Summary</h3>
             <div className="paper-order-risk__grid">
               <Metric label="Estimated Cost" value={formatInr(risk.estimatedCost)} />
-              <Metric label="Available Cash" value={formatInr(availableCash)} />
+              <Metric
+                label="Available Cash"
+                value={
+                  !accountLoaded
+                    ? "Loading…"
+                    : availableCash == null
+                      ? "Unavailable"
+                      : formatInr(availableCash)
+                }
+              />
               <Metric label="Risk Amount" value={formatInr(risk.riskAmount)} />
               <Metric label="Potential Profit" value={formatInr(risk.potentialProfit)} />
               <Metric label="Potential Loss" value={formatInr(risk.potentialLoss)} />
@@ -992,12 +1242,12 @@ export function PaperOrderPage() {
               <Metric label="Risk % of Account" value={`${risk.riskPercent.toFixed(2)}%`} />
             </div>
             {fieldErrors.cash ? (
-              <div className="warning-box" style={{ marginTop: 12 }}>
+              <div className="warning-box" style={{ marginTop: 12 }} data-testid="paper-order-cash-error">
                 <p>{fieldErrors.cash}</p>
               </div>
             ) : null}
             {fieldErrors.risk ? (
-              <div className="warning-box" style={{ marginTop: 12 }}>
+              <div className="warning-box" style={{ marginTop: 12 }} data-testid="paper-order-risk-error">
                 <p>{fieldErrors.risk}</p>
               </div>
             ) : null}
@@ -1009,9 +1259,30 @@ export function PaperOrderPage() {
         </div>
       ) : null}
 
-      {pageError ? (
-        <div className="error-state panel" role="alert" style={{ marginTop: 16 }}>
-          {pageError}
+      {pageError || Object.keys(fieldErrors).length > 0 ? (
+        <div
+          className="error-state panel"
+          role="alert"
+          data-testid="paper-order-validation-summary"
+          style={{ marginTop: 16, whiteSpace: "pre-line" }}
+        >
+          <strong style={{ display: "block", marginBottom: 8 }}>
+            {Object.keys(fieldErrors).length > 1
+              ? `${Object.keys(fieldErrors).length} validation issues — fix all of the following:`
+              : "Validation issue — fix the following:"}
+          </strong>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {(pageError
+              ? pageError
+                  .replace(/^Cannot place order:\n?/, "")
+                  .split("\n")
+                  .map((line) => line.replace(/^[•\-\d.]+\s*/, "").trim())
+                  .filter(Boolean)
+              : Object.values(fieldErrors)
+            ).map((msg) => (
+              <li key={msg}>{msg}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

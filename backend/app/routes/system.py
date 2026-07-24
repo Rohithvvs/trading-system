@@ -79,33 +79,3 @@ async def health_ready(db: AsyncSession = Depends(get_db)):
     }
 
 
-# --- Centralized Market Hours Status (for frontend + monitoring) ---
-from fastapi import APIRouter as _APIRouter  # local alias to avoid collision if needed
-# We append to the existing router defined above.
-
-try:
-    from ..services.trading_hours_service import trading_hours
-    _HAS_TRADING_HOURS = True
-except Exception:
-    _HAS_TRADING_HOURS = False
-
-
-@router.get("/market-status")
-async def market_status():
-    """Returns authoritative market open/closed status including weekends and holidays.
-    Frontend should use this (or local equivalent) to block Buy orders with friendly UI.
-    """
-    if not _HAS_TRADING_HOURS:
-        return {"is_open": False, "status": "UNKNOWN", "reason": "Service unavailable", "current_ist": None}
-
-    info = trading_hours.get_market_status()
-    return {
-        "is_open": info["is_open"],
-        "is_trading_day": info["is_trading_day"],
-        "status": info["status"],
-        "reason": info["reason"],
-        "current_ist": info["current_ist"],
-        "market_open_ist": "09:15",
-        "market_close_ist": "15:30",
-        "next_open_ist": info.get("next_open_ist"),
-    }

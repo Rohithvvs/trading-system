@@ -11,7 +11,6 @@ import type { ScreenerResponse } from "../../types";
 
 export type SwingDecisionDashboardProps = {
   isLoading: boolean;
-  marketStatus: string;
   search: string;
   onSearchChange: (value: string) => void;
   onRunScanner: () => void;
@@ -45,7 +44,6 @@ export type SwingDecisionDashboardProps = {
  */
 export const SwingDecisionDashboard = memo(function SwingDecisionDashboard({
   isLoading,
-  marketStatus,
   search,
   onSearchChange,
   onRunScanner,
@@ -80,7 +78,6 @@ export const SwingDecisionDashboard = memo(function SwingDecisionDashboard({
         />
 
         <MarketStatus
-          marketStatus={marketStatus}
           isLoading={isLoading}
           hasScanResult={!!screenerResult}
           lastScanAt={lastScanAt}

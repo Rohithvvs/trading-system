@@ -1053,34 +1053,7 @@ async def automated_screening_job():
                 startup_dt = parse_utc(_PROCESS_START_TIME)
                 app_uptime = age_minutes(startup_dt) if startup_dt is not None else 0.0
 
-                # Use centralized service for accurate market status (weekends + holidays)
-                try:
-                    from .services.trading_hours_service import trading_hours
-                    mkt = trading_hours.get_market_status()
-                    market_open = mkt["is_open"]
-                    market_session = mkt["status"].lower().replace("_", "-")
-                except Exception:
-                    mkt = None
-                    market_open = False
-                    market_session = "unknown"
-
-                # Display clock in IST (aware); never mix with UTC arithmetic by stripping tz
                 exchange_now = ist_now()
-                if mkt is None:
-                    market_open = (
-                        exchange_now.weekday() < 5
-                        and (9 <= exchange_now.hour <= 15)
-                        and not (exchange_now.hour == 9 and exchange_now.minute < 15)
-                        and not (exchange_now.hour == 15 and exchange_now.minute > 30)
-                    )
-                    if exchange_now.weekday() >= 5:
-                        market_session = "closed"
-                    elif exchange_now.hour < 9 or (exchange_now.hour == 9 and exchange_now.minute < 15):
-                        market_session = "pre_open"
-                    elif exchange_now.hour > 15 or (exchange_now.hour == 15 and exchange_now.minute > 30):
-                        market_session = "post_close"
-                    else:
-                        market_session = "open"
 
                 pool = engine.pool
 
@@ -1109,8 +1082,6 @@ async def automated_screening_job():
                     token_age_minutes=token_age,
                     token_hash=hash_token_prefix(token),
                     app_uptime_minutes=app_uptime,
-                    market_open=market_open,
-                    market_session=market_session,
                     exchange_time=exchange_now.strftime("%H:%M:%S"),
                     weekday=exchange_now.strftime("%A"),
                     db_connected=True,

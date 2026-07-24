@@ -71,22 +71,34 @@ def get_account(service: PaperTradingService = Depends(get_service)) -> PaperTra
 
 @router.get("/account/summary")
 def get_account_summary(service: PaperTradingService = Depends(get_service)):
-    """Return a compact account summary for dashboard widgets.
+    """Return paper capital fields shared by Paper Desk, Order page, and widgets.
 
-    Fields returned:
-    - total_capital, available_funds, invested_value, unrealized_pnl,
-      realized_pnl, total_pnl, daily_pnl, daily_pnl_pct, market_status
+    Single source of truth for available cash. Derived from the same
+    ``dashboard.account`` summary used by ``GET /paper-trading/dashboard``.
+
+    Always includes both naming conventions so consumers never desync:
+    - Capital: available_cash, available_funds, balance, cash_balance, equity
+    - Widgets: total_capital, invested_value, total_pnl, daily_pnl, daily_pnl_pct
+    - Risk: max_risk_per_trade, reserved_cash
     """
+    logger = logging.getLogger("app.paper_trading")
     dashboard = service.get_dashboard()
     account = dashboard.account
 
     invested_value = float(account.total_invested)
     unrealized_pnl = float(account.unrealized_pnl)
     realized_pnl = float(account.realized_pnl)
+    balance = float(account.balance)
+    # Prefer reserved-aware available_cash (matches order validation / dashboard strip).
+    available_cash = float(account.available_cash)
+    equity = float(account.equity)
+    starting_balance = float(account.starting_balance)
+    reserved_cash = float(account.reserved_cash)
+    max_risk_per_trade = float(account.max_risk_per_trade)
 
-    # Define total capital as cash + invested (equity-like)
-    total_capital = round(float(account.balance) + invested_value, 2)
-    available_funds = round(total_capital - invested_value, 2)
+    # Equity-like total capital; available_funds aliases available_cash so Desk + Order match.
+    total_capital = round(float(account.equity), 2) if equity else round(balance + invested_value, 2)
+    available_funds = round(available_cash, 2)
     total_pnl = round(unrealized_pnl + realized_pnl, 2)
 
     # Compute today's realized P&L in IST timezone
@@ -118,42 +130,44 @@ def get_account_summary(service: PaperTradingService = Depends(get_service)):
     daily_pnl = round(daily_pnl, 2)
     daily_pnl_pct = round((daily_pnl / total_capital) * 100, 2) if total_capital else 0.0
 
-    # Use centralized TradingHoursService for consistent status (includes holidays)
-    try:
-        from ..services.trading_hours_service import trading_hours
-        status_info = trading_hours.get_market_status()
-        if status_info["status"] == "OPEN":
-            market_status = "OPEN"
-        elif status_info["status"] == "PRE_OPEN":
-            market_status = "PRE-OPEN"
-        else:
-            market_status = "CLOSED"
-    except Exception:
-        # Fallback to previous simple logic
-        now_time = now_ist.time()
-        pre_open_start = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 0, tzinfo=ist).time()
-        pre_open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
-        open_start = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 9, 15, tzinfo=ist).time()
-        open_end = datetime.datetime(now_ist.year, now_ist.month, now_ist.day, 15, 30, tzinfo=ist).time()
-
-        if pre_open_start <= now_time < pre_open_end:
-            market_status = "PRE-OPEN"
-        elif open_start <= now_time < open_end:
-            market_status = "OPEN"
-        else:
-            market_status = "CLOSED"
-
     payload = {
+        # Identity / full account capital (same semantics as dashboard.account)
+        "account_id": account.account_id,
+        "account_name": account.account_name,
+        "base_currency": account.base_currency,
+        "starting_balance": starting_balance,
+        "balance": balance,
+        "cash_balance": balance,
+        "equity": equity,
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl": unrealized_pnl,
+        "total_invested": invested_value,
+        "reserved_cash": reserved_cash,
+        "available_cash": available_cash,
+        "open_positions_count": account.open_positions_count,
+        "open_orders_count": account.open_orders_count,
+        "max_risk_per_trade": max_risk_per_trade,
+        "updated_at": account.updated_at,
+        # Widget / alias fields (kept for Paper Desk widgets)
         "total_capital": total_capital,
         "available_funds": available_funds,
         "invested_value": invested_value,
-        "unrealized_pnl": unrealized_pnl,
-        "realized_pnl": realized_pnl,
         "total_pnl": total_pnl,
         "daily_pnl": daily_pnl,
         "daily_pnl_pct": daily_pnl_pct,
-        "market_status": market_status,
     }
+
+    logger.info(
+        "PAPER_ACCOUNT_SUMMARY | account_id=%s available_cash=%s balance=%s "
+        "available_funds=%s equity=%s reserved_cash=%s invested=%s",
+        account.account_id,
+        available_cash,
+        balance,
+        available_funds,
+        equity,
+        reserved_cash,
+        invested_value,
+    )
 
     return JSONResponse(content=sanitize_for_json(payload))
 
@@ -291,8 +305,8 @@ async def market_engine_heartbeat(background_tasks: BackgroundTasks) -> MarketEn
             logger.info("Triggering morning baseline scan (9:00 AM - 9:15 AM window).")
             should_run = True
 
-    # 3. 30-MINUTE INTERVAL CHECK: During market hours, check if last scan is older than 30 mins
-    if not should_run and market_engine.is_market_hours():
+    # 3. 30-MINUTE INTERVAL CHECK: Check if last scan is older than 30 mins
+    if not should_run:
         if last_scan_ist:
             mins_since_last = (now_ist - last_scan_ist).total_seconds() / 60.0
             if mins_since_last > 30:
@@ -451,9 +465,8 @@ def get_quote(symbol: str, service: PaperTradingService = Depends(get_service)) 
         response = service.get_quote(symbol.strip().upper())
         latency_ms = int((time.perf_counter() - started) * 1000)
         logger.info(
-            "QUOTE_HTTP_OK | symbol=%s | market_status=%s | source=%s | latency_ms=%s | status_code=200",
+            "QUOTE_HTTP_OK | symbol=%s | source=%s | latency_ms=%s | status_code=200",
             response.symbol,
-            getattr(response, "market_status", "live"),
             response.source,
             latency_ms,
         )

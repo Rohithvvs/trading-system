@@ -42,10 +42,14 @@ import {
   stopMarketEngine,
   invalidatePaperCaches,
 } from "../api";
-import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
+
 import TokenStatus from "./TokenStatus";
 import { MetricCardSkeleton, TableSkeleton, ChartSkeleton } from "./Skeleton";
 import { getCached, CACHE_KEYS } from "../utils/appCache";
+import {
+  extractPaperAvailableCash,
+  logPaperCapital,
+} from "../utils/paperCapital";
 import type {
   CandidateRow,
   PaperOrder,
@@ -399,7 +403,13 @@ export function PaperTradingPage({
             }
           }
         }
-        if (summary) setAccountSummary(summary);
+        if (summary) {
+          setAccountSummary(summary);
+          logPaperCapital("paper-desk", "account_summary_loaded", summary, {
+            dashboard_available_cash: dash?.account?.available_cash ?? null,
+            resolved_available_cash: extractPaperAvailableCash(summary),
+          });
+        }
         if (engStatus) setEngineStatus(engStatus);
         if (engHealth) {
           setEngineHealth(engHealth);
@@ -763,7 +773,6 @@ export function PaperTradingPage({
       const quote = await fetchPaperQuote(symbol);
       const price = Number(quote.current_price);
       const hasPrice = Number.isFinite(price) && price > 0;
-      const marketStatus = quote.market_status ?? (quote.source === "FYERS_QUOTE" ? "live" : "degraded");
 
       if (hasPrice) {
         setDashboard((current) => updateDashboardQuote(current, quote.symbol, price));
@@ -771,7 +780,7 @@ export function PaperTradingPage({
         setLastQuoteAt(Date.now());
       }
 
-      if (marketStatus === "live" && hasPrice && !quote.is_stale) {
+      if (quote.source === "FYERS_QUOTE" && hasPrice && !quote.is_stale) {
         setQuoteFeedStatus("live");
         setQuoteStatusDetail("Live Market Connected");
       } else if (hasPrice) {
@@ -853,16 +862,6 @@ export function PaperTradingPage({
   }
 
   async function handlePlaceOrder() {
-    // Centralized pre-check: prevent any API call for BUY when market closed
-    if (ticket.side === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        setIsBusy(false);
-        return;
-      }
-    }
-
     setIsBusy(true);
     setError(null);
     setStatusMessage(null);
@@ -913,13 +912,6 @@ export function PaperTradingPage({
   }
 
   function handleQuickOrder(side: "BUY" | "SELL", symbol?: string) {
-    if (side === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        return;
-      }
-    }
     const normalized = (symbol ?? selectedSymbol ?? ticket.symbol).trim().toUpperCase();
     if (!normalized) return;
     setSelectedSymbol(normalized);
@@ -1532,13 +1524,15 @@ function AccountSummaryStrip({ dashboard }: { dashboard: PaperTradingDashboardRe
     );
   }
   const account = dashboard.account;
+  // Same available-cash resolution as Paper Order page.
+  const availableCash = extractPaperAvailableCash(account);
   const metrics = [
     ["Balance", formatCurrency(account?.balance)],
     ["Equity", formatCurrency(account?.equity)],
     ["Realized P&L", formatCurrency(account?.realized_pnl)],
     ["Unrealized P&L", formatCurrency(account?.unrealized_pnl)],
     ["Invested", formatCurrency(account?.total_invested)],
-    ["Available cash", formatCurrency(account?.available_cash)],
+    ["Available cash", formatCurrency(availableCash)],
     ["Open positions", account?.open_positions_count ?? "--"],
     ["Open orders", account?.open_orders_count ?? "--"],
   ];
@@ -1581,6 +1575,9 @@ function PaperAccountWidgets({
   const s = summary ?? {};
   const fmt = (v: number | undefined | null) => (v === undefined || v === null ? "--" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(v));
   const pct = (v: number | undefined | null) => (v === undefined || v === null ? "--" : `${v.toFixed(2)}%`);
+  // Same capital extractor as Paper Order — never diverge field names.
+  const availableFunds = extractPaperAvailableCash(s);
+  const investedValue = s.invested_value ?? s.total_invested ?? null;
 
   const pnlClass = (v: number | undefined | null) => (v && v > 0 ? "metric-card-positive" : v && v < 0 ? "metric-card-negative" : "");
 
@@ -1592,7 +1589,7 @@ function PaperAccountWidgets({
             <span>
               Total capital
             </span>
-            <strong>{fmt(s.total_capital)}</strong>
+            <strong>{fmt(s.total_capital ?? s.equity)}</strong>
             <p>Virtual account value</p>
           </div>
 
@@ -1601,13 +1598,13 @@ function PaperAccountWidgets({
               Available funds
               <InfoTooltip content={TOOLTIPS.PAPER_TRADING.AVAILABLE_CASH} />
             </span>
-            <strong>{fmt(s.available_funds)}</strong>
+            <strong>{fmt(availableFunds)}</strong>
             <p>Cash available to place buys</p>
           </div>
 
           <div className="metric-card">
             <span>Invested value</span>
-            <strong>{fmt(s.invested_value)}</strong>
+            <strong>{fmt(investedValue)}</strong>
             <p>Sum of open positions</p>
           </div>
 
@@ -1629,14 +1626,7 @@ function PaperAccountWidgets({
             <p>{pct(s.daily_pnl_pct)}</p>
           </div>
 
-          <div className="metric-card">
-            <span>
-              Market status
-              <InfoTooltip content={TOOLTIPS.PAPER_TRADING.MARKET_STATUS} />
-            </span>
-            <strong>{s.market_status ?? "--"}</strong>
-            <p>Based on IST clock</p>
-          </div>
+
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1919,7 +1909,7 @@ function OrderTicketCard({
               {error}
             </PaperToast>
           ) : null}
-          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError || (ticket.side === "BUY" && !checkCanPlaceBuyOrder().allowed)}>
+          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError}>
             {isBusy ? "Working..." : "Place paper order"}
           </button>
         </div>
@@ -2392,6 +2382,9 @@ function AccountPanel({
         if (acct) {
           setAccount(acct);
           setStarting(acct.starting_balance ?? 1000000);
+          logPaperCapital("account-panel", "account_loaded", acct, {
+            resolved_available_cash: extractPaperAvailableCash(acct),
+          });
         }
         if (tx) setTransactions(tx);
       } catch (e) {
@@ -2465,9 +2458,9 @@ function AccountPanel({
         ) : (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="metric-card"><span>Starting Capital</span><strong>₹{(account?.starting_balance ?? starting).toLocaleString()}</strong></div>
-            <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0)).toFixed(2)}</strong></div>
-            <div className="metric-card"><span>Available Funds</span><strong>₹{(account?.available_cash ?? 0).toFixed(2)}</strong></div>
-            <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{(account?.equity ?? account?.total_capital ?? ((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0))).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Available Funds</span><strong>₹{(extractPaperAvailableCash(account) ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? account?.invested_value ?? 0).toFixed(2)}</strong></div>
             <div className="metric-card"><span>Total Realized P&L</span><strong>₹{(account?.realized_pnl ?? 0).toFixed(2)}</strong></div>
             <div className="metric-card"><span>Total Unrealized P&L</span><strong>₹{(account?.unrealized_pnl ?? 0).toFixed(2)}</strong></div>
           </div>
@@ -2730,15 +2723,17 @@ function buildTicketFromCandidate(
   const plan = candidate.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing")
     ?? candidate.analysisItem?.recommendation.trade_plans[0];
   const entry = plan ? (plan.entry_low + plan.entry_high) / 2 : candidate.entryLow ?? currentPrice ?? current.limitPrice ?? null;
-  const stopLoss = plan?.stop_loss ?? candidate.stopLoss ?? null;
-  const target = plan?.target_1 ?? candidate.target1 ?? candidate.target2 ?? null;
+  const side: "BUY" | "SELL" = candidate.signal === "REJECT" ? current.side : "BUY";
+  const needsSwap = plan && side === "BUY" && plan.bias === "short";
+  const stopLoss = needsSwap && plan?.target_1 != null ? plan.target_1 : (plan?.stop_loss ?? candidate.stopLoss ?? null);
+  const target = needsSwap && plan?.stop_loss != null ? plan.stop_loss : (plan?.target_1 ?? candidate.target1 ?? candidate.target2 ?? null);
   const confidence = candidate.confidence ?? undefined;
   const scanText = lastScanAt ? `scan=${new Date(lastScanAt).toLocaleString()}` : "latest scan";
 
   return {
     ...current,
     symbol: candidate.symbol,
-    side: candidate.signal === "REJECT" ? current.side : "BUY",
+    side,
     type: "LIMIT",
     limitPrice: entry ? roundPrice(entry) : null,
     stopPrice: null,

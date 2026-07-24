@@ -283,7 +283,6 @@ export const CACHE_KEYS = {
   paperTransactions: (page: number) => `paper_tx:${page}`,
   fyersToken: "fyers_token_status",
   fyersTokenHistory: "fyers_token_history",
-  marketStatus: "market_status",
   marketOverview: "market_overview",
   marketEngineStatus: "market_engine_status",
   marketEngineHealth: "market_engine_health",

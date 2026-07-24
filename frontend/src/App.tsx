@@ -9,7 +9,6 @@ const AllAnalyzedStocksTable = lazy(() =>
 const CandidateTable = lazy(() =>
   import("./components/CandidateTable").then((m) => ({ default: m.CandidateTable })),
 );
-import { isMarketOpenForDisplay, checkCanPlaceBuyOrder, showMarketClosedAlert } from "./utils/tradingHours";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -159,11 +158,8 @@ export default function App() {
     loadAndApply();
 
     const intervalId = setInterval(() => {
-      const status = getMarketStatus();
-      if (status === "Open") {
-        console.info("[scanner] 30-min auto-polling new cached scan...");
-        loadAndApply();
-      }
+      console.info("[scanner] 30-min auto-polling new cached scan...");
+      loadAndApply();
     }, 30 * 60 * 1000);
 
     return () => clearInterval(intervalId);
@@ -183,7 +179,6 @@ export default function App() {
     }
   }, [symbolParam]);
 
-  const marketStatus = useMemo(() => getMarketStatus(), []);
   const analysisItems = screenerResult?.analysis?.items ?? [];
   const shortlistRows = useMemo(() => buildCandidateRows(screenerResult), [screenerResult]);
 
@@ -370,15 +365,7 @@ export default function App() {
   }
 
   const sendRowToPaperTrading = useCallback((row: CandidateRow, suggestedEntry?: number | null) => {
-    const sig = (row as any).signal || (row as any).recommendation;
-    if (sig === "BUY" || !sig) {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        return;
-      }
-    }
-    const prefill = buildPaperTradingPrefill(row);
+    const prefill = buildPaperTradingPrefill(row, "BUY");
     const updatedPrefill = {
       ...prefill,
       suggested_entry: suggestedEntry ?? prefill.suggested_entry,
@@ -400,23 +387,36 @@ export default function App() {
 
   const scannerListView = useMemo(() => (
     <div className="scanner-center">
-      <header className="page-hero scanner-page-hero">
-        <div>
+      {/* Row 1: Title (left) + CTA & status chips (right) — trading-desk header */}
+      <header className="scanner-page-header" data-testid="scanner-page-header">
+        <div className="scanner-page-header__left">
           <p className="ds-label">Scanner</p>
           <h1 className="ds-display">Scanner</h1>
-          <p className="ds-muted">Favorites and scan results from the shared swing scanner.</p>
+          <p className="ds-muted">
+            Favorites and scan results from the shared swing scanner.
+          </p>
         </div>
-        <div className="page-hero__actions scanner-header-right">
-          <button
-            type="button"
-            className="button ghost-button"
-            onClick={() => navigate("/markets")}
-          >
-            Run from Markets
-          </button>
+
+        <div className="scanner-page-header__right">
+          <div className="scanner-page-header__cta">
+            <button
+              type="button"
+              className="button ghost-button scanner-page-header__run-btn"
+              onClick={() => navigate("/markets")}
+              data-testid="scanner-run-from-markets"
+            >
+              Run from Markets
+            </button>
+          </div>
           <StatusCards
             compact
-            lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
+            className="scanner-page-header__status"
+            lastScanAt={
+              screenerResult?.last_scan_completed_at ??
+              screenerResult?.scanned_at ??
+              screenerResult?.analysis?.generated_at ??
+              null
+            }
             isLoading={isLoading}
             scannedSymbols={screenerResult?.scanned_symbols ?? null}
             durationSec={lastScanDuration}
@@ -424,6 +424,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Row 2: Result view tabs */}
       <div className="scanner-result-tabs" role="tablist" aria-label="Result views">
         <button
           type="button"
@@ -571,7 +572,6 @@ export default function App() {
                     screenerResult={screenerResult}
                     isLoading={isLoading}
                     scanError={error}
-                    marketStatus={marketStatus}
                     selectedUniverse={selectedUniverse}
                     timeframe={timeframe}
                     summaryMetrics={summaryMetrics}
@@ -682,15 +682,29 @@ function PaperOrderRouteBridge() {
   return null;
 }
 
-function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillRequest {
+function buildPaperTradingPrefill(row: CandidateRow, side?: "BUY" | "SELL"): RecommendationPrefillRequest {
   const plan =
     row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ??
     row.analysisItem?.recommendation.trade_plans[0];
+  let suggested_stop: number | null = plan?.stop_loss ?? row.stopLoss ?? null;
+  let suggested_targets: number[] = [plan?.target_1, plan?.target_2].filter(
+    (value): value is number => typeof value === "number",
+  );
+  if (plan && side) {
+    const needsSwap =
+      (side === "BUY" && plan.bias === "short") || (side === "SELL" && plan.bias === "long");
+    if (needsSwap && plan.target_1 != null && plan.stop_loss != null) {
+      suggested_stop = plan.target_1;
+      suggested_targets = [plan.stop_loss, plan.target_2].filter(
+        (value): value is number => typeof value === "number",
+      );
+    }
+  }
   return {
     symbol: row.symbol,
     suggested_entry: plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow,
-    suggested_stop: plan?.stop_loss ?? row.stopLoss ?? null,
-    suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
+    suggested_stop,
+    suggested_targets,
     recommendation_meta: {
       signal: row.signal,
       score: row.score ?? 0,
@@ -849,16 +863,4 @@ function formatVolume(
   return match.conditions.volume_above_previous_day ? "expanding" : "adequate";
 }
 
-function getMarketStatus() {
-  try {
-    return isMarketOpenForDisplay();
-  } catch {
-    const now = new Date();
-    const day = now.getDay();
-    const minutes = now.getHours() * 60 + now.getMinutes();
-    const open = 9 * 60 + 15;
-    const close = 15 * 60 + 30;
-    if (day === 0 || day === 6) return "Closed";
-    return minutes >= open && minutes <= close ? "Open" : "Closed";
-  }
-}
+

@@ -13,10 +13,15 @@ import {
   prefillPaperTrade,
   invalidatePaperCaches,
 } from "../api";
-import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
+
 import type { PaperOrderTicketState, CandidateRow, RecommendationPrefillRequest } from "../types";
 import { usePaperOrder } from "../contexts/PaperOrderContext";
 import { useToast } from "../design-system";
+import {
+  extractPaperAvailableCash,
+  extractPaperMaxRiskPerTrade,
+  logPaperCapital,
+} from "../utils/paperCapital";
 
 const DEFAULT_TICKET: PaperOrderTicketState = {
   symbol: "INFY",
@@ -72,6 +77,7 @@ export function OrderDrawer({
   const [lastSuccessfulPrice, setLastSuccessfulPrice] = useState<number | null>(null);
   const [lastPriceAt, setLastPriceAt] = useState<number | null>(null);
   const [availableCash, setAvailableCash] = useState<number | null>(null);
+  const [accountLoaded, setAccountLoaded] = useState(false);
   const [maxRiskPercent, setMaxRiskPercent] = useState(0.02);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,11 +111,15 @@ export function OrderDrawer({
       setStatusMessage(null);
       setError(null);
       setQuoteStatus("idle");
+      setAccountLoaded(false);
+      setAvailableCash(null);
       return;
     }
 
     setError(null);
     setStatusMessage(null);
+    setAccountLoaded(false);
+    setAvailableCash(null);
 
     if (drawerState.orderId) {
       setEditingOrderId(drawerState.orderId);
@@ -158,17 +168,25 @@ export function OrderDrawer({
       const sym = toCanonicalSymbol(order?.symbol ?? "INFY");
       const [quote, acct] = await Promise.all([
         fetchPaperQuote(sym).catch(() => null),
-        fetchPaperAccountSummary().catch(() => null),
+        fetchPaperAccountSummary({ force: true }).catch(() => null),
       ]);
       applyQuote(quote);
       if (acct) {
-        setAvailableCash(acct.available_cash);
-        setMaxRiskPercent(acct.max_risk_per_trade);
+        const cash = extractPaperAvailableCash(acct);
+        setAvailableCash(cash);
+        setMaxRiskPercent(extractPaperMaxRiskPerTrade(acct));
+        setAccountLoaded(true);
+        logPaperCapital("order-drawer", "account_loaded_edit", acct, {
+          resolved_available_cash: cash,
+        });
+      } else {
+        setAccountLoaded(true);
       }
     } catch (e) {
       console.warn("Failed to load order for edit", e);
       setQuoteStatus("error");
       setError(e instanceof Error ? e.message : "Failed to load order.");
+      setAccountLoaded(true);
     } finally {
       setIsBusy(false);
     }
@@ -194,13 +212,13 @@ export function OrderDrawer({
     };
   }
 
-  function applyQuote(quote: { current_price?: number; market_status?: string; reason?: string | null; is_stale?: boolean } | null) {
+  function applyQuote(quote: { current_price?: number; reason?: string | null; is_stale?: boolean } | null) {
     if (quote?.current_price != null && Number(quote.current_price) > 0) {
       const price = Number(quote.current_price);
       setCurrentPrice(price);
       setLastSuccessfulPrice(price);
       setLastPriceAt(Date.now());
-      if (quote.market_status === "degraded" || quote.is_stale) {
+      if (quote.is_stale) {
         setQuoteStatus("degraded");
       } else {
         setQuoteStatus("live");
@@ -265,10 +283,17 @@ export function OrderDrawer({
           }
           setError(e instanceof Error ? e.message : "Prefill partially failed — edit fields manually.");
         }
-        const acct = await fetchPaperAccountSummary().catch(() => null);
+        const acct = await fetchPaperAccountSummary({ force: true }).catch(() => null);
         if (acct) {
-          setAvailableCash(acct.available_cash);
-          setMaxRiskPercent(acct.max_risk_per_trade);
+          const cash = extractPaperAvailableCash(acct);
+          setAvailableCash(cash);
+          setMaxRiskPercent(extractPaperMaxRiskPerTrade(acct));
+          setAccountLoaded(true);
+          logPaperCapital("order-drawer", "account_loaded_prefill", acct, {
+            resolved_available_cash: cash,
+          });
+        } else {
+          setAccountLoaded(true);
         }
         return;
       }
@@ -282,13 +307,21 @@ export function OrderDrawer({
 
       const [quote, acct] = await Promise.all([
         fetchPaperQuote(sym).catch(() => null),
-        fetchPaperAccountSummary().catch(() => null),
+        fetchPaperAccountSummary({ force: true }).catch(() => null),
       ]);
 
       applyQuote(quote);
       if (acct) {
-        setAvailableCash(acct.available_cash);
-        setMaxRiskPercent(acct.max_risk_per_trade);
+        const cash = extractPaperAvailableCash(acct);
+        setAvailableCash(cash);
+        setMaxRiskPercent(extractPaperMaxRiskPerTrade(acct));
+        setAccountLoaded(true);
+        logPaperCapital("order-drawer", "account_loaded", acct, {
+          resolved_available_cash: cash,
+          symbol: sym,
+        });
+      } else {
+        setAccountLoaded(true);
       }
     } finally {
       setIsBusy(false);
@@ -326,12 +359,20 @@ export function OrderDrawer({
   }, [ticket, entryReference, availableCash, maxRiskPercent]);
 
   async function handlePlaceOrder() {
-    if (ticket.side === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        return;
-      }
+    if (!accountLoaded || (ticket.side === "BUY" && availableCash == null)) {
+      setError("Paper account capital is still loading. Wait a moment and try again.");
+      toast.error("Loading paper account", "Available cash is still loading. Please wait.");
+      return;
+    }
+    if (ticket.side === "BUY" && availableCash != null && riskMetrics.estimatedCost > availableCash + 0.01) {
+      const msg = `Estimated cost exceeds available cash (${availableCash.toFixed(2)}).`;
+      setError(msg);
+      toast.error("Insufficient cash", msg);
+      logPaperCapital("order-drawer", "validation_cash_fail", null, {
+        availableCash,
+        estimatedCost: riskMetrics.estimatedCost,
+      });
+      return;
     }
 
     setIsBusy(true);
@@ -770,7 +811,7 @@ export function OrderDrawer({
               type="button"
               className="button primary-button"
               onClick={() => void handlePlaceOrder()}
-              disabled={isBusy || (ticket.side === "BUY" && !checkCanPlaceBuyOrder().allowed)}
+              disabled={isBusy}
               data-testid="drawer-place-order-button"
             >
               {isBusy ? "Working..." : "Place Paper Order"}

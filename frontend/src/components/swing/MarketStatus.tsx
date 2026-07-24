@@ -24,7 +24,6 @@ function formatScanTime(isoString: string | null | undefined): string {
 }
 
 export type MarketStatusProps = {
-  marketStatus: string;
   isLoading?: boolean;
   hasScanResult?: boolean;
   lastScanAt?: string | null;
@@ -33,12 +32,7 @@ export type MarketStatusProps = {
   scannedSymbols?: number | null;
 };
 
-/**
- * Compact market / scan status strip for the Swing Decision Dashboard.
- * Uses Markets page status-pill styling — not a standalone page header.
- */
 export const MarketStatus = memo(function MarketStatus({
-  marketStatus,
   isLoading = false,
   hasScanResult = false,
   lastScanAt = null,
@@ -46,14 +40,8 @@ export const MarketStatus = memo(function MarketStatus({
   timeframe = "1d",
   scannedSymbols = null,
 }: MarketStatusProps) {
-  const marketOpen = marketStatus === "Open";
-
   return (
     <div className="scanner-status-bar swing-market-status" aria-label="Market status">
-      <span className={`ds-status-pill ds-status-pill--${marketOpen ? "online" : "offline"}`}>
-        <span className="ds-status-pill__dot" aria-hidden />
-        Market {marketOpen ? "open" : "closed"}
-      </span>
       <span className={`ds-status-pill ds-status-pill--${isLoading ? "online" : hasScanResult ? "online" : "idle"}`}>
         <span className="ds-status-pill__dot" aria-hidden />
         {isLoading ? "Scanning…" : hasScanResult ? "Scan ready" : "Awaiting scan"}

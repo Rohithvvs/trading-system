@@ -24,15 +24,6 @@ class CandleReconciliationService:
         self.circuit_breaker_failures = 0
         self.circuit_breaker_tripped_until = None
 
-    def _is_trading_day(self, dt: datetime) -> bool:
-        """Delegates to centralized TradingHoursService (weekends + official NSE holidays)."""
-        try:
-            from .trading_hours_service import trading_hours
-            return trading_hours.is_trading_day(dt)
-        except Exception:
-            # Fallback (weekends only)
-            return dt.weekday() < 5  # 0-4 are Mon-Fri
-
     async def detect_gaps(self, symbol: str, timeframe: str = '1D', min_gap_days: int = 3) -> list[dict]:
         # PostgreSQL syntax for gap detection
         query = text("""

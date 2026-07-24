@@ -86,7 +86,6 @@ class PaperOrderResponse(BaseModel):
         "EXIT_FILLED",
         "CANCELLED",
         "TOKEN_EXPIRED_PAUSED",
-        "MARKET_CLOSED_WAITING",
         "ERROR_RETRYING",
     ] = "PENDING_ENTRY"
     requested_entry_price: float | None = None
@@ -146,7 +145,6 @@ class PaperQuoteResponse(BaseModel):
     current_price: float
     source: Literal["FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"]
     updated_at: datetime
-    market_status: Literal["live", "degraded", "unavailable"] = "live"
     reason: str | None = None
     is_stale: bool = False
     last_successful_at: datetime | None = None
@@ -164,7 +162,6 @@ class PaperTradingDashboardResponse(BaseModel):
 
 class MarketEngineStatusResponse(BaseModel):
     status: str
-    market_hours_active: bool
     websocket_connected: bool
     token_status: str
     paused_reason: str | None = None

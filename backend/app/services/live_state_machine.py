@@ -1,12 +1,5 @@
 """
 Live order state machine.
-
-IMPORTANT (Market Hours):
-All BUY order creation (whether Live or Paper) MUST call:
-    from ..services.trading_hours_service import trading_hours
-    trading_hours.validate_can_place_buy_order()
-BEFORE creating/persisting the order.
-This ensures the centralized rule is applied with no bypass.
 """
 
 class LiveOrderStateMachine:
