@@ -349,22 +349,9 @@ class LatestScanService:
             logger.warning("Active scanner cache pre-warming failed | err=%s", cache_exc)
 
     async def get_latest_completed_scan(self):
+        """Legacy dashboard loader — delegates formatting to the shared adapter."""
         logger.info("latest_scan_requested")
-        stmt = (
-            select(ScanSnapshot)
-            .where(ScanSnapshot.status == "COMPLETED")
-            .order_by(desc(ScanSnapshot.scan_timestamp))
-            .limit(1)
-        )
-        result = await self.db.execute(stmt)
-        snapshot = result.scalar_one_or_none()
-
-        # Fallback: any latest row if no COMPLETED yet
-        if not snapshot:
-            result = await self.db.execute(
-                select(ScanSnapshot).order_by(desc(ScanSnapshot.scan_timestamp)).limit(1)
-            )
-            snapshot = result.scalar_one_or_none()
+        snapshot, records = await self._fetch_latest_snapshot_and_records()
 
         if not snapshot:
             logger.info("latest_scan_not_found")
@@ -375,11 +362,40 @@ class LatestScanService:
             )
             return None
 
-        stmt_records = select(ScanSnapshotRecord).where(
-            ScanSnapshotRecord.scan_id == snapshot.scan_id
+        payload = self._format_dashboard_payload(snapshot, records)
+        buy_n = len(payload.get("buy_candidates") or [])
+        watch_n = len(payload.get("watch_candidates") or [])
+        rejected_n = len(payload.get("rejected_candidates") or [])
+        logger.info(
+            "latest_scan_loaded | scan_id=%s | buy=%s | watch=%s | rejected=%s | "
+            "header_buy=%s | header_watch=%s",
+            snapshot.scan_id,
+            buy_n,
+            watch_n,
+            rejected_n,
+            snapshot.buy_count,
+            snapshot.watch_count,
         )
-        result_records = await self.db.execute(stmt_records)
-        records = result_records.scalars().all()
+        from ..observability.scan_diagnostics import log_dashboard_request
+
+        log_dashboard_request(
+            scan_id=snapshot.scan_id,
+            endpoint="/scanner/latest",
+            returned_records=buy_n + watch_n + rejected_n,
+            query_duration_ms=0,
+        )
+        return payload
+
+    @staticmethod
+    def _format_dashboard_payload(snapshot: ScanSnapshot | None, records: list[ScanSnapshotRecord]) -> dict:
+        """Adapter for dashboard format (/scanner/latest)."""
+        if not snapshot:
+            return {
+                "message": "No completed scans found",
+                "buy_candidates": [],
+                "watch_candidates": [],
+                "rejected_candidates": [],
+            }
 
         buy_candidates = []
         watch_candidates = []
@@ -410,25 +426,6 @@ class LatestScanService:
         watch_candidates.sort(key=lambda x: x["score"], reverse=True)
         rejected_candidates.sort(key=lambda x: x["score"], reverse=True)
 
-        logger.info(
-            "latest_scan_loaded | scan_id=%s | buy=%s | watch=%s | rejected=%s | "
-            "header_buy=%s | header_watch=%s",
-            snapshot.scan_id,
-            len(buy_candidates),
-            len(watch_candidates),
-            len(rejected_candidates),
-            snapshot.buy_count,
-            snapshot.watch_count,
-        )
-        from ..observability.scan_diagnostics import log_dashboard_request
-
-        total_records = len(buy_candidates) + len(watch_candidates) + len(rejected_candidates)
-        log_dashboard_request(
-            scan_id=snapshot.scan_id,
-            endpoint="/scanner/latest",
-            returned_records=total_records,
-            query_duration_ms=0,
-        )
         return {
             "scan_id": snapshot.scan_id,
             "scan_timestamp": snapshot.scan_timestamp.isoformat(),
@@ -442,3 +439,212 @@ class LatestScanService:
             "watch_candidates": watch_candidates,
             "rejected_candidates": rejected_candidates,
         }
+
+    @staticmethod
+    def _format_analysis_payload(snapshot: ScanSnapshot | None, records: list[ScanSnapshotRecord]) -> dict:
+        """ORM-based analysis-shaped adapter (tests / internal tooling).
+
+        Production ``GET /analysis/scan/latest`` uses ``scan_store.load_latest_scan``
+        via ``get_latest_scan(format_type="analysis")`` so the payload remains
+        ScreenerResponse-compatible for frontend clients.
+        """
+        if not snapshot:
+            return {"available": False}
+
+        items = []
+        buy_signals = 0
+        watch_signals = 0
+        no_signals = 0
+
+        for r in records:
+            rec = (r.recommendation or "").upper()
+            if rec == "BUY":
+                buy_signals += 1
+            elif rec == "WATCH":
+                watch_signals += 1
+            else:
+                no_signals += 1
+
+            items.append(
+                {
+                    "symbol": r.symbol,
+                    "recommendation": r.recommendation,
+                    "score": float(r.score) if r.score is not None else 0.0,
+                    "close_price": float(r.close_price) if r.close_price is not None else 0.0,
+                    "technical": {
+                        "sma50": float(r.sma50) if r.sma50 is not None else None,
+                        "sma200": float(r.sma200) if r.sma200 is not None else None,
+                        "rsi": float(r.rsi) if r.rsi is not None else None,
+                        "macd": float(r.macd) if r.macd is not None else None,
+                    },
+                    "reason": r.reason,
+                }
+            )
+
+        return {
+            "available": True,
+            "timestamp": snapshot.scan_timestamp.isoformat(),
+            "scan_id": snapshot.scan_id,
+            "total_symbols": snapshot.total_scanned,
+            "buy_signals": buy_signals,
+            "watch_signals": watch_signals,
+            "no_signals": no_signals,
+            "items": items,
+        }
+
+    async def _fetch_latest_snapshot_and_records(self) -> tuple[ScanSnapshot | None, list[ScanSnapshotRecord]]:
+        """Fetch the latest completed snapshot (or newest fallback) and child records."""
+        stmt = (
+            select(ScanSnapshot)
+            .where(ScanSnapshot.status == "COMPLETED")
+            .order_by(desc(ScanSnapshot.scan_timestamp))
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        snapshot = result.scalar_one_or_none()
+
+        if not snapshot:
+            result = await self.db.execute(
+                select(ScanSnapshot).order_by(desc(ScanSnapshot.scan_timestamp)).limit(1)
+            )
+            snapshot = result.scalar_one_or_none()
+
+        if not snapshot:
+            return None, []
+
+        stmt_records = select(ScanSnapshotRecord).where(
+            ScanSnapshotRecord.scan_id == snapshot.scan_id
+        )
+        result_records = await self.db.execute(stmt_records)
+        records = result_records.scalars().all()
+        return snapshot, list(records)
+
+    async def get_latest_scan(
+        self,
+        format_type: str = "dashboard",
+        force: bool = False,
+        cache_enabled: bool | None = None,
+    ) -> tuple[str, str]:
+        """Unified entry point for scan snapshot resolution across all endpoints.
+
+        Returns tuple of (serialized_json_payload, cache_status).
+
+        format_type:
+          - ``dashboard``: ScanSnapshot ORM → dashboard candidate buckets
+            (``GET /scanner/latest`` contract).
+          - ``analysis``: ``scan_store.load_latest_scan`` → ScreenerResponse-compatible
+            body with ``available`` wrapper (``GET /analysis/scan/latest`` contract).
+            Analysis intentionally uses the same JSONB source as the legacy path so
+            Redis key ``analysis:scan:latest:v1`` never stores a divergent shape.
+        """
+        import json
+        import time
+        from ..config.settings import settings
+        from ..services.scanner_cache_service import scanner_cache_service
+        from ..observability.scan_diagnostics import log_dashboard_request
+        from ..observability.metrics import (
+            record_latest_scan_service_invocation,
+            record_scanner_cache_hit,
+            record_scanner_cache_miss,
+        )
+
+        if format_type not in ("dashboard", "analysis"):
+            raise ValueError(
+                f"Unsupported format_type={format_type!r}; expected 'dashboard' or 'analysis'"
+            )
+
+        start_t = time.perf_counter()
+        if cache_enabled is None:
+            cache_enabled = settings.is_scanner_latest_cache_enabled()
+
+        record_latest_scan_service_invocation(format_type)
+
+        if format_type == "analysis":
+            cache_key = "analysis:scan:latest:v1"
+            endpoint = "/analysis/scan/latest"
+        else:
+            cache_key = "scanner:latest:v1"
+            endpoint = "/scanner/latest"
+
+        # Force-refresh metrics are recorded once at the route boundary to avoid
+        # double-counting when unified path fails and legacy fallback also runs.
+
+        async def produce_json() -> str:
+            duration_ms = int((time.perf_counter() - start_t) * 1000)
+
+            if format_type == "analysis":
+                from ..db.scan_store import load_latest_scan
+
+                data = await load_latest_scan()
+                if data is None:
+                    payload_dict: dict = {"available": False}
+                    scan_id = None
+                    returned_records = 0
+                    is_empty = True
+                else:
+                    # Must match legacy route: full ScreenerResponse fields for FE clients.
+                    payload_dict = {"available": True, **data}
+                    items = data.get("items") if isinstance(data.get("items"), list) else []
+                    scan_id = (
+                        data.get("scan_id")
+                        or data.get("scanned_at")
+                        or data.get("last_scan_completed_at")
+                    )
+                    returned_records = len(items)
+                    is_empty = False
+            else:
+                snapshot, records = await self._fetch_latest_snapshot_and_records()
+                payload_dict = self._format_dashboard_payload(snapshot, records)
+                scan_id = snapshot.scan_id if snapshot else None
+                if snapshot:
+                    returned_records = (
+                        len(payload_dict.get("buy_candidates") or [])
+                        + len(payload_dict.get("watch_candidates") or [])
+                        + len(payload_dict.get("rejected_candidates") or [])
+                    )
+                else:
+                    returned_records = 0
+                is_empty = snapshot is None
+
+                # Preserve legacy dashboard diagnostics on the unified path.
+                try:
+                    from ..services.diagnostics_service import diagnostics
+
+                    diagnostics.record_dashboard_snapshot(
+                        {
+                            "response_time_ms": duration_ms,
+                            "snapshot_id": scan_id,
+                            "record_count": returned_records,
+                        }
+                    )
+                except Exception as diag_exc:  # pragma: no cover - best effort
+                    logger.debug("dashboard diagnostics record skipped | err=%s", diag_exc)
+
+            log_dashboard_request(
+                scan_id=str(scan_id) if scan_id is not None else None,
+                endpoint=endpoint,
+                returned_records=returned_records,
+                query_duration_ms=duration_ms,
+            )
+
+            serialized_payload = json.dumps(payload_dict)
+            if cache_enabled:
+                ttl = 10 if is_empty else settings.scanner_latest_cache_ttl_seconds
+                await scanner_cache_service.set_latest_scan(
+                    cache_key, serialized_payload, ttl_seconds=ttl
+                )
+            return serialized_payload
+
+        payload, cache_status = await scanner_cache_service.resolve_latest_scan(
+            cache_key,
+            produce_json,
+            force=force,
+            cache_enabled=cache_enabled,
+        )
+
+        if cache_status == "HIT":
+            record_scanner_cache_hit(endpoint)
+        elif cache_status in ("MISS", "FALLBACK"):
+            record_scanner_cache_miss(endpoint)
+
+        return payload, cache_status
