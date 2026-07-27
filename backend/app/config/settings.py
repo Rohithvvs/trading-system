@@ -6,12 +6,19 @@ from pathlib import Path
 from functools import cached_property
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 _logger = logging.getLogger("app.config")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
+# Prefer repo-root .env; also accept backend/.env for local overrides.
+_ENV_FILES = (
+    str(ROOT_DIR / ".env"),
+    str(ROOT_DIR / "backend" / ".env"),
+)
 
 
 def normalize_postgres_ssl_query(raw_value: str) -> str:
@@ -60,7 +67,8 @@ def normalize_database_url(raw_value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Trading System"
     app_env: str = Field(default="development", alias="APP_ENV")
-    google_client_id: str = ""
+    # Must match the frontend VITE_GOOGLE_CLIENT_ID (GIS Web client).
+    google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
     quarantine_mode: bool = False
     app_host: str = Field(default="0.0.0.0", alias="HOST")   # ← critical change
     app_port: int = Field(default=8000, alias="PORT")
@@ -102,11 +110,15 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", alias="GROQ_API_KEY")
     llm_model: str = "LLAMA_3_70B"
     admin_email: str = Field(default="", alias="ADMIN_EMAIL")
+    # Canonical names: SMTP_*. Common MAIL_* aliases are accepted via model_validator
+    # (empty SMTP_* must not block MAIL_SERVER / MAIL_USERNAME / etc.).
     smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
     smtp_user: str = Field(default="", alias="SMTP_USER")
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="", alias="SMTP_FROM")
+    smtp_from_name: str = Field(default="TradeX", alias="SMTP_FROM_NAME")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
     # FEAT-008 realistic trade execution control plane
@@ -198,11 +210,82 @@ class Settings(BaseSettings):
     rule_states_file: str = Field(default="backend/app/config/rule_states.json", alias="RULE_STATES_FILE")
 
     model_config = SettingsConfigDict(
-        env_file=str(ROOT_DIR / ".env"),
-        env_file_encoding='utf-8',
+        env_file=_ENV_FILES,
+        env_file_encoding="utf-8",
         extra="ignore",
-        populate_by_name=True
+        populate_by_name=True,
     )
+
+    @model_validator(mode="after")
+    def _resolve_smtp_mail_aliases(self):
+        """
+        Accept both SMTP_* (canonical) and MAIL_* (common Flask/Django-style) names.
+
+        Root cause of missed password-reset emails: .env had MAIL_SERVER / MAIL_USERNAME
+        filled while SMTP_HOST / SMTP_USER were empty. pydantic only binds SMTP_* aliases.
+        Empty SMTP_* must fall back to MAIL_*.
+        """
+        try:
+            from dotenv import dotenv_values
+        except ImportError:  # pragma: no cover
+            dotenv_values = None  # type: ignore[assignment]
+
+        merged: dict[str, str] = {}
+        if dotenv_values is not None:
+            for path in _ENV_FILES:
+                if Path(path).is_file():
+                    for key, val in dotenv_values(path).items():
+                        if key and val is not None and str(val).strip():
+                            merged[key] = str(val).strip()
+        for key, val in os.environ.items():
+            if val is not None and str(val).strip():
+                merged[key] = str(val).strip()
+
+        def pick(*names: str) -> str:
+            for name in names:
+                val = merged.get(name)
+                if val is not None and str(val).strip():
+                    return str(val).strip()
+            return ""
+
+        if not (self.smtp_host or "").strip():
+            self.smtp_host = pick("SMTP_HOST", "MAIL_SERVER")
+        if not (self.smtp_user or "").strip():
+            self.smtp_user = pick("SMTP_USER", "MAIL_USERNAME")
+        if not (self.smtp_password or "").strip():
+            self.smtp_password = pick("SMTP_PASSWORD", "MAIL_PASSWORD")
+        if not (self.smtp_from or "").strip():
+            self.smtp_from = pick("SMTP_FROM", "MAIL_FROM", "SMTP_USER", "MAIL_USERNAME")
+        if not (self.smtp_from_name or "").strip():
+            self.smtp_from_name = pick("SMTP_FROM_NAME", "MAIL_FROM_NAME") or "TradeX"
+
+        # Port: only override default when MAIL_PORT / SMTP_PORT provides a value
+        port_raw = pick("SMTP_PORT", "MAIL_PORT")
+        if port_raw:
+            try:
+                self.smtp_port = int(port_raw)
+            except ValueError:
+                _logger.warning("Invalid SMTP/MAIL port %r; keeping %s", port_raw, self.smtp_port)
+
+        tls_raw = pick("SMTP_USE_TLS", "MAIL_USE_TLS")
+        if tls_raw:
+            self.smtp_use_tls = tls_raw.lower() in {"1", "true", "yes", "on"}
+
+        if self.smtp_host:
+            _logger.info(
+                "SMTP configured | host=%s port=%s user=%s from=%s tls=%s",
+                self.smtp_host,
+                self.smtp_port,
+                self.smtp_user or "(none)",
+                self.smtp_from or self.smtp_user or "(none)",
+                self.smtp_use_tls,
+            )
+        else:
+            _logger.warning(
+                "SMTP not configured | set SMTP_HOST/SMTP_USER/SMTP_PASSWORD "
+                "(or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) for password-reset emails"
+            )
+        return self
 
     @field_validator("database_url", mode="before")
     def _validate_db_url(cls, v, info):

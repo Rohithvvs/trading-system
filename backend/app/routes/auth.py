@@ -102,8 +102,11 @@ async def login(request_data: LoginRequest, request: Request, db: AsyncSession =
 
 @router.post("/google")
 async def google_login(request_data: GoogleLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    import logging
+    logger = logging.getLogger("app.auth.google")
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
+    logger.info("GOOGLE_LOGIN_REQUEST | ip=%s | has_token=%s", ip_address, bool(request_data.id_token))
 
     from ..services.auth_service import create_user_session
     user = await google_auth(db, request_data.id_token, ip_address, user_agent)
@@ -112,6 +115,7 @@ async def google_login(request_data: GoogleLoginRequest, request: Request, db: A
         db, str(user.id), ip_address, user_agent, remember_me=False
     )
 
+    logger.info("GOOGLE_LOGIN_SUCCESS | user_id=%s | email=%s", user.id, user.email)
     response = JSONResponse(content={
         "message": "Logged in successfully",
         "user": {"id": str(user.id), "email": user.email, "full_name": user.full_name}
