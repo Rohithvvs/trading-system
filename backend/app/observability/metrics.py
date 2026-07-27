@@ -13,12 +13,65 @@ if Counter:
     DB_COMMIT_LATENCY = Histogram("trading_db_commit_seconds", "Database commit latency")
     WS_CLIENTS = Gauge("trading_ws_clients", "Connected websocket clients", ["stream"])
     LOGGER_QUEUE_DEPTH = Gauge("trading_logger_queue_depth", "Logger queue depth")
+
+    # Scanner Cache Metrics (Sprint 1 / feature 017)
+    SCANNER_CACHE_HITS = Counter("scanner_cache_hits_total", "Scanner cache hit count", ["endpoint"])
+    SCANNER_CACHE_MISSES = Counter("scanner_cache_misses_total", "Scanner cache miss count", ["endpoint"])
+    SCANNER_CACHE_ERRORS = Counter("scanner_cache_redis_errors_total", "Scanner cache Redis error count", ["op"])
+    SCANNER_CACHE_FORCE_REFRESHES = Counter(
+        "scanner_cache_force_refreshes_total",
+        "Scanner cache force-refresh count",
+        ["endpoint"],
+    )
+    SCANNER_CACHE_HIT_RATIO = Gauge("scanner_cache_hit_ratio", "Scanner cache hit ratio (0.0 to 1.0)")
 else:
     ORDER_EXECUTIONS = DUPLICATE_EXECUTIONS = DB_COMMIT_LATENCY = WS_CLIENTS = LOGGER_QUEUE_DEPTH = None
+    SCANNER_CACHE_HITS = SCANNER_CACHE_MISSES = SCANNER_CACHE_ERRORS = None
+    SCANNER_CACHE_FORCE_REFRESHES = SCANNER_CACHE_HIT_RATIO = None
+
+
+# Process-local totals for hit-ratio gauge when Prometheus is available or for tests.
+_scanner_cache_hits: int = 0
+_scanner_cache_misses: int = 0
+
+
+def _update_scanner_cache_hit_ratio() -> None:
+    total = _scanner_cache_hits + _scanner_cache_misses
+    if SCANNER_CACHE_HIT_RATIO is None:
+        return
+    if total <= 0:
+        SCANNER_CACHE_HIT_RATIO.set(0.0)
+    else:
+        SCANNER_CACHE_HIT_RATIO.set(_scanner_cache_hits / total)
+
+
+def record_scanner_cache_hit(endpoint: str) -> None:
+    global _scanner_cache_hits
+    _scanner_cache_hits += 1
+    if SCANNER_CACHE_HITS is not None:
+        SCANNER_CACHE_HITS.labels(endpoint=endpoint).inc()
+    _update_scanner_cache_hit_ratio()
+
+
+def record_scanner_cache_miss(endpoint: str) -> None:
+    global _scanner_cache_misses
+    _scanner_cache_misses += 1
+    if SCANNER_CACHE_MISSES is not None:
+        SCANNER_CACHE_MISSES.labels(endpoint=endpoint).inc()
+    _update_scanner_cache_hit_ratio()
+
+
+def record_scanner_cache_error(op: str) -> None:
+    if SCANNER_CACHE_ERRORS is not None:
+        SCANNER_CACHE_ERRORS.labels(op=op).inc()
+
+
+def record_scanner_cache_force_refresh(endpoint: str) -> None:
+    if SCANNER_CACHE_FORCE_REFRESHES is not None:
+        SCANNER_CACHE_FORCE_REFRESHES.labels(endpoint=endpoint).inc()
 
 
 def render_metrics() -> tuple[bytes, str]:
     if not Counter:
         return b"# prometheus_client unavailable\n", CONTENT_TYPE_LATEST
     return generate_latest(), CONTENT_TYPE_LATEST
-

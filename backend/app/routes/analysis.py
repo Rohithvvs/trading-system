@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 import asyncio
 import json
@@ -472,20 +472,68 @@ def _build_backtest_extras(backtests: list) -> dict:
         return {}
 
 
+CACHE_KEY_ANALYSIS_SCAN_LATEST = "analysis:scan:latest:v1"
+ENDPOINT_ANALYSIS_SCAN_LATEST = "/analysis/scan/latest"
+
+
 @router.get("/scan/latest")
-async def get_latest_scan():
-    print("ENTERED get_latest_scan", flush=True)
-    data = await load_latest_scan()
-    print("LOADED data in get_latest_scan", flush=True)
-    logger = logging.getLogger("scan.db")
-    if data is None:
-        logger.info("API /scan/latest | available=False | DB is empty")
-    else:
+async def get_latest_scan(
+    request: Request,
+    force: bool = Query(default=False, description="Force refresh cache"),
+):
+    from ..services.scanner_cache_service import scanner_cache_service, wants_force_refresh
+    from ..config.settings import settings
+    from ..observability.metrics import (
+        record_scanner_cache_force_refresh,
+        record_scanner_cache_hit,
+        record_scanner_cache_miss,
+    )
+
+    force_refresh = wants_force_refresh(force, request.headers.get("cache-control"))
+    cache_enabled = settings.is_scanner_latest_cache_enabled()
+    scan_logger = logging.getLogger("scan.db")
+
+    if force_refresh and cache_enabled:
+        record_scanner_cache_force_refresh(ENDPOINT_ANALYSIS_SCAN_LATEST)
+
+    async def produce_json() -> str:
+        data = await load_latest_scan()
+        if data is None:
+            scan_logger.info("API /scan/latest | available=False | DB is empty")
+            empty_payload = json.dumps({"available": False})
+            if cache_enabled:
+                await scanner_cache_service.set_latest_scan(
+                    CACHE_KEY_ANALYSIS_SCAN_LATEST, empty_payload, ttl_seconds=10
+                )
+            return empty_payload
+
         items = data.get("items", [])
-        logger.info("API /scan/latest | available=True | stocks=%s", len(items))
-    if data is None:
-        return {"available": False}
-    return {"available": True, **data}
+        scan_logger.info("API /scan/latest | available=True | stocks=%s", len(items))
+        serialized_payload = json.dumps({"available": True, **data})
+        if cache_enabled:
+            await scanner_cache_service.set_latest_scan(
+                CACHE_KEY_ANALYSIS_SCAN_LATEST, serialized_payload
+            )
+        return serialized_payload
+
+    payload, cache_status = await scanner_cache_service.resolve_latest_scan(
+        CACHE_KEY_ANALYSIS_SCAN_LATEST,
+        produce_json,
+        force=force_refresh,
+        cache_enabled=cache_enabled,
+    )
+
+    if cache_status == "HIT":
+        record_scanner_cache_hit(ENDPOINT_ANALYSIS_SCAN_LATEST)
+    elif cache_status in ("MISS", "FALLBACK"):
+        record_scanner_cache_miss(ENDPOINT_ANALYSIS_SCAN_LATEST)
+
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"X-Cache-Status": cache_status},
+    )
+
 
 @router.get("/symbol/{symbol}/light")
 async def symbol_detail_light(symbol: str, db: AsyncSession = Depends(get_db)):

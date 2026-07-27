@@ -75,6 +75,36 @@ class Settings(BaseSettings):
     frontend_url: str = Field(default="http://localhost:5173", alias="FRONTEND_URL")
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
     redis_url: str = "redis://localhost:6379/0"
+    # Evaluated live via is_scanner_latest_cache_enabled() — mutating this attribute
+    # takes effect on the next request without code redeploy (audit H5).
+    scanner_latest_cache_enabled: bool = Field(default=False, alias="SCANNER_LATEST_CACHE_ENABLED")
+    scanner_latest_cache_ttl_seconds: int = Field(
+        default=300, ge=10, alias="SCANNER_LATEST_CACHE_TTL_SECONDS"
+    )
+    redis_cache_read_timeout_ms: int = Field(
+        default=50, ge=5, alias="REDIS_CACHE_READ_TIMEOUT_MS"
+    )
+    redis_cache_write_timeout_ms: int = Field(
+        default=100, ge=10, alias="REDIS_CACHE_WRITE_TIMEOUT_MS"
+    )
+
+    def is_scanner_latest_cache_enabled(self) -> bool:
+        """Live feature-flag read for scanner latest-cache (zero-redeploy rollback).
+
+        Priority on every call:
+        1. ``os.environ["SCANNER_LATEST_CACHE_ENABLED"]`` when set (non-empty) — allows
+           ops to flip the process environment without a code redeploy/restart when
+           their runtime can inject env (and keeps attribute in sync).
+        2. ``settings.scanner_latest_cache_enabled`` attribute — mutable in-process
+           for tests and admin toggles when env is unset.
+        """
+        raw = os.environ.get("SCANNER_LATEST_CACHE_ENABLED")
+        if raw is not None and str(raw).strip() != "":
+            enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            # Keep attribute aligned so logs/diagnostics match live behavior.
+            object.__setattr__(self, "scanner_latest_cache_enabled", enabled)
+            return enabled
+        return bool(self.scanner_latest_cache_enabled)
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
     
     fyers_app_id: str = ""

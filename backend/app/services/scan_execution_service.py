@@ -436,6 +436,8 @@ class ScanExecutionService:
                             response, duration_ms, scan_id=scan_id
                         )
                         await db.commit()
+                        # Pre-warm dashboard cache with LatestScanService schema (not scan_store JSONB).
+                        await scan_service.prewarm_scanner_latest_cache()
                     logger.info(
                         "[SCAN] PERSIST_COMMIT_OK | scan_id=%s | buy=%s | watch=%s | "
                         "persist_calls=1",

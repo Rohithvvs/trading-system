@@ -9,7 +9,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-def health_check() -> HealthResponse:
+async def health_check() -> HealthResponse:
     # Check database
     db_status = "ok"
     try:
@@ -19,15 +19,16 @@ def health_check() -> HealthResponse:
     except Exception:
         db_status = "error"
 
-    # Check Redis (graceful if not configured)
+    # Check Redis (graceful if not configured). Client is redis.asyncio — must await ping.
     redis_status = "ok"
     try:
         from ..core.redis import get_redis
+
         r = get_redis()
         if r is None:
             redis_status = "not_configured"
         else:
-            r.ping()
+            await r.ping()
     except Exception:
         redis_status = "error"
 

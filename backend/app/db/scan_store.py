@@ -228,6 +228,23 @@ async def save_latest_scan(payload: dict) -> None:
         await db.commit()
     duration_ms = (time.monotonic() - start_time) * 1000
 
+    # Active Cache Pre-Warming for analysis endpoint only.
+    # scanner:latest:v1 must match LatestScanService dashboard schema and is
+    # pre-warmed from LatestScanService.prewarm_scanner_latest_cache() after persist.
+    try:
+        from app.services.scanner_cache_service import scanner_cache_service
+        from app.config.settings import settings
+
+        if settings.is_scanner_latest_cache_enabled():
+            analysis_payload = orjson.dumps({"available": True, **normalized}).decode("utf-8")
+            await scanner_cache_service.set_latest_scan(
+                "analysis:scan:latest:v1", analysis_payload
+            )
+            logger.info("Active cache pre-warming completed for analysis:scan:latest:v1")
+    except Exception as cache_exc:
+        logger.warning("Active cache pre-warming failed | err=%s", cache_exc)
+
+
     total, shortlisted_count, buy_count, watch_count = _count_scan_items(normalized)
     rejected = max(total - shortlisted_count, 0)
     size_kb = round(len(jsonb_payload) / 1024, 1)

@@ -344,6 +344,11 @@ async def lifespan(app: FastAPI):
         yield
         # Shutdown for test env: no scheduler running
         try:
+            from .core.redis import close_redis_client
+            await close_redis_client()
+        except Exception:
+            logger.exception("Failed to close Redis client on test shutdown")
+        try:
             from .core.server_state import write_shutdown_time
             write_shutdown_time()
             print("[server_state] Shutdown time saved.")
@@ -767,6 +772,11 @@ async def lifespan(app: FastAPI):
         await worker_lease.release()
     except Exception:
         logger.exception("Failed to release singleton worker lease")
+    try:
+        from .core.redis import close_redis_client
+        await close_redis_client()
+    except Exception:
+        logger.exception("Failed to close Redis client on shutdown")
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

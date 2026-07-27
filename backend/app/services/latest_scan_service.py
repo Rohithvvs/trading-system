@@ -318,6 +318,36 @@ class LatestScanService:
                 log_scan_persist(scan_ctx, "SCAN_PERSIST_FAILED")
             raise
 
+    async def prewarm_scanner_latest_cache(self) -> None:
+        """Active pre-warm for GET /scanner/latest using the dashboard payload schema.
+
+        Must be called after the snapshot transaction is committed so a subsequent
+        read observes COMPLETED rows. Writes ``scanner:latest:v1`` only — analysis
+        cache is pre-warmed from ``save_latest_scan``.
+        """
+        from ..config.settings import settings
+
+        if not settings.is_scanner_latest_cache_enabled():
+            return
+        try:
+            import json
+
+            from ..services.scanner_cache_service import scanner_cache_service
+
+            payload = await self.get_latest_completed_scan()
+            if payload is None:
+                logger.info("scanner cache prewarm skipped | reason=no_completed_scan")
+                return
+            await scanner_cache_service.set_latest_scan(
+                "scanner:latest:v1", json.dumps(payload)
+            )
+            logger.info(
+                "Active cache pre-warming completed for scanner:latest:v1 | scan_id=%s",
+                payload.get("scan_id"),
+            )
+        except Exception as cache_exc:
+            logger.warning("Active scanner cache pre-warming failed | err=%s", cache_exc)
+
     async def get_latest_completed_scan(self):
         logger.info("latest_scan_requested")
         stmt = (
