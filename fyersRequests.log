@@ -25190,3 +25190,5 @@
 {"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-07-27 14:38:06,933+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-07-27 14:38:36,885+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-07-27 14:38:39,487+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-07-27 19:02:20,240+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:159] fyersModel","message":{"Status Code":401,"API":"/history"},"timestamp":"2026-07-27 19:02:20,243+0530","service":"FyersAPIRequest"}

@@ -581,9 +581,16 @@ class FyersService:
         resolution: str,
         lookback_window: int,
         allow_mock: bool = False,
+        bypass_authoritative_store: bool = False,
     ) -> list[OHLCVPoint]:
+        from ..config.settings import settings
+        if settings.is_authoritative_candle_store_enabled() and not bypass_authoritative_store:
+            from .authoritative_candle_store import authoritative_candle_store
+            return await authoritative_candle_store.get_candles(symbol, resolution)
+
         points = 40 if mode == AnalysisMode.intraday else max(lookback_window, 260)
         cache_key = (self._cache_symbol(symbol), mode.value, resolution.lower())
+
         
         import asyncio
         if cache_key not in FyersService._ohlcv_thread_locks:

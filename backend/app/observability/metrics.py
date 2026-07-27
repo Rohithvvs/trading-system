@@ -49,12 +49,43 @@ if Counter:
         "Scanner persistence duration",
         ["mode"],
     )
+    # Sprint 4: Authoritative Candle Store
+    CANDLE_STORE_CACHE_HIT_TOTAL = Counter(
+        "candle_store_cache_hit_total",
+        "Authoritative candle store L1/L2 cache hits",
+        ["tier"],
+    )
+    CANDLE_STORE_READ_SOURCE = Counter(
+        "candle_store_read_source_distribution",
+        "Candle store read source distribution",
+        ["source"],
+    )
+    CANDLE_STORE_READ_LATENCY = Histogram(
+        "candle_store_read_latency_seconds",
+        "Candle store read latency by source",
+        ["source"],
+    )
+    CANDLE_STORE_WRITE_TOTAL = Counter(
+        "candle_store_write_total",
+        "Candle store write operations",
+        ["status"],
+    )
+    CANDLE_STORE_CONSISTENCY_FAILURES = Counter(
+        "candle_store_consistency_failures_total",
+        "Candle store consistency discrepancies repaired",
+    )
+    CANDLE_STORE_FEATURE_FLAG = Gauge(
+        "candle_store_feature_flag_status",
+        "AUTHORITATIVE_CANDLE_STORE_ENABLED (1=ON, 0=OFF)",
+    )
 else:
     ORDER_EXECUTIONS = DUPLICATE_EXECUTIONS = DB_COMMIT_LATENCY = WS_CLIENTS = LOGGER_QUEUE_DEPTH = None
     SCANNER_CACHE_HITS = SCANNER_CACHE_MISSES = SCANNER_CACHE_ERRORS = None
     SCANNER_CACHE_FORCE_REFRESHES = SCANNER_CACHE_HIT_RATIO = None
     LATEST_SCAN_SERVICE_INVOCATIONS = UNIFIED_LATEST_FALLBACKS = None
     SCANNER_WRITES_TOTAL = SCANNER_FEATURE_FLAG_MINIMAL_WRITES = SCANNER_PERSIST_LATENCY = None
+    CANDLE_STORE_CACHE_HIT_TOTAL = CANDLE_STORE_READ_SOURCE = CANDLE_STORE_READ_LATENCY = None
+    CANDLE_STORE_WRITE_TOTAL = CANDLE_STORE_CONSISTENCY_FAILURES = CANDLE_STORE_FEATURE_FLAG = None
 
 
 # Process-local totals for hit-ratio gauge when Prometheus is available or for tests.
@@ -135,6 +166,39 @@ def observe_scanner_persist_latency(mode: str, seconds: float) -> None:
     """Record persistence latency histogram for minimal vs legacy mode."""
     if SCANNER_PERSIST_LATENCY is not None:
         SCANNER_PERSIST_LATENCY.labels(mode=mode).observe(max(0.0, float(seconds)))
+
+
+def record_candle_store_metric(name: str, amount: int = 1) -> None:
+    """Map internal candle-store counter names onto Prometheus series."""
+    if name in {"l1_hits", "l2_hits"} and CANDLE_STORE_CACHE_HIT_TOTAL is not None:
+        tier = "l1" if name == "l1_hits" else "l2"
+        CANDLE_STORE_CACHE_HIT_TOTAL.labels(tier=tier).inc(amount)
+        if CANDLE_STORE_READ_SOURCE is not None:
+            CANDLE_STORE_READ_SOURCE.labels(source=tier).inc(amount)
+    elif name == "l3_fetches" and CANDLE_STORE_READ_SOURCE is not None:
+        CANDLE_STORE_READ_SOURCE.labels(source="l3").inc(amount)
+    elif name == "legacy_fallbacks" and CANDLE_STORE_READ_SOURCE is not None:
+        CANDLE_STORE_READ_SOURCE.labels(source="legacy").inc(amount)
+    elif name == "writes_total" and CANDLE_STORE_WRITE_TOTAL is not None:
+        CANDLE_STORE_WRITE_TOTAL.labels(status="ok").inc(amount)
+    elif name == "write_errors" and CANDLE_STORE_WRITE_TOTAL is not None:
+        CANDLE_STORE_WRITE_TOTAL.labels(status="error").inc(amount)
+    elif name == "discrepancies_repaired" and CANDLE_STORE_CONSISTENCY_FAILURES is not None:
+        CANDLE_STORE_CONSISTENCY_FAILURES.inc(amount)
+
+
+def observe_candle_store_read_latency(source: str, seconds: float) -> None:
+    if CANDLE_STORE_READ_LATENCY is not None:
+        CANDLE_STORE_READ_LATENCY.labels(source=source).observe(max(0.0, float(seconds)))
+    if CANDLE_STORE_FEATURE_FLAG is not None:
+        try:
+            from ..config.settings import settings
+
+            CANDLE_STORE_FEATURE_FLAG.set(
+                1 if settings.is_authoritative_candle_store_enabled() else 0
+            )
+        except Exception:
+            pass
 
 
 def render_metrics() -> tuple[bytes, str]:

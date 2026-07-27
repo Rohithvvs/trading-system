@@ -24,6 +24,12 @@ class CandleReconciliationService:
         self.circuit_breaker_failures = 0
         self.circuit_breaker_tripped_until = None
 
+    async def run_authoritative_audit(self, symbols: list[str], resolution: str = "1D") -> dict:
+        """Execute Authoritative Candle Store sample consistency audit."""
+        from .authoritative_candle_store import authoritative_candle_store
+        report = await authoritative_candle_store.validate_consistency(symbols, resolution)
+        return report.model_dump()
+
     async def detect_gaps(self, symbol: str, timeframe: str = '1D', min_gap_days: int = 3) -> list[dict]:
         # PostgreSQL syntax for gap detection
         query = text("""
@@ -226,6 +232,27 @@ class CandleReconciliationService:
 
             if repairs_this_cycle >= MAX_REPAIRS_PER_CYCLE or self.circuit_breaker_failures >= 5:
                 break
+
+        # FR-008 / audit M5: sample consistency audit when ACS is enabled
+        try:
+            from ..config.settings import settings as _settings
+
+            if _settings.is_authoritative_candle_store_enabled() and symbols:
+                audit = await self.run_authoritative_audit(list(symbols), resolution="1D")
+                logger.info(
+                    "authoritative_consistency_audit_completed",
+                    extra={
+                        "total_audited": audit.get("total_audited"),
+                        "matched_count": audit.get("matched_count"),
+                        "mismatched_count": audit.get("mismatched_count"),
+                        "repaired_count": audit.get("repaired_count"),
+                    },
+                )
+        except Exception as audit_exc:
+            logger.warning(
+                "authoritative_consistency_audit_failed | error=%s",
+                audit_exc,
+            )
 
         elapsed = time.monotonic() - start_time
         logger.info(
