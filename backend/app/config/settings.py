@@ -246,6 +246,30 @@ class Settings(BaseSettings):
     shadow_mode_ruleset: str = Field(default="experimental_v1", alias="SHADOW_MODE_RULESET")
     shadow_mode_persistence_enabled: bool = Field(default=False, alias="SHADOW_MODE_PERSISTENCE_ENABLED")
 
+    # Sprint 3: Reduce Scan-Result Fan-out feature flag
+    # Evaluated live via is_scan_result_minimal_writes() — env flip takes effect on next scan
+    # without process restart when the runtime can inject env (audit H3 / FR-010).
+    scan_result_minimal_writes: bool = Field(default=False, alias="SCAN_RESULT_MINIMAL_WRITES")
+
+    def is_scan_result_minimal_writes(self) -> bool:
+        """Live feature-flag read for scan-result minimal writes (zero-redeploy rollback).
+
+        Priority on every call:
+        1. ``os.environ["SCAN_RESULT_MINIMAL_WRITES"]`` when set (non-empty).
+        2. ``settings.scan_result_minimal_writes`` attribute (tests / in-process toggles).
+
+        On any evaluation error, defaults to False (legacy multi-write fail-safe).
+        """
+        try:
+            raw = os.environ.get("SCAN_RESULT_MINIMAL_WRITES")
+            if raw is not None and str(raw).strip() != "":
+                enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+                object.__setattr__(self, "scan_result_minimal_writes", enabled)
+                return enabled
+            return bool(self.scan_result_minimal_writes)
+        except Exception:
+            return False
+
     # FEAT-012/FEAT-013: Governance states and validation reporting
     governance_reports_dir: str = Field(default="governance/reports", alias="GOVERNANCE_REPORTS_DIR")
     rule_states_file: str = Field(default="backend/app/config/rule_states.json", alias="RULE_STATES_FILE")

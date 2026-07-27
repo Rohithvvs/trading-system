@@ -20,10 +20,12 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.market_data import ScanSnapshot, ScanSnapshotRecord
+from ..models.market_data import LatestScanResult, ScanSnapshot, ScanSnapshotRecord
 from ..schemas import AnalysisMode, ScreenerResponse
 from ..utils import get_logger
 from ..observability.scan_diagnostics import get_current_scan, log_scan_persist
+from ..config.settings import settings
+from .persistence_service import PersistenceService
 
 logger = get_logger("app.services.latest_scan_service")
 
@@ -76,12 +78,17 @@ class LatestScanService:
         response: ScreenerResponse,
         duration_ms: int,
         scan_id: str | None = None,
+        *,
+        minimal_writes: bool | None = None,
     ):
         """Persist one completed scan snapshot.
 
         If ``scan_id`` already exists (e.g. RUNNING placeholder from
         ``scan_execution_service``), **update** that row and replace records.
         Never insert a second parent row for the same ``scan_id``.
+
+        ``minimal_writes`` freezes the feature-flag decision for this unit of work
+        (avoids mid-scan flag drift). When None, the live flag is evaluated once here.
         """
         scan_ctx = get_current_scan()
         if scan_ctx:
@@ -131,7 +138,117 @@ class LatestScanService:
             len(response.all_analyzed_stocks or []),
         )
 
-        # --- Upsert parent snapshot (one row per scan_id) ---
+        # --- Canonical latest scan results write (always written) ---
+        latest_records = []
+        processed_latest: set[str] = set()
+
+        for item in analysis_items:
+            rec_action = (getattr(item.recommendation, "action", None) or "REJECT").upper()
+            sig_type = "BUY" if rec_action == "BUY" else ("WATCH" if rec_action == "WATCH" else "REJECT")
+            score_val = float(getattr(item.recommendation, "score", 0.0) or 0.0)
+            conf_val = float(getattr(item.recommendation, "confidence", 0.0) or (score_val / 100.0 if score_val else 0.0))
+            latest_records.append({
+                "symbol": item.symbol,
+                "signal_type": sig_type,
+                "score": score_val,
+                "confidence": conf_val,
+                "scanned_at": scan_timestamp,
+            })
+            processed_latest.add(item.symbol)
+
+        for sym in buy_candidates:
+            if sym not in processed_latest:
+                latest_records.append({
+                    "symbol": sym,
+                    "signal_type": "BUY",
+                    "score": 0.0,
+                    "confidence": 0.0,
+                    "scanned_at": scan_timestamp,
+                })
+                processed_latest.add(sym)
+
+        for sym in watch_candidates:
+            if sym not in processed_latest:
+                latest_records.append({
+                    "symbol": sym,
+                    "signal_type": "WATCH",
+                    "score": 0.0,
+                    "confidence": 0.0,
+                    "scanned_at": scan_timestamp,
+                })
+                processed_latest.add(sym)
+
+        if latest_records:
+            try:
+                ps = PersistenceService(self.db)
+                await ps.save_latest_scan_results(latest_records)
+                logger.info("PERSIST_CANONICAL_OK | scan_id=%s | count=%s", scan_id, len(latest_records))
+                try:
+                    from ..observability.metrics import record_scanner_write
+
+                    record_scanner_write("latest_scan_results", "ok")
+                except Exception:
+                    pass
+            except Exception as canon_exc:
+                # Spec §12: canonical failure must fail the unit of work and skip history.
+                logger.error(
+                    "DB_CANONICAL_WRITE_FAILED | scan_id=%s | error=%s",
+                    scan_id,
+                    canon_exc,
+                    exc_info=True,
+                )
+                try:
+                    from ..observability.metrics import record_scanner_write
+
+                    record_scanner_write("latest_scan_results", "failed")
+                except Exception:
+                    pass
+                if scan_ctx:
+                    log_scan_persist(scan_ctx, "SCAN_PERSIST_FAILED")
+                raise RuntimeError(
+                    f"DB_CANONICAL_WRITE_FAILED: {canon_exc}"
+                ) from canon_exc
+
+        if minimal_writes is None:
+            is_minimal = False
+            try:
+                is_minimal = bool(settings.is_scan_result_minimal_writes())
+            except Exception as ff_exc:
+                logger.warning(
+                    "FF_DEFAULT_FALLBACK | SCAN_RESULT_MINIMAL_WRITES evaluation error (defaulting to False): %s",
+                    ff_exc,
+                )
+                is_minimal = False
+        else:
+            is_minimal = bool(minimal_writes)
+
+        try:
+            from ..observability.metrics import set_minimal_writes_flag_metric
+
+            set_minimal_writes_flag_metric(is_minimal)
+        except Exception:
+            pass
+
+        if is_minimal:
+            logger.info(
+                "PERSIST_MINIMAL_MODE | scan_id=%s | Bypassing scan_snapshots and scan_snapshot_records",
+                scan_id,
+            )
+            try:
+                from ..observability.metrics import record_scanner_write
+
+                for table in (
+                    "scan_snapshots",
+                    "scan_snapshot_records",
+                    "scan_history_snapshots",
+                    "scanned_candidates",
+                ):
+                    record_scanner_write(table, "skipped")
+            except Exception:
+                pass
+            return
+
+        # --- Legacy Mode: Upsert parent snapshot (one row per scan_id) ---
         existing = await self.db.scalar(
             select(ScanSnapshot).where(ScanSnapshot.scan_id == scan_id)
         )
@@ -306,6 +423,13 @@ class LatestScanService:
                     reject_count=snapshot.rejected_count,
                     rows_written=len(processed_symbols),
                 )
+            try:
+                from ..observability.metrics import record_scanner_write
+
+                record_scanner_write("scan_snapshots", "ok")
+                record_scanner_write("scan_snapshot_records", "ok")
+            except Exception:
+                pass
         except Exception as e:
             logger.error(
                 "scan_persist_failed | scan_id=%s | error=%s | caller=%s",
@@ -318,12 +442,117 @@ class LatestScanService:
                 log_scan_persist(scan_ctx, "SCAN_PERSIST_FAILED")
             raise
 
-    async def prewarm_scanner_latest_cache(self) -> None:
+    @staticmethod
+    def build_dashboard_payload_from_screener(
+        response: ScreenerResponse,
+        *,
+        duration_ms: int = 0,
+        scan_id: str | None = None,
+        scan_timestamp: datetime | None = None,
+    ) -> dict:
+        """Build a full dashboard-contract payload from an in-memory ScreenerResponse.
+
+        Used for cache pre-warm under minimal-write mode so clients retain close/OHLCV
+        and technical fields even though ``latest_scan_results`` does not store them.
+        """
+        ts = scan_timestamp or datetime.now(timezone.utc)
+        scan_id = scan_id or f"live-{ts.isoformat()}"
+        buy_candidates: list[dict] = []
+        watch_candidates: list[dict] = []
+        rejected_candidates: list[dict] = []
+        analysis_items = (
+            list(response.analysis.items) if response.analysis and response.analysis.items else []
+        )
+        by_symbol = {item.symbol: item for item in analysis_items}
+
+        def _cand_from_item(item, rec: str) -> dict:
+            tech = _swing_indicators(item)
+            return {
+                "symbol": item.symbol,
+                "recommendation": rec,
+                "score": float(getattr(item.recommendation, "score", 0.0) or 0.0),
+                "close_price": float(_close_price(item) or 0.0),
+                "sma50": tech.get("sma_50") or tech.get("sma50"),
+                "sma200": tech.get("sma_200") or tech.get("sma200"),
+                "rsi": tech.get("rsi_14") or tech.get("rsi"),
+                "macd": tech.get("macd"),
+                "volume": None,
+                "reason": getattr(item.recommendation, "summary", None),
+                "confidence": float(
+                    getattr(item.recommendation, "confidence", 0.0) or 0.0
+                ),
+            }
+
+        for item in analysis_items:
+            action = (getattr(item.recommendation, "action", None) or "REJECT").upper()
+            if action == "BUY":
+                buy_candidates.append(_cand_from_item(item, "BUY"))
+            elif action == "WATCH":
+                watch_candidates.append(_cand_from_item(item, "WATCH"))
+            else:
+                rejected_candidates.append(_cand_from_item(item, "REJECTED"))
+
+        for sym in response.buy_candidate_symbols or []:
+            if sym in by_symbol:
+                continue
+            buy_candidates.append(
+                {
+                    "symbol": sym,
+                    "recommendation": "BUY",
+                    "score": 0.0,
+                    "close_price": 0.0,
+                    "sma50": None,
+                    "sma200": None,
+                    "rsi": None,
+                    "macd": None,
+                    "volume": None,
+                    "reason": None,
+                    "confidence": 0.0,
+                }
+            )
+        for sym in response.watch_candidate_symbols or []:
+            if sym in by_symbol:
+                continue
+            watch_candidates.append(
+                {
+                    "symbol": sym,
+                    "recommendation": "WATCH",
+                    "score": 0.0,
+                    "close_price": 0.0,
+                    "sma50": None,
+                    "sma200": None,
+                    "rsi": None,
+                    "macd": None,
+                    "volume": None,
+                    "reason": None,
+                    "confidence": 0.0,
+                }
+            )
+
+        buy_candidates.sort(key=lambda x: x["score"], reverse=True)
+        watch_candidates.sort(key=lambda x: x["score"], reverse=True)
+        rejected_candidates.sort(key=lambda x: x["score"], reverse=True)
+        ts_iso = ts.isoformat()
+        return {
+            "scan_id": scan_id,
+            "scan_timestamp": ts_iso,
+            "last_scan_completed_at": ts_iso,
+            "total_scanned": int(response.scanned_symbols or 0),
+            "valid_symbols": len(response.data_valid_symbols or []),
+            "buy_count": len(buy_candidates),
+            "watch_count": len(watch_candidates),
+            "rejected_count": len(rejected_candidates),
+            "buy_candidates": buy_candidates,
+            "watch_candidates": watch_candidates,
+            "rejected_candidates": rejected_candidates,
+            "duration_ms": duration_ms,
+        }
+
+    async def prewarm_scanner_latest_cache(self, payload: dict | None = None) -> None:
         """Active pre-warm for GET /scanner/latest using the dashboard payload schema.
 
-        Must be called after the snapshot transaction is committed so a subsequent
-        read observes COMPLETED rows. Writes ``scanner:latest:v1`` only — analysis
-        cache is pre-warmed from ``save_latest_scan``.
+        Prefer an in-memory ``payload`` (built from ScreenerResponse) when provided so
+        minimal-write mode retains technical fields in Redis. Otherwise load from DB.
         """
         from ..config.settings import settings
 
@@ -334,7 +563,8 @@ class LatestScanService:
 
             from ..services.scanner_cache_service import scanner_cache_service
 
-            payload = await self.get_latest_completed_scan()
+            if payload is None:
+                payload = await self.get_latest_completed_scan()
             if payload is None:
                 logger.info("scanner cache prewarm skipped | reason=no_completed_scan")
                 return
@@ -348,12 +578,121 @@ class LatestScanService:
         except Exception as cache_exc:
             logger.warning("Active scanner cache pre-warming failed | err=%s", cache_exc)
 
-    async def get_latest_completed_scan(self):
-        """Legacy dashboard loader — delegates formatting to the shared adapter."""
-        logger.info("latest_scan_requested")
-        snapshot, records = await self._fetch_latest_snapshot_and_records()
+    async def _enrich_dashboard_from_history(self, payload: dict) -> dict:
+        """Merge close/technical fields from market_data.scan_results when present (M-R1)."""
+        try:
+            from ..db.scan_store import load_latest_scan
 
-        if not snapshot:
+            hist = await load_latest_scan()
+            if not hist or not isinstance(hist, dict):
+                return payload
+
+            # Build symbol → enrichment from history items / analysis.items
+            enrich: dict[str, dict] = {}
+            for key in ("items", "all_analyzed_stocks", "matches"):
+                for raw in hist.get(key) or []:
+                    if not isinstance(raw, dict):
+                        continue
+                    sym = raw.get("symbol")
+                    if not sym:
+                        continue
+                    entry = enrich.setdefault(sym, {})
+                    if raw.get("close") is not None:
+                        entry["close_price"] = float(raw.get("close") or 0.0)
+                    if raw.get("close_price") is not None:
+                        entry["close_price"] = float(raw.get("close_price") or 0.0)
+                    tech = raw.get("technical") if isinstance(raw.get("technical"), dict) else {}
+                    for src, dst in (
+                        ("sma50", "sma50"),
+                        ("sma_50", "sma50"),
+                        ("sma200", "sma200"),
+                        ("sma_200", "sma200"),
+                        ("rsi", "rsi"),
+                        ("rsi_14", "rsi"),
+                        ("macd", "macd"),
+                    ):
+                        if tech.get(src) is not None:
+                            entry[dst] = tech.get(src)
+                    rec = raw.get("recommendation")
+                    if isinstance(rec, dict):
+                        if rec.get("summary"):
+                            entry["reason"] = rec.get("summary")
+                        if rec.get("score") is not None and "score" not in entry:
+                            entry["score"] = float(rec.get("score") or 0.0)
+
+            analysis = hist.get("analysis") if isinstance(hist.get("analysis"), dict) else {}
+            for raw in analysis.get("items") or []:
+                if not isinstance(raw, dict):
+                    continue
+                sym = raw.get("symbol")
+                if not sym:
+                    continue
+                entry = enrich.setdefault(sym, {})
+                rec = raw.get("recommendation") if isinstance(raw.get("recommendation"), dict) else {}
+                if rec.get("summary"):
+                    entry["reason"] = rec.get("summary")
+                ohlcv = raw.get("ohlcv") or []
+                if ohlcv and isinstance(ohlcv[-1], dict) and ohlcv[-1].get("close") is not None:
+                    entry["close_price"] = float(ohlcv[-1]["close"])
+
+            if not enrich:
+                return payload
+
+            for bucket in ("buy_candidates", "watch_candidates", "rejected_candidates"):
+                for cand in payload.get(bucket) or []:
+                    extra = enrich.get(cand.get("symbol") or "")
+                    if not extra:
+                        continue
+                    for k, v in extra.items():
+                        if v is None:
+                            continue
+                        # Only fill missing / zero close prices; keep canonical scores.
+                        if k == "close_price" and float(cand.get("close_price") or 0) == 0.0:
+                            cand[k] = v
+                        elif k != "close_price" and cand.get(k) in (None, "", 0, 0.0):
+                            cand[k] = v
+            return payload
+        except Exception as exc:
+            logger.debug("dashboard history enrichment skipped | err=%s", exc)
+            return payload
+
+    async def resolve_dashboard_payload(self) -> dict | None:
+        """Resolve dashboard latest payload with flag-aware source selection.
+
+        When ``SCAN_RESULT_MINIMAL_WRITES`` is ON, ``latest_scan_results`` is the
+        authoritative source (avoids stale ``scan_snapshots`` after fan-out reduction).
+        When OFF, prefer snapshot tables (legacy) with canonical fallback.
+        """
+        use_canonical_first = False
+        try:
+            use_canonical_first = bool(settings.is_scan_result_minimal_writes())
+        except Exception:
+            use_canonical_first = False
+
+        if use_canonical_first:
+            canonical = await self._fetch_latest_from_canonical_results()
+            if canonical:
+                return await self._enrich_dashboard_from_history(canonical)
+            # Fallback to last snapshot if canonical empty (pre-flag data only).
+            snapshot, records = await self._fetch_latest_snapshot_and_records()
+            if snapshot:
+                return self._format_dashboard_payload(snapshot, records)
+            return None
+
+        snapshot, records = await self._fetch_latest_snapshot_and_records()
+        if snapshot:
+            return self._format_dashboard_payload(snapshot, records)
+        canonical = await self._fetch_latest_from_canonical_results()
+        if canonical:
+            return await self._enrich_dashboard_from_history(canonical)
+        return None
+
+    async def get_latest_completed_scan(self):
+        """Dashboard loader — flag-aware snapshot/canonical resolution (C1/C2)."""
+        logger.info("latest_scan_requested")
+        payload = await self.resolve_dashboard_payload()
+
+        if not payload:
             logger.info("latest_scan_not_found")
             from ..observability.scan_diagnostics import log_dashboard_request
 
@@ -362,24 +701,24 @@ class LatestScanService:
             )
             return None
 
-        payload = self._format_dashboard_payload(snapshot, records)
         buy_n = len(payload.get("buy_candidates") or [])
         watch_n = len(payload.get("watch_candidates") or [])
         rejected_n = len(payload.get("rejected_candidates") or [])
+        scan_id = payload.get("scan_id")
         logger.info(
             "latest_scan_loaded | scan_id=%s | buy=%s | watch=%s | rejected=%s | "
             "header_buy=%s | header_watch=%s",
-            snapshot.scan_id,
+            scan_id,
             buy_n,
             watch_n,
             rejected_n,
-            snapshot.buy_count,
-            snapshot.watch_count,
+            payload.get("buy_count"),
+            payload.get("watch_count"),
         )
         from ..observability.scan_diagnostics import log_dashboard_request
 
         log_dashboard_request(
-            scan_id=snapshot.scan_id,
+            scan_id=str(scan_id) if scan_id is not None else None,
             endpoint="/scanner/latest",
             returned_records=buy_n + watch_n + rejected_n,
             query_duration_ms=0,
@@ -519,6 +858,147 @@ class LatestScanService:
         records = result_records.scalars().all()
         return snapshot, list(records)
 
+    async def _fetch_latest_from_canonical_results(self) -> dict | None:
+        """Derive dashboard payload from ``latest_scan_results`` (canonical source).
+
+        Shape matches ``_format_dashboard_payload`` so clients get the same field
+        contract whether data came from snapshots or canonical rows (FR-009).
+        Only the latest scan wave (max ``scanned_at``) is included so stale
+        symbols from older runs do not pollute the dashboard.
+        """
+        res = await self.db.execute(select(LatestScanResult))
+        scalars_result = res.scalars()
+        # Support both sync Result.scalars() and async mock/session variants.
+        if hasattr(scalars_result, "__await__"):
+            scalars_result = await scalars_result  # type: ignore[misc]
+        all_method = getattr(scalars_result, "all", None)
+        if all_method is None:
+            all_rows = list(scalars_result) if scalars_result else []
+        else:
+            maybe_rows = all_method()
+            if hasattr(maybe_rows, "__await__"):
+                maybe_rows = await maybe_rows  # type: ignore[misc]
+            all_rows = list(maybe_rows or [])
+        if not all_rows:
+            return None
+
+        max_scanned_at = max(
+            (r.scanned_at for r in all_rows if r.scanned_at is not None),
+            default=None,
+        )
+        if max_scanned_at is None:
+            rows = all_rows
+        else:
+            # Same-wave equality: all rows written in one persist share scan_timestamp.
+            rows = [r for r in all_rows if r.scanned_at == max_scanned_at]
+            if not rows:
+                rows = all_rows
+
+        buy_candidates: list[dict] = []
+        watch_candidates: list[dict] = []
+        rejected_candidates: list[dict] = []
+
+        for row in rows:
+            sig = (row.signal_type or "REJECT").upper()
+            if sig == "BUY":
+                rec = "BUY"
+            elif sig == "WATCH":
+                rec = "WATCH"
+            else:
+                rec = "REJECTED"
+
+            cand_dict = {
+                "symbol": row.symbol,
+                "recommendation": rec if rec != "REJECTED" else row.signal_type,
+                "score": float(row.score or 0.0),
+                # Canonical table has no OHLCV; preserve field presence for contract parity.
+                "close_price": 0.0,
+                "sma50": None,
+                "sma200": None,
+                "rsi": None,
+                "macd": None,
+                "volume": None,
+                "reason": f"Signal: {row.signal_type}",
+                "confidence": float(row.confidence or 0.0),
+            }
+
+            if rec == "BUY":
+                buy_candidates.append(cand_dict)
+            elif rec == "WATCH":
+                watch_candidates.append(cand_dict)
+            else:
+                rejected_candidates.append(cand_dict)
+
+        buy_candidates.sort(key=lambda x: x["score"], reverse=True)
+        watch_candidates.sort(key=lambda x: x["score"], reverse=True)
+        rejected_candidates.sort(key=lambda x: x["score"], reverse=True)
+
+        scan_ts = (
+            max_scanned_at.isoformat()
+            if max_scanned_at is not None
+            else datetime.now(timezone.utc).isoformat()
+        )
+        # Stable synthetic id for ops/diagnostics (not a UUID from scan_snapshots).
+        scan_id = f"canonical-{scan_ts}"
+
+        return {
+            "scan_id": scan_id,
+            "scan_timestamp": scan_ts,
+            "last_scan_completed_at": scan_ts,
+            "total_scanned": len(rows),
+            "valid_symbols": len(buy_candidates) + len(watch_candidates),
+            "buy_count": len(buy_candidates),
+            "watch_count": len(watch_candidates),
+            "rejected_count": len(rejected_candidates),
+            "buy_candidates": buy_candidates,
+            "watch_candidates": watch_candidates,
+            "rejected_candidates": rejected_candidates,
+        }
+
+    async def _fetch_analysis_from_canonical_results(self) -> dict | None:
+        """ScreenerResponse-compatible projection from canonical latest for analysis path."""
+        dashboard = await self._fetch_latest_from_canonical_results()
+        if not dashboard:
+            return None
+
+        buy_syms = [c["symbol"] for c in (dashboard.get("buy_candidates") or [])]
+        watch_syms = [c["symbol"] for c in (dashboard.get("watch_candidates") or [])]
+        items = []
+        for c in (dashboard.get("buy_candidates") or []):
+            items.append(
+                {
+                    "symbol": c["symbol"],
+                    "signal": "BUY",
+                    "matched": True,
+                    "score": c.get("score", 0.0),
+                    "confidence": c.get("confidence", 0.0),
+                }
+            )
+        for c in (dashboard.get("watch_candidates") or []):
+            items.append(
+                {
+                    "symbol": c["symbol"],
+                    "signal": "WATCH",
+                    "matched": True,
+                    "score": c.get("score", 0.0),
+                    "confidence": c.get("confidence", 0.0),
+                }
+            )
+
+        scan_ts = dashboard.get("scan_timestamp")
+        return {
+            "buy_candidate_symbols": buy_syms,
+            "watch_candidate_symbols": watch_syms,
+            "shortlisted_symbols": buy_syms + watch_syms,
+            "all_analyzed_stocks": items,
+            "matches": items,
+            "items": items,
+            "scanned_at": scan_ts,
+            "last_scan_completed_at": scan_ts,
+            "scanned_symbols": dashboard.get("total_scanned", len(items)),
+            "scan_id": dashboard.get("scan_id"),
+        }
+
     async def get_latest_scan(
         self,
         format_type: str = "dashboard",
@@ -577,10 +1057,19 @@ class LatestScanService:
 
                 data = await load_latest_scan()
                 if data is None:
-                    payload_dict: dict = {"available": False}
-                    scan_id = None
-                    returned_records = 0
-                    is_empty = True
+                    # M1: under minimal writes, history may be empty — derive from canonical.
+                    canonical_analysis = await self._fetch_analysis_from_canonical_results()
+                    if canonical_analysis:
+                        payload_dict = {"available": True, **canonical_analysis}
+                        items = canonical_analysis.get("items") or []
+                        scan_id = canonical_analysis.get("scan_id")
+                        returned_records = len(items)
+                        is_empty = False
+                    else:
+                        payload_dict = {"available": False}
+                        scan_id = None
+                        returned_records = 0
+                        is_empty = True
                 else:
                     # Must match legacy route: full ScreenerResponse fields for FE clients.
                     payload_dict = {"available": True, **data}
@@ -593,18 +1082,22 @@ class LatestScanService:
                     returned_records = len(items)
                     is_empty = False
             else:
-                snapshot, records = await self._fetch_latest_snapshot_and_records()
-                payload_dict = self._format_dashboard_payload(snapshot, records)
-                scan_id = snapshot.scan_id if snapshot else None
-                if snapshot:
+                # C1: flag-aware resolution — minimal mode prefers canonical over stale snapshots.
+                resolved = await self.resolve_dashboard_payload()
+                if resolved:
+                    payload_dict = resolved
+                    scan_id = resolved.get("scan_id")
                     returned_records = (
                         len(payload_dict.get("buy_candidates") or [])
                         + len(payload_dict.get("watch_candidates") or [])
                         + len(payload_dict.get("rejected_candidates") or [])
                     )
+                    is_empty = False
                 else:
+                    payload_dict = self._format_dashboard_payload(None, [])
+                    scan_id = None
                     returned_records = 0
-                is_empty = snapshot is None
+                    is_empty = True
 
                 # Preserve legacy dashboard diagnostics on the unified path.
                 try:

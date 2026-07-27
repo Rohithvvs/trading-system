@@ -185,19 +185,19 @@ def _count_scan_items(payload: dict) -> tuple[int, int, int, int]:
     return len(items), len(shortlisted), buy_count, watch_count
 
 
-async def save_latest_scan(payload: dict) -> None:
-    """Save new scan result replacing the old one atomically.
+async def save_latest_scan_in_session(db, payload: dict) -> dict:
+    """Write scan history into the caller's session (no commit).
 
-    Postgres uses ``market_data.scan_results`` (JSONB).
-    SQLite uses a local ``scan_results`` table (TEXT JSON) so tests and local
-    runs do not depend on PostgreSQL schemas.
+    Used by the scanner persistence unit of work so canonical latest + history
+    can share one transaction (audit H2). Caller is responsible for commit/rollback.
+
+    Returns the normalized payload dict for optional cache pre-warm.
     """
     normalized = _normalize_scan_payload(payload if isinstance(payload, dict) else {})
     jsonb_payload = orjson.dumps(normalized).decode("utf-8")
 
-    start_time = time.monotonic()
-    async with AsyncSessionLocal() as db:
-        dialect = await _dialect_name(db)
+    dialect = await _dialect_name(db)
+    try:
         if dialect == "sqlite":
             await _ensure_sqlite_scan_results(db)
             await db.execute(
@@ -225,12 +225,15 @@ async def save_latest_scan(payload: dict) -> None:
                 ),
                 {"payload": jsonb_payload},
             )
-        await db.commit()
-    duration_ms = (time.monotonic() - start_time) * 1000
+    except Exception as hist_exc:
+        logger.error("DB_HISTORY_WRITE_FAILED | error=%s", hist_exc, exc_info=True)
+        raise RuntimeError(f"DB_HISTORY_WRITE_FAILED: {hist_exc}") from hist_exc
 
-    # Active Cache Pre-Warming for analysis endpoint only.
-    # scanner:latest:v1 must match LatestScanService dashboard schema and is
-    # pre-warmed from LatestScanService.prewarm_scanner_latest_cache() after persist.
+    return normalized
+
+
+async def _prewarm_analysis_cache(normalized: dict) -> None:
+    """Active cache pre-warming for analysis:scan:latest:v1."""
     try:
         from app.services.scanner_cache_service import scanner_cache_service
         from app.config.settings import settings
@@ -245,6 +248,25 @@ async def save_latest_scan(payload: dict) -> None:
         logger.warning("Active cache pre-warming failed | err=%s", cache_exc)
 
 
+async def save_latest_scan(payload: dict) -> None:
+    """Save new scan result replacing the old one atomically.
+
+    Postgres uses ``market_data.scan_results`` (JSONB).
+    SQLite uses a local ``scan_results`` table (TEXT JSON) so tests and local
+    runs do not depend on PostgreSQL schemas.
+
+    Standalone helper: opens its own session and commits. Prefer
+    ``save_latest_scan_in_session`` when co-committing with canonical latest.
+    """
+    start_time = time.monotonic()
+    async with AsyncSessionLocal() as db:
+        normalized = await save_latest_scan_in_session(db, payload)
+        await db.commit()
+    duration_ms = (time.monotonic() - start_time) * 1000
+
+    await _prewarm_analysis_cache(normalized)
+
+    jsonb_payload = orjson.dumps(normalized).decode("utf-8")
     total, shortlisted_count, buy_count, watch_count = _count_scan_items(normalized)
     rejected = max(total - shortlisted_count, 0)
     size_kb = round(len(jsonb_payload) / 1024, 1)

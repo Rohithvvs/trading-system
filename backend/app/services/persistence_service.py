@@ -15,8 +15,19 @@ class PersistenceService:
         """
         if not scan_results:
             return
-            
-        stmt = self._insert(LatestScanResult).values(scan_results)
+
+        try:
+            conn = await self.db.connection()
+            dialect = conn.dialect.name
+        except Exception:
+            dialect = "postgresql"
+
+        if dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+            stmt = sqlite_insert(LatestScanResult).values(scan_results)
+        else:
+            stmt = pg_insert(LatestScanResult).values(scan_results)
+
         upsert_stmt = stmt.on_conflict_do_update(
             index_elements=['symbol'],
             set_={

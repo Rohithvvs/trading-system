@@ -1154,22 +1154,37 @@ async def automated_screening_job():
             scan_ctx.symbols_processed = response.scanned_symbols
             
             try:
-                # Still add to ScannedCandidate if it's used elsewhere
-                for item in response.matches:
-                    candidate = ScannedCandidate(
-                        symbol=item.symbol,
-                        screener_name=response.screener_name,
-                        technical_score=item.technical_score,
-                        technical_signal=item.technical_signal,
-                        screener_score=item.screener_score,
-                        matched=item.matched
+                # FR-006: under SCAN_RESULT_MINIMAL_WRITES, skip scanned_candidates fan-out.
+                from .config.settings import settings as _scan_settings
+
+                _minimal = False
+                try:
+                    _minimal = bool(_scan_settings.is_scan_result_minimal_writes())
+                except Exception:
+                    _minimal = False
+
+                if not _minimal:
+                    for item in response.matches:
+                        candidate = ScannedCandidate(
+                            symbol=item.symbol,
+                            screener_name=response.screener_name,
+                            technical_score=item.technical_score,
+                            technical_signal=item.technical_signal,
+                            screener_score=item.screener_score,
+                            matched=item.matched
+                        )
+                        db.add(candidate)
+                else:
+                    logger.info(
+                        "SCAN_RESULT_MINIMAL_WRITES=ON | skipping scanned_candidates writes"
                     )
-                    db.add(candidate)
-                    
-                # New logic for PHASE S1: Persist full scan snapshot
+
+                # New logic for PHASE S1: Persist full scan snapshot / canonical latest
                 from .services.latest_scan_service import LatestScanService
                 scan_service = LatestScanService(db)
-                await scan_service.persist_successful_scan(response, duration_ms)
+                await scan_service.persist_successful_scan(
+                    response, duration_ms, minimal_writes=_minimal
+                )
                 
                 await db.commit()
                 logger.info("Saved scan candidates and latest scan snapshot to database.")

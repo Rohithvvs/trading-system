@@ -662,24 +662,65 @@ async def get_today_candidates(db: AsyncSession = Depends(get_db)):
     from ..models.analysis import ScannedCandidate
     from sqlalchemy import select
     from datetime import datetime, timezone
-    
+    from ..config.settings import settings
+
     today = datetime.now(timezone.utc).date()
-    start_of_today = datetime.combine(today, datetime.min.time())
-    
+    start_of_today = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+    # M2: when minimal writes skip scanned_candidates, derive today's list from canonical.
+    use_canonical = False
+    try:
+        use_canonical = bool(settings.is_scan_result_minimal_writes())
+    except Exception:
+        use_canonical = False
+
+    if use_canonical:
+        from ..models.market_data import LatestScanResult
+
+        res = await db.scalars(
+            select(LatestScanResult)
+            .where(
+                LatestScanResult.scanned_at >= start_of_today,
+                LatestScanResult.signal_type.in_(("BUY", "WATCH")),
+            )
+            .order_by(LatestScanResult.score.desc())
+        )
+        rows = res.all()
+        return JSONResponse(
+            content=[
+                {
+                    "id": r.id,
+                    "symbol": r.symbol,
+                    "scanned_at": r.scanned_at.isoformat() if r.scanned_at else None,
+                    "screener_name": "canonical",
+                    "technical_score": float(r.score or 0.0),
+                    "technical_signal": r.signal_type,
+                    "screener_score": float(r.score or 0.0),
+                    "matched": True,
+                }
+                for r in rows
+            ]
+        )
+
     res = await db.scalars(
         select(ScannedCandidate)
         .where(ScannedCandidate.scanned_at >= start_of_today)
         .order_by(ScannedCandidate.screener_score.desc())
     )
     candidates = res.all()
-    
-    return JSONResponse(content=[{
-        "id": c.id,
-        "symbol": c.symbol,
-        "scanned_at": c.scanned_at.isoformat(),
-        "screener_name": c.screener_name,
-        "technical_score": c.technical_score,
-        "technical_signal": c.technical_signal,
-        "screener_score": c.screener_score,
-        "matched": c.matched
-    } for c in candidates])
+
+    return JSONResponse(
+        content=[
+            {
+                "id": c.id,
+                "symbol": c.symbol,
+                "scanned_at": c.scanned_at.isoformat(),
+                "screener_name": c.screener_name,
+                "technical_score": c.technical_score,
+                "technical_signal": c.technical_signal,
+                "screener_score": c.screener_score,
+                "matched": c.matched,
+            }
+            for c in candidates
+        ]
+    )

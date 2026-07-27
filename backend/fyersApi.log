@@ -5149,3 +5149,7 @@
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":429,"message":"request limit reached","s":"error"}},"timestamp":"2026-07-26 00:17:52,657+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":429,"message":"request limit reached","s":"error"}},"timestamp":"2026-07-26 00:17:52,664+0530","service":"FyersAPI"}
 {"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-300,"message":"Invalid symbol provided","s":"error"}},"timestamp":"2026-07-26 00:17:54,723+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-07-27 14:46:06,928+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-07-27 14:46:11,942+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-07-27 14:49:17,065+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:165] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2026-07-27 14:49:20,104+0530","service":"FyersAPI"}
