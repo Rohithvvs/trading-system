@@ -1,4 +1,5 @@
 import uuid
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,15 +8,22 @@ from sqlalchemy.orm import Session
 from ..db.session import get_db, get_sync_db
 from ..models.auth import User
 from ..core.security import decode_access_token
+from ..core.roles import VALID_ROLES, DEFAULT_ROLE, UserRole, normalize_role
 from sqlalchemy import select
 
 
-def _extract_user_id_from_request(request: Request) -> uuid.UUID:
+def _extract_token_payload(request: Request) -> dict:
     """
-    Derive authenticated user id from the HttpOnly session cookie.
-    Never trust a frontend-supplied user_id.
+    Decode and return JWT payload from Authorization header or HttpOnly cookie.
+    Never trust a frontend-supplied user_id or role.
     """
-    token = request.cookies.get("access_token")
+    token = None
+    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    if not token:
+        token = request.cookies.get("access_token")
+
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -23,14 +31,83 @@ def _extract_user_id_from_request(request: Request) -> uuid.UUID:
         )
     try:
         payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
+        if not payload.get("sub"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-        return uuid.UUID(str(user_id))
+        return payload
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+
+def _normalize_token_role(payload: dict) -> str:
+    return normalize_role(payload.get("role"))
+
+
+def _extract_user_id_from_request(request: Request) -> uuid.UUID:
+    """
+    Derive authenticated user id from Authorization header or HttpOnly session cookie.
+    Never trust a frontend-supplied user_id.
+    """
+    payload = _extract_token_payload(request)
+    # Expose verified JWT claims on request state for stateless authorization (FR-007 / NFR-001).
+    request.state.user_id = str(payload.get("sub"))
+    request.state.user_role = _normalize_token_role(payload)
+    return uuid.UUID(str(payload.get("sub")))
+
+
+class TokenPrincipal:
+    """Stateless authenticated principal derived solely from a verified JWT (no DB read)."""
+
+    __slots__ = ("user_id", "role", "jti", "raw")
+
+    def __init__(self, user_id: str, role: str, jti: str | None = None, raw: dict | None = None):
+        self.user_id = user_id
+        self.role = role
+        self.jti = jti
+        self.raw = raw or {}
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == UserRole.ADMIN.value
+
+
+def get_token_principal(request: Request) -> TokenPrincipal:
+    """
+    NFR-001: role authorization principal with zero database queries.
+    Use for pure authorization checks; prefer get_current_user when full User row is required.
+    """
+    payload = _extract_token_payload(request)
+    user_id = str(payload.get("sub"))
+    role = _normalize_token_role(payload)
+    request.state.user_id = user_id
+    request.state.user_role = role
+    return TokenPrincipal(
+        user_id=user_id,
+        role=role,
+        jti=payload.get("jti"),
+        raw=payload,
+    )
+
+
+def require_roles(*allowed: str):
+    """Factory: FastAPI dependency that enforces JWT role claim without a DB lookup."""
+    allowed_set = {normalize_role(r) for r in allowed}
+
+    def _dependency(principal: Annotated[TokenPrincipal, Depends(get_token_principal)]) -> TokenPrincipal:
+        if principal.role not in allowed_set:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role privileges",
+            )
+        return principal
+
+    return _dependency
+
+
+# Convenience dependencies for future admin-protected routes (stateless).
+require_admin = require_roles(UserRole.ADMIN.value)
+require_trader_or_admin = require_roles(UserRole.TRADER.value, UserRole.ADMIN.value)
 
 
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:

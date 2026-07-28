@@ -23,6 +23,7 @@ import {
   toUserFacingApiMessage,
 } from "./utils/apiErrors";
 import { cachedFetch, CACHE_KEYS, invalidateCache, setCached } from "./utils/appCache";
+import { authStorage } from "./utils/storage";
 
 export { toUserFacingApiMessage, ApiClientError } from "./utils/apiErrors";
 
@@ -55,6 +56,7 @@ async function fetchWithDiagnostics(
     if (method !== "GET" && method !== "HEAD" && !headers["Content-Type"] && !headers["content-type"]) {
       headers["Content-Type"] = "application/json";
     }
+    // Session auth uses HttpOnly cookies (credentials: include). Do not pull JWT from localStorage.
     const fetchInit: RequestInit = {
       ...init,
       credentials: "include",
@@ -1307,6 +1309,30 @@ async function throwIfAuthFailed(response: Response, fallback: string): Promise<
   throw new Error(formatAuthErrorDetail(errorData?.detail, fallback));
 }
 
+function persistAuthFromResponse(data: any): {
+  role: "trader" | "admin";
+  user: { id: string; email: string; full_name: string; role: "trader" | "admin" };
+} {
+  const role = data.role === "admin" || data.user?.role === "admin" ? "admin" : "trader";
+  const user = {
+    id: String(data.id ?? data.user?.id ?? ""),
+    email: data.email ?? data.user?.email ?? "",
+    full_name: data.full_name ?? data.user?.full_name ?? "",
+    role: role as "trader" | "admin",
+  };
+  // Persist role/profile only (FR-015/016). JWT lives in HttpOnly cookie, not localStorage.
+  authStorage.setAccessToken(""); // clears any legacy token key
+  if (user.id && user.email) {
+    authStorage.setUserProfile({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role,
+    });
+  }
+  return { role, user };
+}
+
 export async function authSignup(payload: any): Promise<any> {
   try {
     const response = await fetchWithDiagnostics(
@@ -1318,7 +1344,10 @@ export async function authSignup(payload: any): Promise<any> {
       "Auth signup",
     );
     await throwIfAuthFailed(response, "Signup failed");
-    return response.json();
+    const data = await response.json();
+    // Persist role (+ access_token when issued) for FR-015/FR-016.
+    const { role, user } = persistAuthFromResponse(data);
+    return { ...data, role, user };
   } catch (err) {
     throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Signup failed"));
   }
@@ -1335,7 +1364,10 @@ export async function authLogin(payload: any): Promise<any> {
       "Auth login",
     );
     await throwIfAuthFailed(response, "Login failed");
-    return response.json();
+    const data = await response.json();
+    // Normalize flat login payload into a role-aware user object for AuthProvider.
+    const { role, user } = persistAuthFromResponse(data);
+    return { ...data, role, user };
   } catch (err) {
     throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Login failed"));
   }
@@ -1355,7 +1387,9 @@ export async function authGoogleLogin(idToken: string): Promise<any> {
       "Auth google",
     );
     await throwIfAuthFailed(response, "Google login failed");
-    return response.json();
+    const data = await response.json();
+    const { role, user } = persistAuthFromResponse(data);
+    return { ...data, role, user };
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw mapNetworkError(err, apiUrl("/auth/google"), "Auth google");
@@ -1369,7 +1403,20 @@ export async function authGoogleLogin(idToken: string): Promise<any> {
 export async function authMe(): Promise<any> {
   const response = await fetchWithDiagnostics("/auth/me", undefined, "Auth me");
   if (!response.ok) throw new Error("Not authenticated");
-  return response.json();
+  const data = await response.json();
+  const role = data.role === "admin" ? "admin" : "trader";
+  const profile = {
+    ...data,
+    id: String(data.id),
+    role: role as "trader" | "admin",
+  };
+  authStorage.setUserProfile({
+    id: profile.id,
+    email: profile.email,
+    full_name: profile.full_name || "",
+    role: profile.role,
+  });
+  return profile;
 }
 
 /** Authenticated user profile (DB-backed — syncs across browsers/devices). */
@@ -1428,6 +1475,9 @@ export async function authLogout(): Promise<void> {
     await fetchWithDiagnostics("/auth/logout", { method: "POST" }, "Auth logout");
   } catch (err) {
     console.error(toUserFacingApiMessage(err));
+  } finally {
+    // Always clear client-side role/token storage on logout (FR-016).
+    authStorage.clearAuth();
   }
 }
 

@@ -1,14 +1,23 @@
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Text, func
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Text, CheckConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
+from ..core.roles import UserRole, DEFAULT_ROLE
 
 class User(Base):
     __tablename__ = "users"
+    # name= must match alembic revision 20260728_001 (ck_users_role_valid).
+    # Use explicit naming to avoid SQLAlchemy auto-prefix (ck_users_ck_users_...).
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('trader', 'admin')",
+            name="ck_users_role_valid",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
@@ -19,7 +28,7 @@ class User(Base):
     profile_picture: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default="Trader", nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default=DEFAULT_ROLE, server_default=DEFAULT_ROLE, nullable=False)
     reset_password_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     reset_password_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
