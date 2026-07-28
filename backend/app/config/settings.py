@@ -260,6 +260,20 @@ class Settings(BaseSettings):
         except Exception:
             return False
 
+    # Sprint 5: Scanner Single Final Write feature flag
+    scanner_single_final_write_enabled: bool = Field(default=False, alias="SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+
+    def is_scanner_single_final_write_enabled(self) -> bool:
+        try:
+            raw = os.environ.get("SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+            if raw is not None and str(raw).strip() != "":
+                enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+                object.__setattr__(self, "scanner_single_final_write_enabled", enabled)
+                return enabled
+            return bool(self.scanner_single_final_write_enabled)
+        except Exception:
+            return False
+
     # Sprint 4: Authoritative Candle Store feature flags
     authoritative_candle_store_enabled: bool = Field(default=False, alias="AUTHORITATIVE_CANDLE_STORE_ENABLED")
     candle_store_dual_write: bool = Field(default=True, alias="CANDLE_STORE_DUAL_WRITE")

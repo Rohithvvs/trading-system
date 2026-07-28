@@ -78,6 +78,29 @@ if Counter:
         "candle_store_feature_flag_status",
         "AUTHORITATIVE_CANDLE_STORE_ENABLED (1=ON, 0=OFF)",
     )
+    # Sprint 5: Scanner Single Final Write
+    SCANNER_SINGLE_WRITE_DURATION = Histogram(
+        "scanner_single_write_duration_seconds",
+        "Single final write transaction duration in seconds",
+    )
+    SCANNER_ANALYSIS_DURATION = Histogram(
+        "scanner_analysis_duration_seconds",
+        "In-memory scanner analysis duration in seconds",
+    )
+    SCANNER_TRANSACTIONS_TOTAL = Counter(
+        "scanner_transactions_total",
+        "Total database transactions executed by scanner per run",
+        ["mode"],
+    )
+    SCANNER_SINGLE_WRITE_FAILURES = Counter(
+        "scanner_single_write_failures_total",
+        "Failed single final write transactions total",
+        ["reason"],
+    )
+    SCANNER_FEATURE_FLAG_SINGLE_WRITE = Gauge(
+        "scanner_feature_flag_single_write",
+        "Current SCANNER_SINGLE_FINAL_WRITE_ENABLED status (1=ON, 0=OFF)",
+    )
 else:
     ORDER_EXECUTIONS = DUPLICATE_EXECUTIONS = DB_COMMIT_LATENCY = WS_CLIENTS = LOGGER_QUEUE_DEPTH = None
     SCANNER_CACHE_HITS = SCANNER_CACHE_MISSES = SCANNER_CACHE_ERRORS = None
@@ -86,6 +109,8 @@ else:
     SCANNER_WRITES_TOTAL = SCANNER_FEATURE_FLAG_MINIMAL_WRITES = SCANNER_PERSIST_LATENCY = None
     CANDLE_STORE_CACHE_HIT_TOTAL = CANDLE_STORE_READ_SOURCE = CANDLE_STORE_READ_LATENCY = None
     CANDLE_STORE_WRITE_TOTAL = CANDLE_STORE_CONSISTENCY_FAILURES = CANDLE_STORE_FEATURE_FLAG = None
+    SCANNER_SINGLE_WRITE_DURATION = SCANNER_ANALYSIS_DURATION = SCANNER_TRANSACTIONS_TOTAL = None
+    SCANNER_SINGLE_WRITE_FAILURES = SCANNER_FEATURE_FLAG_SINGLE_WRITE = None
 
 
 # Process-local totals for hit-ratio gauge when Prometheus is available or for tests.
@@ -199,6 +224,36 @@ def observe_candle_store_read_latency(source: str, seconds: float) -> None:
             )
         except Exception:
             pass
+
+
+def set_single_final_write_flag_metric(enabled: bool) -> None:
+    """Emit gauge for SCANNER_SINGLE_FINAL_WRITE_ENABLED (1=ON, 0=OFF)."""
+    if SCANNER_FEATURE_FLAG_SINGLE_WRITE is not None:
+        SCANNER_FEATURE_FLAG_SINGLE_WRITE.set(1 if enabled else 0)
+
+
+def observe_single_write_duration(seconds: float) -> None:
+    """Record single final write transaction duration."""
+    if SCANNER_SINGLE_WRITE_DURATION is not None:
+        SCANNER_SINGLE_WRITE_DURATION.observe(max(0.0, float(seconds)))
+
+
+def observe_analysis_duration(seconds: float) -> None:
+    """Record in-memory analysis duration."""
+    if SCANNER_ANALYSIS_DURATION is not None:
+        SCANNER_ANALYSIS_DURATION.observe(max(0.0, float(seconds)))
+
+
+def record_scanner_transaction(mode: str = "single_final_write") -> None:
+    """Count DB transactions executed per scan run."""
+    if SCANNER_TRANSACTIONS_TOTAL is not None:
+        SCANNER_TRANSACTIONS_TOTAL.labels(mode=mode).inc()
+
+
+def record_single_write_failure(reason: str = "error") -> None:
+    """Count failed single final write transaction attempts."""
+    if SCANNER_SINGLE_WRITE_FAILURES is not None:
+        SCANNER_SINGLE_WRITE_FAILURES.labels(reason=reason).inc()
 
 
 def render_metrics() -> tuple[bytes, str]:

@@ -282,28 +282,30 @@ class ScanExecutionService:
             # that same row — never INSERT a second parent (see UniqueViolationError on
             # ix_scan_snapshots_scan_id).
             #
-            # Evaluate SCAN_RESULT_MINIMAL_WRITES once per scan envelope (FR-010 / M4).
+            # Evaluate SCANNER_SINGLE_FINAL_WRITE_ENABLED and SCAN_RESULT_MINIMAL_WRITES per scan envelope
             is_minimal_writes = False
+            is_single_final_write = False
             try:
                 from ..config.settings import settings
 
                 is_minimal_writes = bool(settings.is_scan_result_minimal_writes())
+                is_single_final_write = bool(settings.is_scanner_single_final_write_enabled())
             except Exception as ff_exc:
                 logger.warning(
                     "[SCAN] FF_DEFAULT_FALLBACK | Feature flag evaluation error (defaulting to False): %s",
                     ff_exc,
                 )
-                is_minimal_writes = False
 
             try:
-                from ..observability.metrics import set_minimal_writes_flag_metric
+                from ..observability.metrics import set_minimal_writes_flag_metric, set_single_final_write_flag_metric
 
                 set_minimal_writes_flag_metric(is_minimal_writes)
+                set_single_final_write_flag_metric(is_single_final_write)
             except Exception:
                 pass
 
-            if is_minimal_writes:
-                logger.info("[SCAN] Minimal write mode active | scan_id=%s | Skipping RUNNING snapshot row", scan_id)
+            if is_single_final_write or is_minimal_writes:
+                logger.info("[SCAN] Minimal/Single write mode active | scan_id=%s | Skipping RUNNING snapshot row", scan_id)
             else:
                 try:
                     async with AsyncSessionLocal() as db:
@@ -338,7 +340,7 @@ class ScanExecutionService:
             loop = asyncio.get_running_loop()
 
             def progress_callback(update_dict: dict):
-                if isinstance(update_dict, dict):
+                if not update_dict.get("heartbeat"):
                     _scan_state.update(
                         stage=update_dict.get("stage", _scan_state.stage),
                         progress=update_dict.get("progress", _scan_state.progress),
@@ -417,10 +419,26 @@ class ScanExecutionService:
                 # Yield so SSE can flush before heavy work
                 await asyncio.sleep(0.05)
 
-                logger.info("[SCAN] Invoking RouterAgent.screener_full | scan_id=%s", scan_id)
-                response = await RouterAgent(None).screener_full(
-                    payload, progress_callback=progress_callback
-                )
+                # Enforce 30s maximum in-memory scan calculation timeout (FR-012)
+                try:
+                    response = await asyncio.wait_for(
+                        RouterAgent(None).screener_full(
+                            payload, progress_callback=progress_callback
+                        ),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError as to_exc:
+                    logger.error(
+                        "[SCAN] SCAN_TIMEOUT_ABORT | In-memory scan execution exceeded 30s timeout | scan_id=%s",
+                        scan_id,
+                    )
+                    try:
+                        from ..observability.metrics import record_single_write_failure
+                        record_single_write_failure(reason="timeout")
+                    except Exception:
+                        pass
+                    raise TimeoutError("In-memory scan execution timed out after 30 seconds") from to_exc
+
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
                 response_data = response
                 scan_status = "COMPLETED"
@@ -440,83 +458,137 @@ class ScanExecutionService:
                     cache_universe, payload.mode.value, payload.timeframe.swing or "1d", result
                 )
 
-                # Lifecycle phase 2: single persist call for this scan_id (UPSERT parent).
-                # Do not call persist_successful_scan more than once per scan_id here.
+                # Lifecycle phase 2: single persist call for this scan_id.
                 logger.info(
                     "[SCAN] PERSIST_BEGIN | phase=2_of_2 | scan_id=%s | shortlisted=%s | "
-                    "buy=%s | watch=%s | analysis_items=%s | expect=UPDATE_running_row",
+                    "buy=%s | watch=%s | single_final_write=%s",
                     scan_id,
                     len(response.shortlisted_symbols or []),
                     len(response.buy_candidate_symbols or []),
                     len(response.watch_candidate_symbols or []),
-                    len(response.analysis.items) if response.analysis and response.analysis.items else 0,
+                    is_single_final_write,
                 )
 
                 persist_ok = False
-                write_history = (not is_minimal_writes) or save_history
                 persist_t0 = time.perf_counter()
+                write_history = bool(save_history)
                 try:
-                    async with AsyncSessionLocal() as db:
-                        try:
-                            scan_service = LatestScanService(db)
-                            # Freeze flag for this unit of work (M4 / audit concurrency).
-                            await scan_service.persist_successful_scan(
-                                response,
-                                duration_ms,
-                                scan_id=scan_id,
-                                minimal_writes=is_minimal_writes,
-                            )
-                            # History co-committed with canonical latest (H2).
-                            history_normalized = None
-                            if write_history:
-                                from ..db.scan_store import (
-                                    _prewarm_analysis_cache,
-                                    save_latest_scan_in_session,
-                                )
+                    if is_single_final_write:
+                        # Single Final Write Path (Sprint 5)
+                        from ..schemas.scan_aggregate import ScanAggregateResult, ScanCandidateDTO
+                        from ..services.scanner_single_write_service import ScannerSingleWriteService
 
-                                history_normalized = await save_latest_scan_in_session(
-                                    db, result
+                        strategy_name = (
+                            getattr(payload, "strategy_name", None)
+                            or getattr(response, "strategy_name", None)
+                            or "SCANNER_STRATEGY"
+                        )
+                        candidates_dto: List[ScanCandidateDTO] = []
+                        for sym in (response.buy_candidate_symbols or []):
+                            candidates_dto.append(
+                                ScanCandidateDTO(
+                                    symbol=sym, strategy_name=strategy_name, signal_type="BUY", score=90.0
                                 )
-                            await db.commit()
-                        except Exception:
-                            # Explicit rollback so partial unit-of-work never commits (H2).
+                            )
+                        for sym in (response.watch_candidate_symbols or []):
+                            candidates_dto.append(
+                                ScanCandidateDTO(
+                                    symbol=sym, strategy_name=strategy_name, signal_type="WATCH", score=75.0
+                                )
+                            )
+
+                        aggregate = ScanAggregateResult(
+                            scan_id=scan_id,
+                            symbol_universe=cache_universe,
+                            execution_timestamp=datetime.datetime.now(datetime.timezone.utc),
+                            candidates=candidates_dto,
+                            total_scanned=response.scanned_symbols,
+                            total_candidates=len(candidates_dto),
+                            execution_duration_ms=float(duration_ms),
+                            save_history=write_history,
+                        )
+
+                        async with AsyncSessionLocal() as db:
+                            single_write_svc = ScannerSingleWriteService(db)
+                            await single_write_svc.persist_single_final_write(aggregate)
+
                             try:
-                                await db.rollback()
-                            except Exception as rb_exc:
-                                logger.warning(
-                                    "[SCAN] Persist rollback failed | scan_id=%s | error=%s",
-                                    scan_id,
-                                    rb_exc,
+                                scan_service = LatestScanService(db)
+                                rich_dash = LatestScanService.build_dashboard_payload_from_screener(
+                                    response, duration_ms=duration_ms, scan_id=scan_id
                                 )
-                            raise
+                                await scan_service.prewarm_scanner_latest_cache(rich_dash)
+                            except Exception as warm_exc:
+                                logger.warning(
+                                    "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
+                                    scan_id,
+                                    warm_exc,
+                                )
+                        persist_ok = True
+                        logger.info(
+                            "[SCAN] SINGLE_FINAL_WRITE_OK | scan_id=%s | candidates=%d | history=%s",
+                            scan_id,
+                            len(candidates_dto),
+                            write_history,
+                        )
+                    else:
+                        # Legacy / Minimal Write Path
+                        async with AsyncSessionLocal() as db:
+                            try:
+                                scan_service = LatestScanService(db)
+                                await scan_service.persist_successful_scan(
+                                    response,
+                                    duration_ms,
+                                    scan_id=scan_id,
+                                    minimal_writes=is_minimal_writes,
+                                )
+                                history_normalized = None
+                                if write_history:
+                                    from ..db.scan_store import (
+                                        _prewarm_analysis_cache,
+                                        save_latest_scan_in_session,
+                                    )
 
-                        # Cache pre-warm only after durable commit (best-effort; non-fatal).
-                        # Prefer rich in-memory ScreenerResponse projection (M-R1 flag-ON parity).
-                        try:
-                            rich_dash = LatestScanService.build_dashboard_payload_from_screener(
-                                response,
-                                duration_ms=duration_ms,
-                                scan_id=scan_id,
-                            )
-                            await scan_service.prewarm_scanner_latest_cache(rich_dash)
-                            if history_normalized is not None:
-                                await _prewarm_analysis_cache(history_normalized)
-                        except Exception as warm_exc:
-                            logger.warning(
-                                "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
-                                scan_id,
-                                warm_exc,
-                            )
-                    persist_ok = True
-                    logger.info(
-                        "[SCAN] PERSIST_COMMIT_OK | scan_id=%s | buy=%s | watch=%s | "
-                        "persist_calls=1 | history=%s | minimal_writes=%s",
-                        scan_id,
-                        len(response.buy_candidate_symbols or []),
-                        len(response.watch_candidate_symbols or []),
-                        write_history,
-                        is_minimal_writes,
-                    )
+                                    history_normalized = await save_latest_scan_in_session(
+                                        db, result
+                                    )
+                                await db.commit()
+                            except Exception:
+                                try:
+                                    await db.rollback()
+                                except Exception as rb_exc:
+                                    logger.warning(
+                                        "[SCAN] Persist rollback failed | scan_id=%s | error=%s",
+                                        scan_id,
+                                        rb_exc,
+                                    )
+                                raise
+
+                            try:
+                                rich_dash = LatestScanService.build_dashboard_payload_from_screener(
+                                    response,
+                                    duration_ms=duration_ms,
+                                    scan_id=scan_id,
+                                )
+                                await scan_service.prewarm_scanner_latest_cache(rich_dash)
+                                if history_normalized is not None:
+                                    await _prewarm_analysis_cache(history_normalized)
+                            except Exception as warm_exc:
+                                logger.warning(
+                                    "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
+                                    scan_id,
+                                    warm_exc,
+                                )
+                        persist_ok = True
+                        logger.info(
+                            "[SCAN] PERSIST_COMMIT_OK | scan_id=%s | buy=%s | watch=%s | "
+                            "persist_calls=1 | history=%s | minimal_writes=%s",
+                            scan_id,
+                            len(response.buy_candidate_symbols or []),
+                            len(response.watch_candidate_symbols or []),
+                            write_history,
+                            is_minimal_writes,
+                        )
                 except Exception as persist_exc:
                     # Results still returned to caller; health telemetry records failure (H1).
                     error_type = (
