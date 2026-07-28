@@ -262,6 +262,12 @@ class Settings(BaseSettings):
 
     # Sprint 5: Scanner Single Final Write feature flag
     scanner_single_final_write_enabled: bool = Field(default=False, alias="SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+    # Full broker-backed scan wall-clock budget (data fetch + analysis + rate limits).
+    # FR-012's 30s target applies to pure in-memory aggregation; production Fyers
+    # universe scans need a much larger budget. Override via env.
+    scan_execution_timeout_seconds: float = Field(
+        default=600.0, ge=30.0, le=3600.0, alias="SCAN_EXECUTION_TIMEOUT_SECONDS"
+    )
 
     def is_scanner_single_final_write_enabled(self) -> bool:
         try:

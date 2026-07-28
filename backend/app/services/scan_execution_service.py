@@ -2,6 +2,8 @@ import asyncio
 import time
 import logging
 import uuid
+from typing import List
+
 from ..agents import RouterAgent
 from ..db.session import AsyncSessionLocal
 from ..services.latest_scan_service import LatestScanService
@@ -419,17 +421,28 @@ class ScanExecutionService:
                 # Yield so SSE can flush before heavy work
                 await asyncio.sleep(0.05)
 
-                # Enforce 30s maximum in-memory scan calculation timeout (FR-012)
+                # Wall-clock budget for broker-backed scan (data fetch + analysis).
+                # FR-012's 30s target is for pure in-memory aggregation; full Fyers
+                # universe scans need a larger default (see SCAN_EXECUTION_TIMEOUT_SECONDS).
+                try:
+                    from ..config.settings import settings as _timeout_settings
+                    scan_timeout_sec = float(
+                        getattr(_timeout_settings, "scan_execution_timeout_seconds", 600.0) or 600.0
+                    )
+                except Exception:
+                    scan_timeout_sec = 600.0
+                scan_timeout_sec = max(30.0, min(scan_timeout_sec, 3600.0))
                 try:
                     response = await asyncio.wait_for(
                         RouterAgent(None).screener_full(
                             payload, progress_callback=progress_callback
                         ),
-                        timeout=30.0,
+                        timeout=scan_timeout_sec,
                     )
                 except asyncio.TimeoutError as to_exc:
                     logger.error(
-                        "[SCAN] SCAN_TIMEOUT_ABORT | In-memory scan execution exceeded 30s timeout | scan_id=%s",
+                        "[SCAN] SCAN_TIMEOUT_ABORT | Scan execution exceeded %.0fs timeout | scan_id=%s",
+                        scan_timeout_sec,
                         scan_id,
                     )
                     try:
@@ -437,7 +450,9 @@ class ScanExecutionService:
                         record_single_write_failure(reason="timeout")
                     except Exception:
                         pass
-                    raise TimeoutError("In-memory scan execution timed out after 30 seconds") from to_exc
+                    raise TimeoutError(
+                        f"Scan execution timed out after {scan_timeout_sec:.0f} seconds"
+                    ) from to_exc
 
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
                 response_data = response
@@ -472,6 +487,8 @@ class ScanExecutionService:
                 persist_ok = False
                 persist_t0 = time.perf_counter()
                 write_history = bool(save_history)
+                from ..db.session import dispose_async_pool, is_db_connection_error
+
                 try:
                     if is_single_final_write:
                         # Single Final Write Path (Sprint 5)
@@ -508,22 +525,41 @@ class ScanExecutionService:
                             save_history=write_history,
                         )
 
-                        async with AsyncSessionLocal() as db:
-                            single_write_svc = ScannerSingleWriteService(db)
-                            await single_write_svc.persist_single_final_write(aggregate)
-
+                        for attempt in range(2):
                             try:
-                                scan_service = LatestScanService(db)
-                                rich_dash = LatestScanService.build_dashboard_payload_from_screener(
-                                    response, duration_ms=duration_ms, scan_id=scan_id
-                                )
-                                await scan_service.prewarm_scanner_latest_cache(rich_dash)
-                            except Exception as warm_exc:
-                                logger.warning(
-                                    "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
-                                    scan_id,
-                                    warm_exc,
-                                )
+                                async with AsyncSessionLocal() as db:
+                                    single_write_svc = ScannerSingleWriteService(db)
+                                    await single_write_svc.persist_single_final_write(aggregate)
+
+                                    try:
+                                        scan_service = LatestScanService(db)
+                                        rich_dash = LatestScanService.build_dashboard_payload_from_screener(
+                                            response, duration_ms=duration_ms, scan_id=scan_id
+                                        )
+                                        await scan_service.prewarm_scanner_latest_cache(rich_dash)
+                                    except Exception as warm_exc:
+                                        logger.warning(
+                                            "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
+                                            scan_id,
+                                            warm_exc,
+                                        )
+                                break
+                            except Exception as write_exc:
+                                if attempt == 0 and is_db_connection_error(write_exc):
+                                    logger.warning(
+                                        "[SCAN] Single-final-write connection closed; "
+                                        "disposing pool and retrying | scan_id=%s | error=%s",
+                                        scan_id,
+                                        write_exc,
+                                    )
+                                    try:
+                                        await dispose_async_pool(
+                                            reason="scan_single_write_connection_closed"
+                                        )
+                                    except Exception:
+                                        pass
+                                    continue
+                                raise
                         persist_ok = True
                         logger.info(
                             "[SCAN] SINGLE_FINAL_WRITE_OK | scan_id=%s | candidates=%d | history=%s",
@@ -532,53 +568,74 @@ class ScanExecutionService:
                             write_history,
                         )
                     else:
-                        # Legacy / Minimal Write Path
-                        async with AsyncSessionLocal() as db:
+                        # Legacy / Minimal Write Path — fresh session + one reconnect retry.
+                        # pool_pre_ping usually catches dead connections; idle kills and
+                        # Neon/proxy drops still surface as "connection is closed".
+                        for attempt in range(2):
                             try:
-                                scan_service = LatestScanService(db)
-                                await scan_service.persist_successful_scan(
-                                    response,
-                                    duration_ms,
-                                    scan_id=scan_id,
-                                    minimal_writes=is_minimal_writes,
-                                )
-                                history_normalized = None
-                                if write_history:
-                                    from ..db.scan_store import (
-                                        _prewarm_analysis_cache,
-                                        save_latest_scan_in_session,
-                                    )
+                                async with AsyncSessionLocal() as db:
+                                    try:
+                                        scan_service = LatestScanService(db)
+                                        await scan_service.persist_successful_scan(
+                                            response,
+                                            duration_ms,
+                                            scan_id=scan_id,
+                                            minimal_writes=is_minimal_writes,
+                                        )
+                                        history_normalized = None
+                                        if write_history:
+                                            from ..db.scan_store import (
+                                                _prewarm_analysis_cache,
+                                                save_latest_scan_in_session,
+                                            )
 
-                                    history_normalized = await save_latest_scan_in_session(
-                                        db, result
-                                    )
-                                await db.commit()
-                            except Exception:
-                                try:
-                                    await db.rollback()
-                                except Exception as rb_exc:
+                                            history_normalized = await save_latest_scan_in_session(
+                                                db, result
+                                            )
+                                        await db.commit()
+                                    except Exception:
+                                        try:
+                                            await db.rollback()
+                                        except Exception as rb_exc:
+                                            logger.warning(
+                                                "[SCAN] Persist rollback failed | scan_id=%s | error=%s",
+                                                scan_id,
+                                                rb_exc,
+                                            )
+                                        raise
+
+                                    try:
+                                        rich_dash = LatestScanService.build_dashboard_payload_from_screener(
+                                            response,
+                                            duration_ms=duration_ms,
+                                            scan_id=scan_id,
+                                        )
+                                        await scan_service.prewarm_scanner_latest_cache(rich_dash)
+                                        if history_normalized is not None:
+                                            await _prewarm_analysis_cache(history_normalized)
+                                    except Exception as warm_exc:
+                                        logger.warning(
+                                            "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
+                                            scan_id,
+                                            warm_exc,
+                                        )
+                                break
+                            except Exception as write_exc:
+                                if attempt == 0 and is_db_connection_error(write_exc):
                                     logger.warning(
-                                        "[SCAN] Persist rollback failed | scan_id=%s | error=%s",
+                                        "[SCAN] Persist connection closed; disposing pool and retrying | "
+                                        "scan_id=%s | error=%s",
                                         scan_id,
-                                        rb_exc,
+                                        write_exc,
                                     )
+                                    try:
+                                        await dispose_async_pool(
+                                            reason="scan_persist_connection_closed"
+                                        )
+                                    except Exception:
+                                        pass
+                                    continue
                                 raise
-
-                            try:
-                                rich_dash = LatestScanService.build_dashboard_payload_from_screener(
-                                    response,
-                                    duration_ms=duration_ms,
-                                    scan_id=scan_id,
-                                )
-                                await scan_service.prewarm_scanner_latest_cache(rich_dash)
-                                if history_normalized is not None:
-                                    await _prewarm_analysis_cache(history_normalized)
-                            except Exception as warm_exc:
-                                logger.warning(
-                                    "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",
-                                    scan_id,
-                                    warm_exc,
-                                )
                         persist_ok = True
                         logger.info(
                             "[SCAN] PERSIST_COMMIT_OK | scan_id=%s | buy=%s | watch=%s | "
