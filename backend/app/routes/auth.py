@@ -221,8 +221,16 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
             import uuid as _uuid
             result = await db.execute(select(User).where(User.id == _uuid.UUID(str(user_id))))
             user = result.scalar_one_or_none()
-            if user and user.role:
+            if not user or not user.is_active or user.deleted_at is not None:
+                # Soft-deleted / inactive must not mint new sessions (audit M-B).
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired refresh token",
+                )
+            if user.role:
                 role = normalize_role(user.role)
+        except HTTPException:
+            raise
         except Exception:
             role = DEFAULT_ROLE
 

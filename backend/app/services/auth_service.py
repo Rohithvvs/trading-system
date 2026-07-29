@@ -117,6 +117,13 @@ async def authenticate_user(db: AsyncSession, email: str, password: str, ip_addr
         
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+
+    # Audit M-B / L-4 hardening: soft-deleted accounts must not receive new sessions.
+    if user.deleted_at is not None:
+        await AuditService.log_event(
+            db, str(user.id), "login_failed", ip_address, user_agent, {"reason": "account_soft_deleted"}
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is unavailable")
         
     await AuditService.log_event(db, str(user.id), "login_success", ip_address, user_agent)
     return user
@@ -229,6 +236,14 @@ async def google_auth(db: AsyncSession, id_token_str: str, ip_address: str = Non
         if user.google_id and user.google_id != google_id:
             await AuditService.log_event(db, str(user.id), "login_failed", ip_address, user_agent, {"reason": "google_id_mismatch", "email": email})
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email is already linked to a different Google account")
+        if not user.is_active:
+            await AuditService.log_event(db, str(user.id), "login_failed", ip_address, user_agent, {"reason": "account_disabled", "provider": "google"})
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+        if user.deleted_at is not None:
+            await AuditService.log_event(
+                db, str(user.id), "login_failed", ip_address, user_agent, {"reason": "account_soft_deleted", "provider": "google"}
+            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is unavailable")
         user.google_id = google_id
         user.provider = "google"
         if picture:
