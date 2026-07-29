@@ -246,6 +246,74 @@ class Settings(BaseSettings):
     shadow_mode_ruleset: str = Field(default="experimental_v1", alias="SHADOW_MODE_RULESET")
     shadow_mode_persistence_enabled: bool = Field(default=False, alias="SHADOW_MODE_PERSISTENCE_ENABLED")
 
+    # Sprint 3: Reduce Scan-Result Fan-out feature flag
+    scan_result_minimal_writes: bool = Field(default=False, alias="SCAN_RESULT_MINIMAL_WRITES")
+
+    def is_scan_result_minimal_writes(self) -> bool:
+        try:
+            raw = os.environ.get("SCAN_RESULT_MINIMAL_WRITES")
+            if raw is not None and str(raw).strip() != "":
+                enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+                object.__setattr__(self, "scan_result_minimal_writes", enabled)
+                return enabled
+            return bool(self.scan_result_minimal_writes)
+        except Exception:
+            return False
+
+    # Sprint 5: Scanner Single Final Write feature flag
+    scanner_single_final_write_enabled: bool = Field(default=False, alias="SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+    # Full broker-backed scan wall-clock budget (data fetch + analysis + rate limits).
+    # FR-012's 30s target applies to pure in-memory aggregation; production Fyers
+    # universe scans need a much larger budget. Override via env.
+    scan_execution_timeout_seconds: float = Field(
+        default=600.0, ge=30.0, le=3600.0, alias="SCAN_EXECUTION_TIMEOUT_SECONDS"
+    )
+
+    def is_scanner_single_final_write_enabled(self) -> bool:
+        try:
+            raw = os.environ.get("SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+            if raw is not None and str(raw).strip() != "":
+                enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+                object.__setattr__(self, "scanner_single_final_write_enabled", enabled)
+                return enabled
+            return bool(self.scanner_single_final_write_enabled)
+        except Exception:
+            return False
+
+    # Sprint 4: Authoritative Candle Store feature flags
+    authoritative_candle_store_enabled: bool = Field(default=False, alias="AUTHORITATIVE_CANDLE_STORE_ENABLED")
+    candle_store_dual_write: bool = Field(default=True, alias="CANDLE_STORE_DUAL_WRITE")
+    candle_store_allow_fallback: bool = Field(default=True, alias="CANDLE_STORE_ALLOW_FALLBACK")
+
+    def is_authoritative_candle_store_enabled(self) -> bool:
+        """Live feature-flag read for Authoritative Candle Store (zero-redeploy rollback).
+
+        Priority on every call (pure read — does not mutate settings attributes):
+        1. ``os.environ["AUTHORITATIVE_CANDLE_STORE_ENABLED"]`` when set (non-empty).
+        2. ``settings.authoritative_candle_store_enabled`` attribute (tests / in-process toggles).
+
+        On any evaluation error, defaults to False (legacy fallback fail-safe).
+        """
+        try:
+            raw = os.environ.get("AUTHORITATIVE_CANDLE_STORE_ENABLED")
+            if raw is not None and str(raw).strip() != "":
+                return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            return bool(self.authoritative_candle_store_enabled)
+        except Exception:
+            return False
+
+    def is_candle_store_allow_fallback(self) -> bool:
+        """Whether ACS may return best-available data / provider fallback on errors."""
+        try:
+            raw = os.environ.get("CANDLE_STORE_ALLOW_FALLBACK")
+            if raw is not None and str(raw).strip() != "":
+                return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            return bool(self.candle_store_allow_fallback)
+        except Exception:
+            return True
+
+
+
     # FEAT-012/FEAT-013: Governance states and validation reporting
     governance_reports_dir: str = Field(default="governance/reports", alias="GOVERNANCE_REPORTS_DIR")
     rule_states_file: str = Field(default="backend/app/config/rule_states.json", alias="RULE_STATES_FILE")

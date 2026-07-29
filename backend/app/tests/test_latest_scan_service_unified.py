@@ -233,9 +233,12 @@ async def test_get_latest_scan_dashboard_empty_bypass():
         return None, []
 
     with patch.object(service, "_fetch_latest_snapshot_and_records", side_effect=_empty_fetch):
-        payload, status = await service.get_latest_scan(
-            format_type="dashboard", cache_enabled=False
-        )
+        with patch.object(
+            service, "_fetch_latest_from_canonical_results", new_callable=AsyncMock, return_value=None
+        ):
+            payload, status = await service.get_latest_scan(
+                format_type="dashboard", cache_enabled=False
+            )
 
     assert status == "BYPASS"
     data = json.loads(payload)
@@ -253,9 +256,15 @@ async def test_get_latest_scan_analysis_empty_bypass():
         new_callable=AsyncMock,
         return_value=None,
     ):
-        payload, status = await service.get_latest_scan(
-            format_type="analysis", cache_enabled=False
-        )
+        with patch.object(
+            service,
+            "_fetch_analysis_from_canonical_results",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            payload, status = await service.get_latest_scan(
+                format_type="analysis", cache_enabled=False
+            )
 
     assert status == "BYPASS"
     assert json.loads(payload) == {"available": False}
@@ -275,10 +284,11 @@ async def test_get_latest_scan_dashboard_populated():
     async def _fetch():
         return snap, records
 
-    with patch.object(service, "_fetch_latest_snapshot_and_records", side_effect=_fetch):
-        payload, status = await service.get_latest_scan(
-            format_type="dashboard", cache_enabled=False
-        )
+    with patch.dict("os.environ", {"SCAN_RESULT_MINIMAL_WRITES": "false"}):
+        with patch.object(service, "_fetch_latest_snapshot_and_records", side_effect=_fetch):
+            payload, status = await service.get_latest_scan(
+                format_type="dashboard", cache_enabled=False
+            )
 
     assert status == "BYPASS"
     data = json.loads(payload)
@@ -347,6 +357,9 @@ async def test_get_latest_scan_uses_dashboard_cache_key():
 
     with (
         patch.object(service, "_fetch_latest_snapshot_and_records", side_effect=_empty),
+        patch.object(
+            service, "_fetch_latest_from_canonical_results", new_callable=AsyncMock, return_value=None
+        ),
         patch(
             "app.services.scanner_cache_service.scanner_cache_service.resolve_latest_scan",
             side_effect=fake_resolve,
@@ -372,6 +385,12 @@ async def test_get_latest_scan_uses_analysis_cache_key():
     with (
         patch(
             "app.db.scan_store.load_latest_scan",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch.object(
+            service,
+            "_fetch_analysis_from_canonical_results",
             new_callable=AsyncMock,
             return_value=None,
         ),

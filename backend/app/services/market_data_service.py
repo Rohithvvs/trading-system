@@ -137,6 +137,9 @@ class MarketDataService:
     async def upsert_candles(self, symbol: str, timeframe: str, candles_df: pd.DataFrame):
         """
         Upserts candles into the database efficiently in chunks.
+
+        When Authoritative Candle Store is enabled, routes writes through ACS
+        so historical_candles has a single write owner (audit H7 / FR-001).
         """
         if candles_df.empty:
             return
@@ -159,6 +162,27 @@ class MarketDataService:
                 "close": float(row["close"]),
                 "volume": safe_int(row["volume"], symbol=symbol, field="volume")
             })
+
+        try:
+            from ..config.settings import settings as _settings
+
+            if _settings.is_authoritative_candle_store_enabled():
+                from .authoritative_candle_store import authoritative_candle_store
+
+                await authoritative_candle_store.ingest_candles(
+                    symbol=symbol,
+                    resolution=timeframe,
+                    candles=records,
+                    source="MARKET_DATA_SERVICE",
+                )
+                return
+        except Exception as acs_exc:
+            logger.warning(
+                "acs_upsert_route_failed | symbol=%s | timeframe=%s | error=%s | falling_back_direct",
+                symbol,
+                timeframe,
+                acs_exc,
+            )
 
         # 3. PostgreSQL Batching: Chunk the batches to 900
         MAX_CHUNK_SIZE = 900

@@ -114,6 +114,43 @@ def is_stale_prepared_plan_error(exc: BaseException) -> bool:
     return "InvalidCachedStatement" in msg or "cached statement plan is invalid" in msg
 
 
+def is_db_connection_error(exc: BaseException) -> bool:
+    """True when the underlying DB connection is dead or unusable.
+
+    Covers asyncpg/SQLAlchemy ``InterfaceError`` / ``OperationalError`` cases such as
+    ``connection is closed``, server-side idle kills, and pooler disconnects.
+    Callers should open a *fresh* session (and optionally dispose the pool) and retry.
+    """
+    name = type(exc).__name__
+    if name in {"InterfaceError", "OperationalError", "DBAPIError"}:
+        # Narrow DBAPIError to connection-class messages only.
+        pass
+    msg = str(exc).lower()
+    needles = (
+        "connection is closed",
+        "connection was closed",
+        "connection does not exist",
+        "server closed the connection",
+        "connection reset",
+        "broken pipe",
+        "terminating connection",
+        "ssl connection has been closed",
+        "could not connect",
+        "connection refused",
+        "too many connections",
+    )
+    if any(n in msg for n in needles):
+        return True
+    # Walk cause chain (SQLAlchemy wraps asyncpg errors).
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None and cause is not exc:
+        return is_db_connection_error(cause)
+    orig = getattr(exc, "orig", None)
+    if orig is not None and orig is not exc:
+        return is_db_connection_error(orig)
+    return False
+
+
 async def dispose_async_pool(reason: str = "manual") -> None:
     """Drop all pooled async connections (e.g. after DDL or stale plan errors)."""
     try:

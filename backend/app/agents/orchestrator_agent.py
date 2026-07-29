@@ -76,16 +76,50 @@ class OrchestratorAgent:
         # Seed from screener prefetched candles when available (avoids duplicate OHLCV fetch).
         # IMPORTANT: prefetched dict may be a *partial* map (shortlist ∩ frames with ≥220 bars).
         # Always fill missing request.symbols so analysis never KeyErrors.
-        candles_by_symbol_and_mode: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = (
-            dict(prefetched_candles) if prefetched_candles else {}
-        )
-        prefetched_count = len(candles_by_symbol_and_mode)
+        #
+        # When Authoritative Candle Store is ON, do NOT use parallel screener arrays as the
+        # analysis source of truth. Warm L1 from normalized prefetch, then resolve every
+        # symbol through ACS.get_candles so scanner/analysis share one owner (US1 / FR-001).
+        acs_enabled = settings.is_authoritative_candle_store_enabled()
+        candles_by_symbol_and_mode: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = {}
+        if prefetched_candles and not acs_enabled:
+            candles_by_symbol_and_mode = dict(prefetched_candles)
+        elif prefetched_candles and acs_enabled:
+            try:
+                from ..services.authoritative_candle_store import authoritative_candle_store
+                from ..services.candle_validation_engine import validate_candle_series
+
+                for sym, mode_map in prefetched_candles.items():
+                    for mode, points in (mode_map or {}).items():
+                        if not points:
+                            continue
+                        # Preserve UTC awareness — never strip tz before L1 seed
+                        normalized = []
+                        for p in points:
+                            ts = p.timestamp
+                            if getattr(ts, "tzinfo", None) is None:
+                                from datetime import timezone as _tz
+
+                                ts = ts.replace(tzinfo=_tz.utc)
+                                p = p.model_copy(update={"timestamp": ts})
+                            normalized.append(p)
+                        validated = validate_candle_series(normalized)
+                        resolution = self._resolution_for_mode(mode, request)
+                        authoritative_candle_store.cache.set(sym, str(resolution), validated)
+            except Exception as warm_exc:
+                self.logger.debug(
+                    "ACS L1 warm from prefetch failed | error=%s",
+                    warm_exc,
+                )
+
+        prefetched_count = len(prefetched_candles or {}) if prefetched_candles else 0
         missing_for_fetch = [s for s in request.symbols if s not in candles_by_symbol_and_mode]
         self.logger.info(
-            "ANALYSIS_CANDLE_INPUT | requested=%s | prefetched=%s | missing_need_fetch=%s | missing_symbols=%s",
+            "ANALYSIS_CANDLE_INPUT | requested=%s | prefetched=%s | missing_need_fetch=%s | acs=%s | missing_symbols=%s",
             len(request.symbols),
             prefetched_count,
             len(missing_for_fetch),
+            acs_enabled,
             ",".join(missing_for_fetch[:20]) + ("..." if len(missing_for_fetch) > 20 else ""),
         )
 
@@ -94,6 +128,36 @@ class OrchestratorAgent:
             from ..services.market_data_service import MarketDataService
             start = time.perf_counter()
             candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]] = {}
+
+            # Authoritative path: single owner for all modes (C3).
+            if settings.is_authoritative_candle_store_enabled():
+                try:
+                    from ..services.authoritative_candle_store import authoritative_candle_store
+
+                    for mode in modes:
+                        resolution = self._resolution_for_mode(mode, request)
+                        candles_by_mode[mode] = await authoritative_candle_store.get_candles(
+                            symbol=symbol,
+                            resolution=str(resolution),
+                        )
+                except Exception as exc:
+                    self.logger.error(
+                        "ACS_OHLCV_FETCH_FAILED | symbol=%s | error=%s | marking empty",
+                        symbol,
+                        exc,
+                    )
+                    for mode in modes:
+                        candles_by_mode.setdefault(mode, [])
+                elapsed = time.perf_counter() - start
+                total_rows = sum(len(c) for c in candles_by_mode.values())
+                self.logger.info(
+                    "OHLCV_FETCH_DONE | symbol=%s | source=acs | rows=%s | elapsed_ms=%.0f",
+                    symbol,
+                    total_rows,
+                    elapsed * 1000,
+                )
+                return candles_by_mode
+
             md_service = MarketDataService()
             for mode in modes:
                 resolution = self._resolution_for_mode(mode, request)
@@ -554,6 +618,20 @@ class OrchestratorAgent:
                             volume=safe_int(row["volume"], symbol=sym, field="volume"),
                         ))
                     if len(points) >= 220:
+                        # When ACS is enabled, keep timezone-aware UTC timestamps so L1
+                        # range checks do not mix naive/aware datetimes.
+                        if settings.is_authoritative_candle_store_enabled():
+                            from datetime import timezone as _tz
+
+                            utc_points = []
+                            for p in points:
+                                ts = p.timestamp
+                                if getattr(ts, "tzinfo", None) is None:
+                                    ts = ts.replace(tzinfo=_tz.utc)
+                                elif ts.tzinfo != _tz.utc:
+                                    ts = ts.astimezone(_tz.utc)
+                                utc_points.append(p.model_copy(update={"timestamp": ts}))
+                            points = utc_points
                         prefetched_candles[sym] = {AM.swing: points}
                         try:
                             resolution = self._resolution_for_mode(AM.swing, analysis_request)
@@ -573,6 +651,16 @@ class OrchestratorAgent:
                                 sym,
                                 cache_exc,
                             )
+                        if settings.is_authoritative_candle_store_enabled():
+                            try:
+                                from ..services.authoritative_candle_store import authoritative_candle_store
+                                from ..services.candle_validation_engine import validate_candle_series
+
+                                authoritative_candle_store.cache.set(
+                                    sym, str(resolution), validate_candle_series(points)
+                                )
+                            except Exception:
+                                pass
             missing_prefetch = [s for s in shortlisted_symbols if s not in prefetched_candles]
             self.logger.info(
                 "PREFETCH_FROM_SCREENER | shortlisted=%s | prefetched=%s | missing=%s | missing_symbols=%s",

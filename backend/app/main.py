@@ -948,18 +948,24 @@ async def automated_screening_job():
     import asyncio
     
     scan_ctx = begin_scan(trigger_source="scheduler", universe="NIFTY500", symbol_count=len(settings.nifty500_symbols))
-    from .db.session import AsyncSessionLocal, SessionLocal
+    from .db.session import AsyncSessionLocal, SessionLocal, is_db_connection_error, dispose_async_pool
     from .models.analysis import ScannedCandidate
     try:
+        from .services import token_service
+        from .services.fyers_service import FyersService, FyersAuthInvalidError, FyersAuthExpiredError, FyersAPIError
+
+        request = ScreenerRequest(mode=AnalysisMode.swing)
+        token = None
+        val_latency_ms = 0
+        token_saved_at: str | None = None
+        token_age: float = 0.0
+
+        # ------------------------------------------------------------------
+        # Phase A — preflight only. Postgres sets idle_in_transaction_session_timeout
+        # to 30s on connect; holding one session open across the multi-minute
+        # screener run is what produced "connection is closed" on persist.
+        # ------------------------------------------------------------------
         async with AsyncSessionLocal() as db:
-            agent = OrchestratorAgent(db)
-            request = ScreenerRequest(
-                mode=AnalysisMode.swing
-            )
-            
-            from .services import token_service
-            from .services.fyers_service import FyersService, FyersAuthInvalidError, FyersAuthExpiredError, FyersAPIError
-            
             token = await token_service.get_current_access_token(db)
             if not token:
                 logger.error("Scan aborted: No cached token available in memory or DB.")
@@ -982,57 +988,7 @@ async def automated_screening_job():
                 except Exception as ne:
                     pass
                 return
-            
-            try:
-                logger.info("Validating FYERS token before scheduled scan...")
-                fyers_service = FyersService()
-                val_start_t = perf_counter()
-                await asyncio.wait_for(
-                    asyncio.to_thread(fyers_service.validate_token_sync, token),
-                    timeout=15.0
-                )
-                val_latency_ms = int((perf_counter() - val_start_t) * 1000)
-            except asyncio.TimeoutError:
-                logger.error("Scan aborted: FYERS API timeout during token validation.")
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS Validation Timeout")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
-                return
-            except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
-                logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS Token Expired")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
-                token_service._clear_token_cache()
-                from .services.paper_trading_service import PaperTradingService
-                PaperTradingService(db).add_notification(
-                    account_id=1,
-                    message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
-                    level="error",
-                    event_type="TOKEN_EXPIRED",
-                    entity_type="system",
-                    dedupe_key="TOKEN_EXPIRED_ALERT",
-                    commit=True
-                )
-                logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
-                return
-            except FyersAPIError as e:
-                logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS API Error")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
-                return
-            
-            logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
-            # Token forensics — all arithmetic uses aware UTC via datetime_utils
-            token_saved_at: str | None = None
-            token_age: float = 0.0
+
             try:
                 token_row = await token_service.get_fyers_token_row(db)
                 if token_row and token_row.access_token_saved_at:
@@ -1053,7 +1009,6 @@ async def automated_screening_job():
             except Exception:
                 logger.exception("Failed to log token status for scan")
 
-            # Emit full SCAN_ENVIRONMENT block
             try:
                 from .observability.scan_diagnostics import _PROCESS_START_TIME
                 from .db.session import engine
@@ -1062,17 +1017,13 @@ async def automated_screening_job():
 
                 startup_dt = parse_utc(_PROCESS_START_TIME)
                 app_uptime = age_minutes(startup_dt) if startup_dt is not None else 0.0
-
                 exchange_now = ist_now()
-
                 pool = engine.pool
-
                 last_scan = await LatestScanService(db).get_latest_completed_scan()
                 if last_scan:
                     last_scan_ts = last_scan.get("scan_timestamp")
                     last_scan_dt = parse_utc(last_scan_ts)
                     if last_scan_dt is not None:
-                        # Both sides UTC-aware — never strip tzinfo for subtraction
                         minutes_since = minutes_between(utc_now(), last_scan_dt)
                     else:
                         minutes_since = 0.0
@@ -1081,9 +1032,7 @@ async def automated_screening_job():
                     last_scan_ts = None
                     minutes_since = 0.0
                     last_scan_res = "NONE"
-
                 cache_entries = len(get_all_cached_symbols())
-
                 log_scan_environment(
                     ctx=scan_ctx,
                     token_loaded=bool(token),
@@ -1098,8 +1047,8 @@ async def automated_screening_job():
                     pool_size=pool.size(),
                     checked_out=pool.checkedout(),
                     overflow=pool.overflow(),
-                    fyers_validation_result="success",
-                    fyers_validation_latency_ms=val_latency_ms if "val_latency_ms" in locals() else 0,
+                    fyers_validation_result="pending",
+                    fyers_validation_latency_ms=0,
                     last_scan_timestamp=last_scan_ts,
                     last_scan_result=last_scan_res,
                     last_scan_source="db",
@@ -1111,75 +1060,150 @@ async def automated_screening_job():
             except Exception:
                 logger.exception("Failed to emit SCAN_ENVIRONMENT block")
 
-            import os
+            # Drop any open transaction before the long external I/O below.
             try:
-                import psutil
-            except ImportError:
-                psutil = None
-            start_t_iso = utc_now().isoformat()
+                await db.rollback()
+            except Exception:
+                pass
 
-            # Record scanner memory before run
+        # Token validation does not need a DB session (avoids idle-in-transaction).
+        try:
+            logger.info("Validating FYERS token before scheduled scan...")
+            fyers_service = FyersService()
+            val_start_t = perf_counter()
+            await asyncio.wait_for(
+                asyncio.to_thread(fyers_service.validate_token_sync, token),
+                timeout=15.0
+            )
+            val_latency_ms = int((perf_counter() - val_start_t) * 1000)
+        except asyncio.TimeoutError:
+            logger.error("Scan aborted: FYERS API timeout during token validation.")
             from .services.diagnostics_service import diagnostics
-            mem_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
-
-            diagnostics.set_scanner_running()
-            start_t = perf_counter()
-            response = await agent.run_screener(request)
-            duration_ms = int((perf_counter() - start_t) * 1000)
-
-            # Record scanner memory after run
-            mem_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
-            diagnostics.set_scanner_memory(mem_before, mem_after)
-
-            # Record scanner execution log
-            diagnostics.record_scanner_run({
-                "scan_id": response.screener_name or f"scan-{start_t_iso}",
-                "start_time": start_t_iso,
-                "end_time": utc_now().isoformat(),
-                "duration_ms": duration_ms,
-                "requested_symbols": response.scanned_symbols,
-                "valid_symbols": len(response.data_valid_symbols),
-                "buy_count": len(response.buy_candidate_symbols),
-                "watch_count": len(response.watch_candidate_symbols),
-                "rejected_count": response.scanned_symbols - len(response.matched_symbols),
-                "exception_count": response.duplicate_symbols_skipped,
-            })
-            # Update scan context counters from response
-            scan_ctx.valid = len(response.data_valid_symbols)
-            scan_ctx.eligible = len(response.eligible_symbols)
-            scan_ctx.matched = len(response.matched_symbols)
-            scan_ctx.buy = len(response.buy_candidate_symbols)
-            scan_ctx.watch = len(response.watch_candidate_symbols)
-            scan_ctx.reject = response.scanned_symbols - len(response.matched_symbols)
-            scan_ctx.symbols_processed = response.scanned_symbols
-            
+            diagnostics.set_scanner_failed("FYERS Validation Timeout")
+            scan_ctx.token_loaded = False
+            scan_ctx.token_source = "none"
+            end_scan(scan_ctx)
+            return
+        except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
+            logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
+            from .services.diagnostics_service import diagnostics
+            diagnostics.set_scanner_failed("FYERS Token Expired")
+            scan_ctx.token_loaded = False
+            scan_ctx.token_source = "none"
+            end_scan(scan_ctx)
+            token_service._clear_token_cache()
             try:
-                # Still add to ScannedCandidate if it's used elsewhere
-                for item in response.matches:
-                    candidate = ScannedCandidate(
-                        symbol=item.symbol,
-                        screener_name=response.screener_name,
-                        technical_score=item.technical_score,
-                        technical_signal=item.technical_signal,
-                        screener_score=item.screener_score,
-                        matched=item.matched
+                async with AsyncSessionLocal() as db:
+                    from .services.paper_trading_service import PaperTradingService
+                    PaperTradingService(db).add_notification(
+                        account_id=1,
+                        message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
+                        level="error",
+                        event_type="TOKEN_EXPIRED",
+                        entity_type="system",
+                        dedupe_key="TOKEN_EXPIRED_ALERT",
+                        commit=True
                     )
-                    db.add(candidate)
-                    
-                # New logic for PHASE S1: Persist full scan snapshot
-                from .services.latest_scan_service import LatestScanService
-                scan_service = LatestScanService(db)
-                await scan_service.persist_successful_scan(response, duration_ms)
-                
-                await db.commit()
+            except Exception:
+                pass
+            logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
+            return
+        except FyersAPIError as e:
+            logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
+            from .services.diagnostics_service import diagnostics
+            diagnostics.set_scanner_failed("FYERS API Error")
+            scan_ctx.token_loaded = False
+            scan_ctx.token_source = "none"
+            end_scan(scan_ctx)
+            return
+
+        # ------------------------------------------------------------------
+        # Phase B — long screener run with NO open DB session/transaction.
+        # OrchestratorAgent does not use the injected db handle.
+        # ------------------------------------------------------------------
+        logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
+        import os
+        try:
+            import psutil
+        except ImportError:
+            psutil = None
+        start_t_iso = utc_now().isoformat()
+
+        from .services.diagnostics_service import diagnostics
+        mem_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
+
+        diagnostics.set_scanner_running()
+        agent = OrchestratorAgent(None)
+        start_t = perf_counter()
+        response = await agent.run_screener(request)
+        duration_ms = int((perf_counter() - start_t) * 1000)
+
+        mem_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
+        diagnostics.set_scanner_memory(mem_before, mem_after)
+
+        diagnostics.record_scanner_run({
+            "scan_id": response.screener_name or f"scan-{start_t_iso}",
+            "start_time": start_t_iso,
+            "end_time": utc_now().isoformat(),
+            "duration_ms": duration_ms,
+            "requested_symbols": response.scanned_symbols,
+            "valid_symbols": len(response.data_valid_symbols),
+            "buy_count": len(response.buy_candidate_symbols),
+            "watch_count": len(response.watch_candidate_symbols),
+            "rejected_count": response.scanned_symbols - len(response.matched_symbols),
+            "exception_count": response.duplicate_symbols_skipped,
+        })
+        scan_ctx.valid = len(response.data_valid_symbols)
+        scan_ctx.eligible = len(response.eligible_symbols)
+        scan_ctx.matched = len(response.matched_symbols)
+        scan_ctx.buy = len(response.buy_candidate_symbols)
+        scan_ctx.watch = len(response.watch_candidate_symbols)
+        scan_ctx.reject = response.scanned_symbols - len(response.matched_symbols)
+        scan_ctx.symbols_processed = response.scanned_symbols
+
+        # ------------------------------------------------------------------
+        # Phase C — fresh session for canonical/history writes (+ one retry).
+        # ------------------------------------------------------------------
+        from .config.settings import settings as _scan_settings
+        from .services.latest_scan_service import LatestScanService
+
+        _minimal = False
+        try:
+            _minimal = bool(_scan_settings.is_scan_result_minimal_writes())
+        except Exception:
+            _minimal = False
+
+        for attempt in range(2):
+            try:
+                async with AsyncSessionLocal() as db:
+                    if not _minimal:
+                        for item in response.matches:
+                            candidate = ScannedCandidate(
+                                symbol=item.symbol,
+                                screener_name=response.screener_name,
+                                technical_score=item.technical_score,
+                                technical_signal=item.technical_signal,
+                                screener_score=item.screener_score,
+                                matched=item.matched
+                            )
+                            db.add(candidate)
+                    else:
+                        logger.info(
+                            "SCAN_RESULT_MINIMAL_WRITES=ON | skipping scanned_candidates writes"
+                        )
+
+                    scan_service = LatestScanService(db)
+                    await scan_service.persist_successful_scan(
+                        response, duration_ms, minimal_writes=_minimal
+                    )
+                    await db.commit()
+
                 logger.info("Saved scan candidates and latest scan snapshot to database.")
-                
                 diagnostics.set_scanner_success(response.screener_name or f"scan-{start_t_iso}")
-                # Emit scan diagnostic summary
                 token_status = "valid" if token else "missing"
                 cache_status = "ok" if scan_ctx.cache_hits > 0 else "empty"
                 fyers_status = "ok" if scan_ctx.fyers_failures == 0 else f"failures={scan_ctx.fyers_failures}"
-                persistence_status = "ok"  # we just persisted successfully
+                persistence_status = "ok"
                 overall = "healthy" if scan_ctx.valid > 0 else "degraded"
                 log_incident_summary(scan_ctx, token_status, cache_status, fyers_status, persistence_status, overall)
                 end_scan(scan_ctx)
@@ -1190,9 +1214,23 @@ async def automated_screening_job():
                     endpoint="automated_screening_job"
                 )
                 logger.info("AUTOMATED SCREENING job complete")
+                break
             except Exception as db_e:
-                logger.error("Failed to save scan candidates to DB: %s", db_e)
-                await db.rollback()
+                if attempt == 0 and is_db_connection_error(db_e):
+                    logger.warning(
+                        "Scheduled scan persist hit dead DB connection; disposing pool and retrying once | error=%s",
+                        db_e,
+                    )
+                    try:
+                        await dispose_async_pool(reason="scheduled_scan_persist_connection_closed")
+                    except Exception:
+                        pass
+                    continue
+                logger.error(
+                    "Failed to save scan candidates to DB%s: %s",
+                    " after retry" if attempt > 0 else "",
+                    db_e,
+                )
                 diagnostics.set_scanner_failed(str(db_e))
                 end_scan(scan_ctx)
                 logger_service.log_error(
@@ -1202,6 +1240,7 @@ async def automated_screening_job():
                     endpoint="automated_screening_job",
                     exc=db_e
                 )
+                break
     except Exception as e:
         logger_service.log_error(
             message=f"Scheduled job failed: {str(e)}",
