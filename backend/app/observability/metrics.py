@@ -24,15 +24,28 @@ if Counter:
         ["endpoint"],
     )
     SCANNER_CACHE_HIT_RATIO = Gauge("scanner_cache_hit_ratio", "Scanner cache hit ratio (0.0 to 1.0)")
+    LATEST_SCAN_SERVICE_INVOCATIONS = Counter(
+        "latest_scan_service_invocations_total",
+        "Invocations of LatestScanService.get_latest_scan",
+        ["format"],
+    )
+    UNIFIED_LATEST_FALLBACKS = Counter(
+        "unified_latest_fallback_total",
+        "Unified latest-scan path failures that fell back to legacy",
+        ["endpoint"],
+    )
 else:
     ORDER_EXECUTIONS = DUPLICATE_EXECUTIONS = DB_COMMIT_LATENCY = WS_CLIENTS = LOGGER_QUEUE_DEPTH = None
     SCANNER_CACHE_HITS = SCANNER_CACHE_MISSES = SCANNER_CACHE_ERRORS = None
     SCANNER_CACHE_FORCE_REFRESHES = SCANNER_CACHE_HIT_RATIO = None
+    LATEST_SCAN_SERVICE_INVOCATIONS = UNIFIED_LATEST_FALLBACKS = None
 
 
 # Process-local totals for hit-ratio gauge when Prometheus is available or for tests.
 _scanner_cache_hits: int = 0
 _scanner_cache_misses: int = 0
+_latest_scan_service_invocations: int = 0
+_unified_latest_fallbacks: int = 0
 
 
 def _update_scanner_cache_hit_ratio() -> None:
@@ -69,6 +82,22 @@ def record_scanner_cache_error(op: str) -> None:
 def record_scanner_cache_force_refresh(endpoint: str) -> None:
     if SCANNER_CACHE_FORCE_REFRESHES is not None:
         SCANNER_CACHE_FORCE_REFRESHES.labels(endpoint=endpoint).inc()
+
+
+def record_latest_scan_service_invocation(format_type: str) -> None:
+    """Count canonical LatestScanService.get_latest_scan invocations by format."""
+    global _latest_scan_service_invocations
+    _latest_scan_service_invocations += 1
+    if LATEST_SCAN_SERVICE_INVOCATIONS is not None:
+        LATEST_SCAN_SERVICE_INVOCATIONS.labels(format=format_type).inc()
+
+
+def record_unified_latest_fallback(endpoint: str) -> None:
+    """Count unified-path failures that fell back to legacy handlers."""
+    global _unified_latest_fallbacks
+    _unified_latest_fallbacks += 1
+    if UNIFIED_LATEST_FALLBACKS is not None:
+        UNIFIED_LATEST_FALLBACKS.labels(endpoint=endpoint).inc()
 
 
 def render_metrics() -> tuple[bytes, str]:

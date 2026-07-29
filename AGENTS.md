@@ -1,4 +1,4 @@
-# AGENTS.md — Governance Command Routing
+﻿# AGENTS.md — Governance Command Routing
 
 This file defines the command routing configuration for the `/specify` agent
 governance workflow. It maps agent commands to their handler modules.

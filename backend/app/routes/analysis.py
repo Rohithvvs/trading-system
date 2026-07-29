@@ -480,21 +480,46 @@ ENDPOINT_ANALYSIS_SCAN_LATEST = "/analysis/scan/latest"
 async def get_latest_scan(
     request: Request,
     force: bool = Query(default=False, description="Force refresh cache"),
+    db: AsyncSession = Depends(get_db),
 ):
     from ..services.scanner_cache_service import scanner_cache_service, wants_force_refresh
+    from ..services.latest_scan_service import LatestScanService
     from ..config.settings import settings
     from ..observability.metrics import (
         record_scanner_cache_force_refresh,
         record_scanner_cache_hit,
         record_scanner_cache_miss,
+        record_unified_latest_fallback,
     )
 
     force_refresh = wants_force_refresh(force, request.headers.get("cache-control"))
     cache_enabled = settings.is_scanner_latest_cache_enabled()
     scan_logger = logging.getLogger("scan.db")
 
+    # Record force once at the route boundary (covers unified + legacy; no double-count).
     if force_refresh and cache_enabled:
         record_scanner_cache_force_refresh(ENDPOINT_ANALYSIS_SCAN_LATEST)
+
+    if settings.is_scanner_unified_latest_enabled():
+        try:
+            service = LatestScanService(db)
+            payload, cache_status = await service.get_latest_scan(
+                format_type="analysis",
+                force=force_refresh,
+                cache_enabled=cache_enabled,
+            )
+            return Response(
+                content=payload,
+                media_type="application/json",
+                headers={"X-Cache-Status": cache_status},
+            )
+        except Exception as exc:
+            record_unified_latest_fallback(ENDPOINT_ANALYSIS_SCAN_LATEST)
+            logger.error(
+                "Unified GET /analysis/scan/latest failed, falling back to legacy path | err=%s",
+                exc,
+                exc_info=True,
+            )
 
     async def produce_json() -> str:
         data = await load_latest_scan()

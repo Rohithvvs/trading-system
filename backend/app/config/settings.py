@@ -105,6 +105,17 @@ class Settings(BaseSettings):
             object.__setattr__(self, "scanner_latest_cache_enabled", enabled)
             return enabled
         return bool(self.scanner_latest_cache_enabled)
+
+    scanner_unified_latest_enabled: bool = Field(default=False, alias="SCANNER_UNIFIED_LATEST_ENABLED")
+
+    def is_scanner_unified_latest_enabled(self) -> bool:
+        """Live feature-flag read for unified latest-scan endpoints (zero-redeploy rollback)."""
+        raw = os.environ.get("SCANNER_UNIFIED_LATEST_ENABLED")
+        if raw is not None and str(raw).strip() != "":
+            enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            object.__setattr__(self, "scanner_unified_latest_enabled", enabled)
+            return enabled
+        return bool(self.scanner_unified_latest_enabled)
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
     
     fyers_app_id: str = ""
