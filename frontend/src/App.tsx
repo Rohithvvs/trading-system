@@ -62,6 +62,9 @@ const PerformancePage = lazy(() =>
 const DiagnosticsPage = lazy(() =>
   import("./pages/Diagnostics").then((m) => ({ default: m.DiagnosticsPage })),
 );
+const AdminPanelPage = lazy(() =>
+  import("./components/admin/AdminPanelPage").then((m) => ({ default: m.AdminPanelPage })),
+);
 
 function ViewFallback() {
   return (
@@ -624,6 +627,16 @@ export default function App() {
             />
             <Route path="/profile" element={profileView} />
             <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
+            <Route
+              path="/admin"
+              element={
+                <AdminRoute>
+                  <Suspense fallback={<ViewFallback />}>
+                    <AdminPanelPage />
+                  </Suspense>
+                </AdminRoute>
+              }
+            />
             <Route
               path="/admin/logs"
               element={

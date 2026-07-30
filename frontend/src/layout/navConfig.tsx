@@ -60,8 +60,16 @@ export const RETAIL_NAV: NavItem[] = [
   },
 ];
 
-/** Engineering / ops — only when developer mode is on */
+/** Admin / ops — only when user.role === "admin" (Sprint 4) */
 export const ADMIN_NAV: NavItem[] = [
+  {
+    id: "admin-panel",
+    label: "Admin",
+    path: "/admin",
+    match: "/admin",
+    testId: "nav-admin-panel",
+    icon: icon("M12 1l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 8h7z"),
+  },
   {
     id: "admin-command",
     label: "Central Command",
@@ -91,5 +99,9 @@ export const ADMIN_NAV: NavItem[] = [
 export function isNavActive(pathname: string, item: NavItem): boolean {
   const m = item.match ?? item.path;
   if (m === "/") return pathname === "/";
+  // Exact match for /admin so /admin/logs does not highlight Admin panel
+  if (item.id === "admin-panel") {
+    return pathname === "/admin" || pathname.startsWith("/admin?");
+  }
   return pathname === m || pathname.startsWith(`${m}/`);
 }
