@@ -6,6 +6,7 @@ import {
   updateFeaturePermission,
   updateUserRole,
   listAdminFeatures,
+  listSessionFeatures,
 } from "../../api_admin";
 
 describe("api_admin", () => {
@@ -78,6 +79,20 @@ describe("api_admin", () => {
       json: async () => ({ items: [{ feature_key: "watchlist" }] }),
     });
     const data = await listAdminFeatures();
+    expect(data.items[0].feature_key).toBe("watchlist");
+  });
+
+  it("listSessionFeatures calls GET /features", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ items: [{ feature_key: "watchlist" }] }),
+    });
+    const data = await listSessionFeatures();
+    expect(fetchMock).toHaveBeenCalled();
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/features");
+    expect(url).not.toContain("/admin/features");
     expect(data.items[0].feature_key).toBe("watchlist");
   });
 

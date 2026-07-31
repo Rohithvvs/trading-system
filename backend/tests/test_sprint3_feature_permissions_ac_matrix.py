@@ -38,6 +38,7 @@ REQUIRED_KEYS = {
     "admin_panel",
     "user_management",
     "system_logs",
+    "central_command",
     "export_data",
     "watchlist",
     "portfolio_analytics",

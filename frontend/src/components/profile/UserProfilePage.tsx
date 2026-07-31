@@ -21,6 +21,9 @@ import {
 } from "../../api";
 import { useAuth } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
+import { useFeaturePermissions } from "../../hooks/useFeaturePermissions";
+import { FeatureGuard } from "../FeatureGuard";
+import { AccessDenied } from "../AccessDenied";
 import { isFyersTokenUsable } from "../../utils/tokenStatus";
 import {
   initialsFromName,
@@ -121,10 +124,15 @@ function MetricSkeleton() {
 }
 
 export function UserProfilePage({ onNavigate, retailMode = false }: Props) {
-  const SIDEBAR = retailMode ? SIDEBAR_RETAIL : SIDEBAR_FULL;
   const { user, logout, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { canAccess } = useFeaturePermissions();
   const toast = useToast();
+  const SIDEBAR = useMemo(() => {
+    const base = retailMode ? SIDEBAR_RETAIL : SIDEBAR_FULL;
+    // Sprint 5: hide watchlist nav when feature permission denied
+    return base.filter((item) => item.id !== "watchlist" || canAccess("watchlist"));
+  }, [retailMode, canAccess]);
   const [section, setSection] = useState<SectionId>(() => {
     try {
       const q = new URLSearchParams(window.location.search).get("section") as SectionId | null;
@@ -690,10 +698,12 @@ export function UserProfilePage({ onNavigate, retailMode = false }: Props) {
         {section === "ai" ? <AiSection insights={aiInsights} analytics={analytics} /> : null}
 
         {section === "watchlist" ? (
-          <WatchlistSection
-            prefs={prefs}
-            onSave={(list) => persistPrefs({ ...prefs, watchlist: list })}
-          />
+          <FeatureGuard feature="watchlist" fallback={<AccessDenied />}>
+            <WatchlistSection
+              prefs={prefs}
+              onSave={(list) => persistPrefs({ ...prefs, watchlist: list })}
+            />
+          </FeatureGuard>
         ) : null}
 
         {section === "brokers" ? <BrokersSection fyersConnected={fyersConnected} token={token} /> : null}

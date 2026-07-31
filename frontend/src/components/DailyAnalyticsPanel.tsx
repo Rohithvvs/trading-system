@@ -7,6 +7,7 @@ import {
 import { getCached, CACHE_KEYS } from "../utils/appCache";
 import { MetricCardSkeleton, ChartSkeleton, TableSkeleton } from "./Skeleton";
 import { StatCard } from "../design-system";
+import { FeatureGuard } from "./FeatureGuard";
 
 declare const Chart: any;
 
@@ -325,9 +326,11 @@ export function DailyAnalyticsPanel({ onRefresh }: Props) {
               </>
             ) : null}
             <button type="button" className="button ghost-button" onClick={() => void load(true)}>Refresh</button>
-            <button type="button" className="button ghost-button" onClick={exportCsv} disabled={!data}>CSV</button>
-            <button type="button" className="button ghost-button" onClick={exportCsvAlt} disabled={!data}>Excel</button>
-            <button type="button" className="button ghost-button" onClick={exportPdf} disabled={!data}>PDF</button>
+            <FeatureGuard feature="export_data" loadingFallback={null}>
+              <button type="button" className="button ghost-button" onClick={exportCsv} disabled={!data}>CSV</button>
+              <button type="button" className="button ghost-button" onClick={exportCsvAlt} disabled={!data}>Excel</button>
+              <button type="button" className="button ghost-button" onClick={exportPdf} disabled={!data}>PDF</button>
+            </FeatureGuard>
           </div>
         </div>
       </div>

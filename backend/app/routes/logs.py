@@ -14,7 +14,9 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.deps import require_feature
 from ..db.session import get_db
+from ..models.auth import User
 from ..models.system_log import SystemLog
 from ..services.logger_service import register_ws_client, unregister_ws_client
 
@@ -101,6 +103,7 @@ async def get_logs(
     date_to: str | None = Query(None, alias="dateTo"),
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_feature("system_logs")),
 ):
     query = build_logs_query(
         level=level,
@@ -153,8 +156,9 @@ async def clear_logs_legacy(
     confirm: str | None = Query("WIPE_ALL"),
     days_old: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_feature("system_logs")),
 ):
-    return clear_logs_impl(confirm, days_old, db)
+    return await clear_logs_impl(confirm, days_old, db)
 
 
 @router.delete("/clear")
@@ -162,8 +166,9 @@ async def clear_logs(
     confirm: str | None = Query("WIPE_ALL"),
     days_old: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_feature("system_logs")),
 ):
-    return clear_logs_impl(confirm, days_old, db)
+    return await clear_logs_impl(confirm, days_old, db)
 
 
 @router.get("/export")
@@ -179,6 +184,8 @@ async def export_logs(
     date_to: str | None = Query(None, alias="dateTo"),
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _logs: User = Depends(require_feature("system_logs")),
+    _export: User = Depends(require_feature("export_data")),
 ):
     query = build_logs_query(
         level=level,

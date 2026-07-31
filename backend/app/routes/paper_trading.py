@@ -36,7 +36,7 @@ from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
 from ..utils import sanitize_for_json
 from ..config import settings
-from ..core.deps import get_current_user_id_sync
+from ..core.deps import get_current_user_id_sync, require_feature_sync
 import uuid
 
 
@@ -622,6 +622,7 @@ def get_analytics(
         description="today|week|month|last_month|last_3_months|last_6_months|last_year|all",
     ),
     service: PaperTradingService = Depends(get_service),
+    _feat=Depends(require_feature_sync("portfolio_analytics")),
 ):
     """Paper trading analytics. Calculated from closed trades; returns empty defaults when no trades exist."""
     logger = logging.getLogger("app.http.paper_trading")
@@ -674,6 +675,7 @@ def get_daily_analytics(
     end_date: str | None = Query(default=None, description="YYYY-MM-DD for custom"),
     include_ai: bool = Query(default=True),
     service: PaperTradingService = Depends(get_service),
+    _feat=Depends(require_feature_sync("portfolio_analytics")),
 ):
     """
     User-scoped Daily Analytics dashboard payload.

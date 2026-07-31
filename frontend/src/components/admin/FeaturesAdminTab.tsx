@@ -8,6 +8,7 @@ import {
   type FeaturePermission,
 } from "../../api_admin";
 import { useAuth } from "../../hooks/useAuth";
+import { useFeaturePermissions } from "../../hooks/useFeaturePermissions";
 import { Badge, Button, Card, EmptyState, useToast } from "../../design-system";
 
 function normalizeRoles(roles: string[]): string[] {
@@ -27,6 +28,7 @@ function rolesEqual(a: string[], b: string[]): boolean {
 export function FeaturesAdminTab() {
   const toast = useToast();
   const { logout } = useAuth();
+  const { refetchPermissions } = useFeaturePermissions();
   const [items, setItems] = useState<FeaturePermission[]>([]);
   const [draft, setDraft] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
@@ -35,9 +37,11 @@ export function FeaturesAdminTab() {
   // Toast API identity changes when toasts update — keep stable refs (M-2 loop fix)
   const toastRef = useRef(toast);
   const logoutRef = useRef(logout);
+  const refetchRef = useRef(refetchPermissions);
   const sessionClosedRef = useRef(false);
   toastRef.current = toast;
   logoutRef.current = logout;
+  refetchRef.current = refetchPermissions;
 
   const failClosedAuthz = useCallback((e: unknown) => {
     if (sessionClosedRef.current) return;
@@ -105,6 +109,8 @@ export function FeaturesAdminTab() {
       setItems((prev) => prev.map((f) => (f.feature_key === key ? updated : f)));
       setDraft((d) => ({ ...d, [key]: normalizeRoles(updated.allowed_roles) }));
       toast.success("Feature updated", key);
+      // Revalidate live session catalog so guards/nav pick up DB policy immediately (H-2)
+      void refetchRef.current();
     } catch (e) {
       if (isAuthzAdminError(e)) {
         failClosedAuthz(e);

@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { useDensity } from "../hooks/useDensity";
+import { useFeaturePermissions } from "../hooks/useFeaturePermissions";
 import { ADMIN_NAV, RETAIL_NAV, isNavActive } from "./navConfig";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
@@ -95,9 +96,15 @@ export function AppShell({ children, topActions, title }: Props) {
     };
   }, [profileOpen]);
 
+  const { canAccess } = useFeaturePermissions();
+
   const initials = (user?.full_name || user?.email || "U").slice(0, 1).toUpperCase();
-  // Sprint 4: admin destinations by real role — not developerMode
-  const navItems = isAdmin ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
+  // Sprint 4: admin destinations by real role; Sprint 5: filter by feature permissions
+  const baseNavItems = isAdmin ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
+  const navItems = baseNavItems.filter((item) => {
+    if (item.featureKey && !canAccess(item.featureKey)) return false;
+    return true;
+  });
 
   return (
     <div
@@ -114,7 +121,7 @@ export function AppShell({ children, topActions, title }: Props) {
       {/* Desktop / tablet sidebar */}
       <aside className="app-sidebar" aria-label="Main navigation" data-collapsed={sidebarCollapsed ? "true" : "false"}>
         <div className="app-sidebar__brand">
-          <Link to="/scanner" className="app-brand-link" aria-label="Go to Scanner">
+          <Link to="/markets" className="app-brand-link" aria-label="Go to Markets">
             <span className="app-brand-mark" aria-hidden>
               TS
             </span>

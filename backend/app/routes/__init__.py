@@ -14,6 +14,7 @@ from .scanner import router as scanner_router
 from .system import router as system_router
 from .auth import router as auth_router
 from .admin import router as admin_router
+from .features import router as features_router
 from .diagnostics import router as diagnostics_router
 from .governance import governance_router
 from .analytics import router as analytics_router
@@ -38,6 +39,7 @@ api_router.include_router(scanner_router)
 api_router.include_router(system_router)
 api_router.include_router(auth_router, prefix="/auth", tags=["Auth"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
+api_router.include_router(features_router, tags=["Features"])
 api_router.include_router(diagnostics_router)
 api_router.include_router(governance_router)
 api_router.include_router(analytics_router)

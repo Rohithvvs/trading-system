@@ -240,6 +240,26 @@ export async function listAdminFeatures(params?: {
   return response.json();
 }
 
+/**
+ * Sprint 5: authenticated feature catalog for any signed-in role.
+ * Uses DB policy so admin edits apply to traders (AC-FEAT-05).
+ */
+export async function listSessionFeatures(params?: {
+  signal?: AbortSignal;
+}): Promise<FeatureListResponse> {
+  const response = await adminFetch(
+    "/features",
+    { signal: params?.signal },
+    "List session features",
+  );
+  if (!response.ok) {
+    const detail = await parseDetail(response);
+    logAdminHttpFailure("List session features", response.status, detail);
+    throw new AdminApiError(response.status, detail);
+  }
+  return response.json();
+}
+
 export async function updateFeaturePermission(
   featureKey: string,
   body: { allowed_roles: string[] },

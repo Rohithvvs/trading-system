@@ -5,6 +5,7 @@ import { TOOLTIPS } from "../constants/tooltips";
 import { memo, useMemo, useState, useCallback } from "react";
 import { SignalBadge as DsSignalBadge } from "../design-system";
 import { useResearchPrefetch } from "../hooks/useResearchPrefetch";
+import { FeatureGuard } from "./FeatureGuard";
 
 type CandidateTableProps = {
   rows: CandidateRow[];
@@ -16,6 +17,19 @@ type CandidateTableProps = {
 
 export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbol, onSelect, onBuy, liveTicks }: CandidateTableProps) {
   const { hoverHandlers } = useResearchPrefetch();
+
+  const handleExportCsv = useCallback(() => {
+    if (!rows.length) return;
+    const headers = ["Rank", "Symbol", "Signal", "Score", "Confidence"];
+    const csvRows = rows.map((r) => [r.rank ?? "", r.symbol, r.signal ?? "", r.score ?? "", r.confidence ?? ""].join(","));
+    const blob = new Blob([[headers.join(","), ...csvRows].join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `scan_results_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [rows]);
 
   if (!rows.length) {
     return (
@@ -32,14 +46,27 @@ export const CandidateTable = memo(function CandidateTable({ rows, selectedSymbo
 
   return (
     <section className="panel table-panel">
-      <div className="panel-header">
+      <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <p className="section-label">Favorites</p>
           <h2>Scan results</h2>
         </div>
-        <p className="panel-helper">
-          <abbr title="Signal comes from the final recommendation layer">Signal</abbr>, score, confidence, trade plan, and support evidence stay aligned in one table.
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <p className="panel-helper">
+            <abbr title="Signal comes from the final recommendation layer">Signal</abbr>, score, confidence, trade plan, and support evidence stay aligned in one table.
+          </p>
+          <FeatureGuard feature="export_data" loadingFallback={null}>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="ds-btn ds-btn--secondary ds-btn--sm"
+              data-testid="export-data-btn"
+              style={{ padding: "4px 12px", fontSize: "0.85rem" }}
+            >
+              Export CSV
+            </button>
+          </FeatureGuard>
+        </div>
       </div>
 
       {/* Desktop/tablet table */}

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { FeatureKey } from "../types/featurePermissions";
 
 export type NavItem = {
   id: string;
@@ -8,6 +9,7 @@ export type NavItem = {
   match?: string;
   icon: ReactNode;
   testId: string;
+  featureKey?: FeatureKey | string;
 };
 
 const icon = (d: string) => (
@@ -32,6 +34,7 @@ export const RETAIL_NAV: NavItem[] = [
     path: "/scanner",
     match: "/scanner",
     testId: "nav-scanner",
+    featureKey: "advanced_scanner",
     icon: icon("M11 5a7 7 0 1 0 4.5 12.3L21 21 M11 8v3h3"),
   },
   {
@@ -48,6 +51,7 @@ export const RETAIL_NAV: NavItem[] = [
     path: "/performance",
     match: "/performance",
     testId: "nav-performance",
+    featureKey: "portfolio_analytics",
     icon: icon("M4 19V5 M8 19v-8 M12 19v-5 M16 19V9 M20 19v-3"),
   },
   {
@@ -60,7 +64,7 @@ export const RETAIL_NAV: NavItem[] = [
   },
 ];
 
-/** Admin / ops — only when user.role === "admin" (Sprint 4) */
+/** Admin / ops — only when user.role === "admin" (Sprint 4) + feature access (Sprint 5) */
 export const ADMIN_NAV: NavItem[] = [
   {
     id: "admin-panel",
@@ -68,6 +72,7 @@ export const ADMIN_NAV: NavItem[] = [
     path: "/admin",
     match: "/admin",
     testId: "nav-admin-panel",
+    featureKey: "admin_panel",
     icon: icon("M12 1l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 8h7z"),
   },
   {
@@ -76,6 +81,7 @@ export const ADMIN_NAV: NavItem[] = [
     path: "/admin/command",
     match: "/admin/command",
     testId: "nav-central-command",
+    featureKey: "central_command",
     icon: icon("M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"),
   },
   {
@@ -84,6 +90,7 @@ export const ADMIN_NAV: NavItem[] = [
     path: "/admin/logs",
     match: "/admin/logs",
     testId: "nav-system-logs",
+    featureKey: "system_logs",
     icon: icon("M4 6h16 M4 12h16 M4 18h10"),
   },
   {

@@ -12,6 +12,7 @@ import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
 import { ScannerProgress } from "./components/ScannerProgress";
 import LiveDataBadge from "./components/LiveDataBadge";
+import { FeatureGuard } from "./components/FeatureGuard";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -477,7 +478,9 @@ export default function Dashboard() {
                 <input placeholder="Momentum pullback scan" value={savedScanName} onChange={(event) => setSavedScanName(event.target.value)} />
               </label>
               <button type="button" className="button ghost-button" onClick={() => void handleSaveCurrentScan()}>Save Scan</button>
-              <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
+              <FeatureGuard feature="export_data" loadingFallback={null}>
+                <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
+              </FeatureGuard>
             </section>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>

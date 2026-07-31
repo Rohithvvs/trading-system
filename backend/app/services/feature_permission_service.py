@@ -1,8 +1,10 @@
 """
-Feature permission catalog service (Sprint 3).
+Feature permission catalog service (Sprint 3 + Sprint 5 API gates).
 
-Catalog-only: do not wire can_access_feature onto product or /admin/users routes.
-Required helper: can_access_feature (fail-closed; never clamp unknown roles to trader).
+Helpers:
+- can_access_feature / can_access_feature_sync — fail-closed (unknown roles deny;
+  missing/inactive features deny; never clamp unknown roles to trader).
+- Wired onto product surfaces via core.deps.require_feature (Sprint 5 M-5).
 
 Hardening (audit):
 - H-1: seed never commits the caller's request session (flush-only unless commit=True)
@@ -22,6 +24,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, ProgrammingError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..core.roles import VALID_ROLES, UserRole
 from ..models.auth import AuditLog, User
@@ -52,6 +55,12 @@ DEFAULT_FEATURES: list[dict[str, Any]] = [
     {
         "feature_key": "system_logs",
         "description": "View system and operational logs",
+        "allowed_roles": [UserRole.ADMIN.value],
+        "is_active": True,
+    },
+    {
+        "feature_key": "central_command",
+        "description": "Operational central command console",
         "allowed_roles": [UserRole.ADMIN.value],
         "is_active": True,
     },
@@ -235,6 +244,66 @@ async def ensure_default_feature_permissions(
     return inserted
 
 
+def ensure_default_feature_permissions_sync(
+    db: Session,
+    *,
+    commit: bool = False,
+) -> int:
+    """
+    Sync counterpart of ensure_default_feature_permissions for paper-trading gates.
+
+    Inserts missing DEFAULT_FEATURES rows (idempotent). Request paths should use
+    commit=False so the caller's UoW owns the commit.
+    """
+    existing = {
+        r[0]
+        for r in db.execute(select(FeaturePermission.feature_key)).all()
+    }
+    inserted = 0
+    now = datetime.now(timezone.utc)
+
+    for item in DEFAULT_FEATURES:
+        key = item["feature_key"]
+        if key in existing:
+            continue
+        row = FeaturePermission(
+            id=uuid.uuid4(),
+            feature_key=key,
+            description=item["description"],
+            allowed_roles=list(item["allowed_roles"]),
+            is_active=bool(item["is_active"]),
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            with db.begin_nested():
+                db.add(row)
+                db.flush()
+            inserted += 1
+            existing.add(key)
+        except IntegrityError:
+            logger.info(
+                "FEATURE_PERMISSIONS_SEED_SYNC | concurrent insert race on feature_key=%s ignored",
+                key,
+            )
+            existing.add(key)
+
+    if inserted:
+        if commit:
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                logger.info(
+                    "FEATURE_PERMISSIONS_SEED_SYNC | commit race absorbed; treating as already seeded"
+                )
+                return 0
+        else:
+            db.flush()
+
+    return inserted
+
+
 async def assert_feature_permissions_table_ready(
     db: AsyncSession,
     *,
@@ -298,6 +367,30 @@ async def get_by_key(
     return row
 
 
+def _evaluate_feature_row(row: FeaturePermission | None, role: Any) -> bool:
+    """Shared fail-closed evaluation for async/sync accessors."""
+    role_n = resolve_feature_role(role)
+    if role_n is None:
+        return False
+    if row is None:
+        return False
+    if not row.is_active:
+        return False
+    roles = coerce_stored_roles(row.allowed_roles)
+    return role_n in roles
+
+
+async def _load_feature_row(
+    db: AsyncSession, feature_key: str
+) -> FeaturePermission | None:
+    result = await db.execute(
+        select(FeaturePermission).where(
+            FeaturePermission.feature_key == feature_key
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def can_access_feature(
     db: AsyncSession, feature_key: str, role: Any
 ) -> bool:
@@ -306,22 +399,44 @@ async def can_access_feature(
 
     Unknown roles deny; missing/inactive features deny.
     Does not use normalize_role clamping to trader.
+    Seeds missing defaults only when the requested key is absent (warm path skips seed).
     """
-    role_n = resolve_feature_role(role)
-    if role_n is None:
+    if resolve_feature_role(role) is None:
         return False
-    result = await db.execute(
-        select(FeaturePermission).where(
-            FeaturePermission.feature_key == feature_key
-        )
-    )
-    row = result.scalar_one_or_none()
+    row = await _load_feature_row(db, feature_key)
     if row is None:
+        # Cold/partial catalog: insert-if-missing then re-read this key only
+        await ensure_default_feature_permissions(db, commit=False)
+        row = await _load_feature_row(db, feature_key)
+    return _evaluate_feature_row(row, role)
+
+
+def can_access_feature_sync(db: Session, feature_key: str, role: Any) -> bool:
+    """Sync variant for paper-trading and other sync FastAPI handlers (SQLAlchemy 2.x)."""
+    try:
+        if resolve_feature_role(role) is None:
+            return False
+        row = db.execute(
+            select(FeaturePermission).where(
+                FeaturePermission.feature_key == feature_key
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            ensure_default_feature_permissions_sync(db, commit=False)
+            row = db.execute(
+                select(FeaturePermission).where(
+                    FeaturePermission.feature_key == feature_key
+                )
+            ).scalar_one_or_none()
+        return _evaluate_feature_row(row, role)
+    except Exception as exc:
+        # Fail closed if catalog is unavailable (e.g. schema not migrated on this engine)
+        logger.warning(
+            "can_access_feature_sync failed closed | feature=%s | err=%s",
+            feature_key,
+            exc,
+        )
         return False
-    if not row.is_active:
-        return False
-    roles = coerce_stored_roles(row.allowed_roles)
-    return role_n in roles
 
 
 async def update_feature_permission(
