@@ -57,6 +57,12 @@ const PerformancePage = lazy(() =>
 const DiagnosticsPage = lazy(() =>
   import("./pages/Diagnostics").then((m) => ({ default: m.DiagnosticsPage })),
 );
+const DashboardPage = lazy(() =>
+  import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
+);
+const StockWorkstationPage = lazy(() =>
+  import("./pages/StockWorkstationPage").then((m) => ({ default: m.StockWorkstationPage })),
+);
 
 function ViewFallback() {
   return (
@@ -542,10 +548,16 @@ export default function App() {
       <AppShell>
         <Suspense fallback={<ViewFallback />}>
           <Routes>
-            <Route path="/" element={<Navigate to="/scanner" replace />} />
-            <Route path="/home" element={<Navigate to="/scanner" replace />} />
+            <Route path="/" element={<Suspense fallback={<ViewFallback />}><DashboardPage /></Suspense>} />
+            <Route path="/home" element={<Navigate to="/" replace />} />
+            <Route path="/admin/command" element={<Navigate to="/" replace />} />
+
+            {/* Domain 2: Research & Discovery */}
+            <Route path="/research/scanner" element={scannerView} />
+            <Route path="/scanner" element={<Navigate to="/research/scanner" replace />} />
+            <Route path="/research/workstation" element={<Suspense fallback={<ViewFallback />}><StockWorkstationPage /></Suspense>} />
             <Route
-              path="/markets"
+              path="/research/markets"
               element={
                 <Suspense fallback={<ViewFallback />}>
                   <MarketsPage
@@ -575,10 +587,14 @@ export default function App() {
                 </Suspense>
               }
             />
-            <Route path="/scanner" element={scannerView} />
-            <Route path="/watchlist" element={<Navigate to="/paper?tab=watchlist" replace />} />
-            <Route path="/paper" element={paperDeskView} />
+            <Route path="/markets" element={<Navigate to="/research/markets" replace />} />
+
+            {/* Domain 3: Execution & Portfolio */}
+            <Route path="/trading/paper-desk" element={paperDeskView} />
+            <Route path="/paper" element={<Navigate to="/trading/paper-desk" replace />} />
             <Route path="/paper/:section" element={paperDeskView} />
+            <Route path="/trading/watchlist" element={<Navigate to="/trading/paper-desk?tab=watchlist" replace />} />
+            <Route path="/watchlist" element={<Navigate to="/trading/paper-desk?tab=watchlist" replace />} />
             <Route
               path="/paper-order"
               element={
@@ -587,34 +603,33 @@ export default function App() {
                 </Suspense>
               }
             />
+
+            {/* Domain 4: Quantitative Analytics */}
             <Route
-              path="/performance"
+              path="/analytics/performance"
               element={
                 <Suspense fallback={<ViewFallback />}>
                   <PerformancePage />
                 </Suspense>
               }
             />
+            <Route path="/performance" element={<Navigate to="/analytics/performance" replace />} />
+
+            {/* Domain 5: Platform Control */}
             <Route
-              path="/diagnostics"
+              path="/system/diagnostics"
               element={
                 <Suspense fallback={<ViewFallback />}>
                   <DiagnosticsPage />
                 </Suspense>
               }
             />
-            <Route path="/logs" element={<Suspense fallback={<ViewFallback />}><SystemLogs /></Suspense>} />
-            <Route path="/admin/logs" element={<Navigate to="/logs" replace />} />
-            <Route
-              path="/admin/command"
-              element={
-                <Suspense fallback={<ViewFallback />}>
-                  <CentralCommand />
-                </Suspense>
-              }
-            />
+            <Route path="/diagnostics" element={<Navigate to="/system/diagnostics" replace />} />
+            <Route path="/system/logs" element={<Suspense fallback={<ViewFallback />}><SystemLogs /></Suspense>} />
+            <Route path="/logs" element={<Navigate to="/system/logs" replace />} />
+            <Route path="/admin/logs" element={<Navigate to="/system/logs" replace />} />
             <Route path="/fyers/callback" element={<FyersCallback />} />
-            <Route path="*" element={<Navigate to="/scanner" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
       </AppShell>

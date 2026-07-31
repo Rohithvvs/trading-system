@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme";
 import { useDensity } from "../hooks/useDensity";
 import { useDeveloperMode } from "../hooks/useDeveloperMode";
-import { ADMIN_NAV, RETAIL_NAV, isNavActive } from "./navConfig";
+import { PLATFORM_NAV_DOMAINS, isNavActive, type NavItem } from "./navConfig";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
 
@@ -24,7 +24,6 @@ function readSidebarCollapsed(): boolean {
   } catch {
     /* ignore */
   }
-  // Default: collapsed only on narrow desktop (≤1280); mobile uses drawer
   if (typeof window !== "undefined" && window.matchMedia("(max-width: 1280px) and (min-width: 769px)").matches) {
     return true;
   }
@@ -42,7 +41,6 @@ export function AppShell({ children, topActions, title }: Props) {
   );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Persist collapse preference — never fight the toggle with media-query forced state
   useEffect(() => {
     try {
       localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
@@ -59,7 +57,7 @@ export function AppShell({ children, topActions, title }: Props) {
     setSidebarCollapsed((c) => !c);
   }
 
-  const navItems = developerMode ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
+  const mobileNavItems: NavItem[] = PLATFORM_NAV_DOMAINS.flatMap((d) => d.items).slice(0, 4);
 
   return (
     <div
@@ -76,11 +74,11 @@ export function AppShell({ children, topActions, title }: Props) {
       {/* Desktop / tablet sidebar */}
       <aside className="app-sidebar" aria-label="Main navigation" data-collapsed={sidebarCollapsed ? "true" : "false"}>
         <div className="app-sidebar__brand">
-          <Link to="/scanner" className="app-brand-link" aria-label="Go to Scanner">
+          <Link to="/" className="app-brand-link" aria-label="Go to Dashboard">
             <span className="app-brand-mark" aria-hidden>
-              TS
+              AI
             </span>
-            <span className="app-brand-text">TradeDesk</span>
+            <span className="app-brand-text">QuantLab</span>
           </Link>
           <button
             type="button"
@@ -96,21 +94,40 @@ export function AppShell({ children, topActions, title }: Props) {
         </div>
 
         <nav className="app-sidebar__nav">
-          {navItems.map((item) => {
-            const active = isNavActive(location.pathname, item);
-            return (
-              <NavLink
-                key={item.id}
-                to={item.path}
-                data-testid={item.testId}
-                className={`app-sidebar__link ${active ? "is-active" : ""}`}
-                title={item.label}
-              >
-                <span className="app-sidebar__icon">{item.icon}</span>
-                <span className="app-sidebar__label">{item.label}</span>
-              </NavLink>
-            );
-          })}
+          {PLATFORM_NAV_DOMAINS.map((domain) => (
+            <div key={domain.id} className="app-sidebar__domain-group" style={{ marginBottom: "12px" }}>
+              {!sidebarCollapsed && (
+                <div
+                  className="ds-caption"
+                  style={{
+                    padding: "4px 12px",
+                    textTransform: "uppercase",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    letterSpacing: "0.05em",
+                    opacity: 0.6,
+                  }}
+                >
+                  {domain.label}
+                </div>
+              )}
+              {domain.items.map((item) => {
+                const active = isNavActive(location.pathname, item);
+                return (
+                  <NavLink
+                    key={item.id}
+                    to={item.path}
+                    data-testid={item.testId}
+                    className={`app-sidebar__link ${active ? "is-active" : ""}`}
+                    title={item.label}
+                  >
+                    <span className="app-sidebar__icon">{item.icon}</span>
+                    <span className="app-sidebar__label">{item.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className="app-sidebar__footer">
@@ -203,14 +220,14 @@ export function AppShell({ children, topActions, title }: Props) {
         className="floating-scan-btn"
         aria-label="Run scanner"
         title="Run scanner"
-        onClick={() => navigate("/scanner")}
+        onClick={() => navigate("/research/scanner")}
       >
         ⚡
       </button>
 
       {/* Mobile bottom navigation */}
       <nav className="app-bottom-nav" aria-label="Primary">
-        {RETAIL_NAV.slice(0, 4).map((item) => {
+        {mobileNavItems.map((item) => {
           const active = isNavActive(location.pathname, item);
           return (
             <NavLink
