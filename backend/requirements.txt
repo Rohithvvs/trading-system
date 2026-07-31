@@ -86,12 +86,6 @@ yfinance==1.4.0
 psycopg2-binary==2.9.9
 psutil==6.0.0
 cryptography==42.0.8
-PyJWT==2.8.0
-passlib==1.7.4
-argon2-cffi==23.1.0
-
-pyjwt
-passlib
-argon2-cffi
+# User-auth stack removed in 026-remove-multi-user (no passlib/PyJWT/bcrypt/google-auth).
+# FYERS JWT exp claims are decoded with stdlib base64+json in token_service.
 email-validator
-google-auth

@@ -10,7 +10,6 @@ export default defineConfig({
         manualChunks: {
           recharts: ["recharts"],
           vendor: ["react", "react-dom", "react-router-dom"],
-          profiles: ["./src/components/profile/UserProfilePage"],
           analytics: ["./src/components/AnalyticsPanel", "./src/components/DailyAnalyticsPanel"],
           admin: ["./src/components/CentralCommand", "./src/pages/SystemLogs"],
           pages: ["./src/pages/MarketsPage", "./src/pages/WatchlistPage", "./src/pages/PerformancePage"],

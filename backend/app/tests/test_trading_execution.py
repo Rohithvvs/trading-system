@@ -2,10 +2,13 @@ import pytest
 import asyncio
 import os
 import tempfile
+from datetime import datetime, timezone
+from decimal import Decimal
 from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.deps import SYSTEM_OWNER_ID
 from app.models.paper_trading import Base, PaperTradingAccount, PaperOrder, PaperPosition
 from app.services.paper_trading_service import PaperTradingService
 from app.schemas.paper_trading import PaperOrderCreateRequest
@@ -22,10 +25,16 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 from app.models.paper_trading import Base
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
-SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
+SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"  # type: ignore[method-assign]
+SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "CHAR(36)"  # type: ignore[method-assign]
 Base.metadata.create_all(bind=engine)
+
+
+def _owner_service(db) -> PaperTradingService:
+    """Paper routes always inject SYSTEM_OWNER_ID; tests must match single-owner mode."""
+    return PaperTradingService(db, user_id=SYSTEM_OWNER_ID)
+
 
 @pytest.fixture(autouse=True)
 def setup_db():
@@ -36,12 +45,13 @@ def setup_db():
         db.query(PaperTradingAccount).delete()
         db.commit()
 
-        # Seed account
+        # Seed primary owner account (026 single-owner context)
         account = PaperTradingAccount(
+            user_id=SYSTEM_OWNER_ID,
             name="Test Account",
-            starting_balance=1000000.0,
-            cash_balance=1000000.0,
-            max_risk_per_trade=0.02
+            starting_balance=Decimal("1000000.00"),
+            cash_balance=Decimal("1000000.00"),
+            max_risk_per_trade=Decimal("0.02"),
         )
         db.add(account)
         db.commit()
@@ -68,10 +78,9 @@ async def test_concurrent_duplicate_order_prevention():
         
         # We need independent sessions per thread to simulate real requests
         with TestingSessionLocal() as db:
-            service = PaperTradingService(db)
+            service = _owner_service(db)
             # Mock price snapshot since we don't have FYERS configured
             with patch.object(service, "_price_snapshot") as mock_price:
-                from datetime import datetime
                 class DummyPrice:
                     symbol = "INFY-EQ"
                     current_price = 100.0
@@ -109,13 +118,15 @@ async def test_concurrent_duplicate_order_prevention():
         # Due to idempotency key and DB locks, only 1 order should exist
         assert len(orders) == 1
         
-        positions = db.query(PaperPosition).filter_by(symbol="INFY-EQ").all()
+        # Symbol may be normalized (e.g. INFY-EQ → INFY) depending on service rules.
+        positions = db.query(PaperPosition).all()
         assert len(positions) == 1
         assert positions[0].qty == 10
+        assert "INFY" in (positions[0].symbol or "").upper()
         
         account = db.query(PaperTradingAccount).first()
         # 1000000 - 1000 = 999000
-        assert account.cash_balance == 999000.0
+        assert float(account.cash_balance) == 999000.0
 
 @pytest.mark.asyncio
 async def test_order_rollback_on_failure():
@@ -124,7 +135,7 @@ async def test_order_rollback_on_failure():
     Asserts account balance is not deducted and order is rolled back.
     """
     with TestingSessionLocal() as db:
-        service = PaperTradingService(db)
+        service = _owner_service(db)
         
         payload = PaperOrderCreateRequest(
             symbol="TCS-EQ",
@@ -137,7 +148,6 @@ async def test_order_rollback_on_failure():
         # Mock price to work, but mock flush to raise an exception 
         # to simulate partial DB failure after order creation but before commit
         with patch.object(service, "_price_snapshot") as mock_price:
-            from datetime import datetime
             class DummyPrice:
                 symbol = "TCS-EQ"
                 current_price = 100.0
@@ -155,13 +165,13 @@ async def test_order_rollback_on_failure():
     # Validate DB state remained entirely untouched
     with TestingSessionLocal() as db:
         account = db.query(PaperTradingAccount).first()
-        assert account.cash_balance == 1000000.0 # No money lost
+        assert float(account.cash_balance) == 1000000.0  # No money lost
         
         orders = db.query(PaperOrder).all()
-        assert len(orders) == 0 # Order rolled back
+        assert len(orders) == 0  # Order rolled back
         
         positions = db.query(PaperPosition).all()
-        assert len(positions) == 0 # No position
+        assert len(positions) == 0  # No position
 
 @pytest.mark.asyncio
 async def test_risk_management_limits():
@@ -169,7 +179,7 @@ async def test_risk_management_limits():
     Asserts orders that exceed cash limits are rejected, balance untouched, and logged.
     """
     with TestingSessionLocal() as db:
-        service = PaperTradingService(db)
+        service = _owner_service(db)
         
         payload = PaperOrderCreateRequest(
             symbol="RELIANCE-EQ",
@@ -180,7 +190,6 @@ async def test_risk_management_limits():
         )
         
         with patch.object(service, "_price_snapshot") as mock_price:
-            from datetime import datetime
             class DummyPrice:
                 symbol = "RELIANCE-EQ"
                 current_price = 100.0
@@ -206,7 +215,7 @@ async def test_risk_management_limits():
     # Verify no funds deducted and no position created
     with TestingSessionLocal() as db:
         account = db.query(PaperTradingAccount).first()
-        assert account.cash_balance == 1000000.0
+        assert float(account.cash_balance) == 1000000.0
         
         positions = db.query(PaperPosition).all()
         assert len(positions) == 0

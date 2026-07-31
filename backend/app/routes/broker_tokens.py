@@ -11,9 +11,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.deps import get_current_user
+from ..core.deps import get_application_owner_context, ApplicationOwnerContext
 from ..db.session import AsyncSessionLocal, dispose_async_pool, is_stale_prepared_plan_error
-from ..models.auth import User
 from ..services import broker_token_service as bts
 
 router = APIRouter(prefix="/api/broker-tokens", tags=["broker-tokens"])
@@ -95,9 +94,9 @@ class BrokerQuery(BaseModel):
 @router.get("")
 async def get_broker_token(
     broker: str = "FYERS",
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
-    """Return masked token metadata for the logged-in user (never plaintext)."""
+    """Return masked token metadata for the static application owner (never plaintext)."""
     logger.info("BROKER_TOKEN_GET_REQUEST | user_id=%s broker=%s", user.id, broker)
     try:
         data = await _with_db_retry(lambda db: bts.get_token(db, user.id, broker=broker))
@@ -110,7 +109,7 @@ async def get_broker_token(
 
 @router.get("/list")
 async def list_broker_tokens(
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
     try:
         items = await _with_db_retry(lambda db: bts.list_tokens(db, user.id))
@@ -123,9 +122,9 @@ async def list_broker_tokens(
 @router.post("")
 async def create_broker_token(
     payload: BrokerTokenPayload,
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
-    """Validate (optional), encrypt, and save broker token for current user."""
+    """Validate (optional), encrypt, and save broker token for application owner."""
     logger.info(
         "BROKER_TOKEN_SAVE_REQUEST | user_id=%s broker=%s validate=%s token_len=%d",
         user.id, payload.broker, payload.run_validation, len(payload.access_token) if payload.access_token else 0,
@@ -165,7 +164,7 @@ async def create_broker_token(
 @router.put("")
 async def update_broker_token(
     payload: BrokerTokenUpdatePayload,
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
     try:
         result = await _with_db_retry(
@@ -194,7 +193,7 @@ async def update_broker_token(
 @router.delete("")
 async def delete_broker_token(
     broker: str = "FYERS",
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
     try:
         result = await _with_db_retry(lambda db: bts.delete_token(db, user.id, broker=broker))
@@ -207,7 +206,7 @@ async def delete_broker_token(
 @router.post("/validate")
 async def validate_broker_token(
     broker: str = "FYERS",
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
     """Test connection / re-validate stored token against broker."""
     try:
@@ -224,7 +223,7 @@ async def validate_broker_token(
 async def test_broker_connection(
     payload: BrokerTestPayload | None = None,
     broker: str = "FYERS",
-    user: User = Depends(get_current_user),
+    user: ApplicationOwnerContext = Depends(get_application_owner_context),
 ):
     """
     Test connection. If body includes access_token, validate that token without

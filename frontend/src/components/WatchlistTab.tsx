@@ -1,71 +1,39 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAuth } from "../hooks/useAuth";
-import { fetchUserProfile, patchUserProfile } from "../api";
-import {
-  cacheProfilePrefs,
-  loadProfilePrefs,
-  profileFromApi,
-  type ProfilePreferences,
-} from "../utils/profilePrefs";
-import { useToast, Button, EmptyState } from "../design-system";
-import { ListSkeleton } from "./Skeleton";
-import { ConfirmDialog } from "../design-system";
+import { useMemo, useState } from "react";
+import { useToast, Button, EmptyState, ConfirmDialog } from "../design-system";
+
+const WATCHLIST_STORAGE_KEY = "user_watchlist";
+
+function getLocalWatchlist(): string[] {
+  try {
+    const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setLocalWatchlist(symbols: string[]) {
+  try {
+    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(symbols));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function WatchlistTab() {
-  const { user } = useAuth();
   const toast = useToast();
-  const [prefs, setPrefs] = useState<ProfilePreferences>(() => loadProfilePrefs(user?.id));
-  const [loading, setLoading] = useState(true);
+  const [watchlist, setWatchlist] = useState<string[]>(() => getLocalWatchlist());
   const [confirmClear, setConfirmClear] = useState(false);
   const [newSymbol, setNewSymbol] = useState("");
-
-  const watchlist = prefs.watchlist ?? [];
 
   const sorted = useMemo(
     () => [...watchlist].sort((a, b) => a.localeCompare(b)),
     [watchlist],
   );
 
-  const load = useCallback(async () => {
-    if (!user?.id) {
-      setLoading(false);
-      return;
-    }
-    try {
-      const api = await fetchUserProfile({ force: true });
-      const mapped = profileFromApi(api);
-      setPrefs(mapped);
-      cacheProfilePrefs(user.id, mapped);
-    } catch (e: any) {
-      toast.error("Could not load watchlist", e?.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id, toast]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  async function persist(nextList: string[]) {
-    if (!user?.id) {
-      toast.warning("Sign in to save your watchlist to your account.");
-      return;
-    }
-    const previous = prefs;
-    const next = { ...prefs, watchlist: nextList };
-    setPrefs(next);
-    try {
-      const updated = await patchUserProfile({
-        preferences: { watchlist: nextList },
-      });
-      const mapped = profileFromApi(updated);
-      setPrefs(mapped);
-      cacheProfilePrefs(user.id, mapped);
-    } catch (e: any) {
-      setPrefs(previous);
-      toast.error("Could not save watchlist", e?.message);
-    }
+  function updateWatchlist(nextList: string[]) {
+    setWatchlist(nextList);
+    setLocalWatchlist(nextList);
   }
 
   function addSymbol() {
@@ -75,14 +43,14 @@ export function WatchlistTab() {
       toast.info(`${sym} is already in your favorites.`);
       return;
     }
-    void persist([...watchlist, sym]).then(() => {
-      setNewSymbol("");
-      toast.success(`Added ${sym} to favorites`);
-    });
+    updateWatchlist([...watchlist, sym]);
+    setNewSymbol("");
+    toast.success(`Added ${sym} to favorites`);
   }
 
   function removeSymbol(sym: string) {
-    void persist(watchlist.filter((s) => s !== sym)).then(() => toast.info(`Removed ${sym}`));
+    updateWatchlist(watchlist.filter((s) => s !== sym));
+    toast.info(`Removed ${sym}`);
   }
 
   function handleBuy(sym: string) {
@@ -129,9 +97,7 @@ export function WatchlistTab() {
           </Button>
         </form>
 
-        {loading ? (
-          <ListSkeleton items={5} />
-        ) : sorted.length === 0 ? (
+        {sorted.length === 0 ? (
           <EmptyState
             title="No watchlist"
             description="Add NSE symbols you want to follow, or star them from scanner results."
@@ -177,13 +143,12 @@ export function WatchlistTab() {
         open={confirmClear}
         onClose={() => setConfirmClear(false)}
         onConfirm={() => {
-          void persist([]).then(() => {
-            setConfirmClear(false);
-            toast.success("Watchlist cleared");
-          });
+          updateWatchlist([]);
+          setConfirmClear(false);
+          toast.success("Watchlist cleared");
         }}
         title="Clear watchlist?"
-        description="This removes all favorites from your account. You can add symbols again anytime."
+        description="This removes all favorites. You can add symbols again anytime."
         confirmLabel="Clear all"
         tone="danger"
       />

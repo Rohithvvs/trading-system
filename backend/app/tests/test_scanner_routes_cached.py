@@ -86,23 +86,34 @@ def redis_mock(monkeypatch) -> InMemoryRedis:
 async def test_get_scanner_latest_response_headers(monkeypatch):
     """When cache disabled, GET /scanner/latest includes X-Cache-Status: BYPASS."""
     set_scanner_cache_enabled(monkeypatch, False)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/scanner/latest")
-        assert response.status_code == 200
-        assert "x-cache-status" in response.headers
-        assert response.headers["x-cache-status"] == "BYPASS"
-        assert "application/json" in response.headers.get("content-type", "")
+    # Isolate from live DB (Neon quota / offline) — header contract only.
+    with patch(
+        "app.services.latest_scan_service.LatestScanService.get_latest_completed_scan",
+        new_callable=AsyncMock,
+        return_value=SCANNER_PAYLOAD,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/scanner/latest")
+    assert response.status_code == 200
+    assert "x-cache-status" in response.headers
+    assert response.headers["x-cache-status"] == "BYPASS"
+    assert "application/json" in response.headers.get("content-type", "")
 
 
 @pytest.mark.asyncio
 async def test_get_analysis_scan_latest_response_headers(monkeypatch):
     """When cache disabled, GET /analysis/scan/latest includes X-Cache-Status: BYPASS."""
     set_scanner_cache_enabled(monkeypatch, False)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/analysis/scan/latest")
-        assert response.status_code == 200
-        assert "x-cache-status" in response.headers
-        assert response.headers["x-cache-status"] == "BYPASS"
+    with patch(
+        "app.routes.analysis.load_latest_scan",
+        new_callable=AsyncMock,
+        return_value=ANALYSIS_PAYLOAD,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/analysis/scan/latest")
+    assert response.status_code == 200
+    assert "x-cache-status" in response.headers
+    assert response.headers["x-cache-status"] == "BYPASS"
 
 
 # ---------------------------------------------------------------------------

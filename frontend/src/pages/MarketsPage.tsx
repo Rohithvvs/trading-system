@@ -8,13 +8,10 @@ import {
   fetchSavedScans,
   fetchWorkstationAlerts,
   getLatestScan,
-  fetchUserProfile,
 } from "../api";
 import { getCached, CACHE_KEYS } from "../utils/appCache";
 import { MetricCardSkeleton, ListSkeleton } from "../components/Skeleton";
 import { Card, CardHeader, EmptyState, Button, PnL, StatusPill } from "../design-system";
-import { useAuth } from "../hooks/useAuth";
-import type { ProfilePreferences } from "../utils/profilePrefs";
 import { SwingDecisionDashboard } from "../components/swing";
 import type { ScreenerResponse, ThemeMode } from "../types";
 
@@ -58,8 +55,6 @@ type Props = {
   scanStartTime?: number | null;
 };
 
-const FRESH_MS = 60_000;
-
 function isFresh(key: string): boolean {
   // soft freshness: if we have cached data, paint immediately and revalidate
   return !!getCached(key);
@@ -91,7 +86,6 @@ export const MarketsPage = memo(function MarketsPage({
   scanStartTime = null,
 }: Props) {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [market, setMarket] = useState<any | null>(() => getCached(CACHE_KEYS.marketOverview));
   const [savedScans, setSavedScans] = useState<any[]>(() => getCached(CACHE_KEYS.savedScans) || []);
   const [alerts, setAlerts] = useState<any[]>(() => getCached(CACHE_KEYS.workstationAlerts) || []);
@@ -137,22 +131,14 @@ export const MarketsPage = memo(function MarketsPage({
       if (latestData) setLatestScan(latestData);
       setLoading(false);
 
-      // Wave 2 (secondary): scans, alerts, profile watchlist — non-blocking
-      const [savedData, alertsData, profile] = await Promise.all([
+      // Wave 2 (secondary): scans, alerts — non-blocking
+      const [savedData, alertsData] = await Promise.all([
         fetchSavedScans().catch(() => []),
         fetchWorkstationAlerts().catch(() => []),
-        user?.id
-          ? fetchUserProfile().catch(() => null)
-          : Promise.resolve(null),
       ]);
       if (!mounted.current) return;
       setSavedScans(savedData || []);
       setAlerts(alertsData || []);
-      if (profile?.preferences?.watchlist) {
-        setWatchlist(profile.preferences.watchlist);
-      } else if (profile?.watchlist) {
-        setWatchlist(profile.watchlist);
-      }
     } catch (err) {
       if (!mounted.current) return;
       setError(err instanceof Error ? err.message : "Failed to load markets.");
@@ -162,7 +148,7 @@ export const MarketsPage = memo(function MarketsPage({
         setRefreshing(false);
       }
     }
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -592,7 +578,3 @@ const MoverList = memo(function MoverList({ title, rows }: { title: string; rows
 });
 
 export default MarketsPage;
-
-// silence unused import if ProfilePreferences only used for typing elsewhere
-void (0 as unknown as ProfilePreferences);
-void FRESH_MS;

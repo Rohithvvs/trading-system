@@ -36,7 +36,7 @@ from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
 from ..utils import sanitize_for_json
 from ..config import settings
-from ..core.deps import get_current_user_id_sync
+from ..core.deps import get_application_owner_id
 import uuid
 
 
@@ -44,11 +44,11 @@ router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
 
 
 def get_service(
-    user_id: uuid.UUID = Depends(get_current_user_id_sync),
+    user_id: uuid.UUID = Depends(get_application_owner_id),
     db: Session = Depends(get_sync_db),
 ) -> PaperTradingService:
     """
-    Always scope paper trading to the authenticated user from the session cookie.
+    Scope paper trading to the static single application owner context.
     Never accept user_id from request body/query.
     """
     return PaperTradingService(db, user_id=user_id)
@@ -677,7 +677,7 @@ def get_daily_analytics(
 ):
     """
     User-scoped Daily Analytics dashboard payload.
-    Always filtered by authenticated user's paper account.
+    Always filtered by the static application owner's paper account.
     """
     from ..services.daily_analytics_service import DailyAnalyticsService
     from ..utils import assert_json_serializable
@@ -711,7 +711,7 @@ def put_daily_journal(
     payload: dict,
     service: PaperTradingService = Depends(get_service),
 ):
-    """Auto-save journal fields for the authenticated user's paper account only."""
+    """Auto-save journal fields for the static application owner's paper account only."""
     from ..services.daily_analytics_service import DailyAnalyticsService
     das = DailyAnalyticsService(service.db, user_id=service.user_id)
     try:

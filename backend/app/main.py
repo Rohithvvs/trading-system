@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -163,6 +164,29 @@ config_logger.info(
     len(settings.bse500_symbols),
     len(settings.bse1000_symbols),
 )
+# 026-remove-multi-user: single-owner security posture (audit H2 observability)
+_token_key_set = bool(
+    (getattr(settings, "token_encryption_key", None) or os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
+)
+_api_key_set = bool(
+    (getattr(settings, "operator_api_key", None) or os.environ.get("API_KEY") or "").strip()
+)
+config_logger.info(
+    "Single-owner access mode | user_auth=disabled | owner_id=%s | "
+    "token_encryption_key_set=%s | operator_api_key_set=%s | "
+    "trusted_network_required=true",
+    "00000000-0000-0000-0000-000000000001",
+    _token_key_set,
+    _api_key_set,
+)
+_host = (settings.app_host or "").strip()
+if _host in {"0.0.0.0", "::", "[::]"}:
+    config_logger.warning(
+        "API bound to all interfaces (%s) with user authentication disabled. "
+        "Restrict to trusted network (private host, VPN, or reverse-proxy allowlist). "
+        "See specs/026-remove-multi-user/PRODUCTION_CUTOVER.md",
+        _host,
+    )
 if not settings.nifty500_symbols:
     config_logger.warning(
         "Nifty 500 universe is empty | Check NIFTY500_CSV_PATH, ind_nifty500list.csv, or NIFTY500_SYMBOLS"

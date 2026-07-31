@@ -19,7 +19,7 @@ class BrokerToken(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=uuid.UUID('00000000-0000-0000-0000-000000000001'))
     broker = Column(String(32), nullable=False, default="FYERS", index=True)
     # Fernet ciphertext: enc:v1:...
     encrypted_token = Column(Text, nullable=False)

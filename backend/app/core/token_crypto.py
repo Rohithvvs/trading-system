@@ -1,8 +1,13 @@
 """Encrypt / decrypt broker access tokens at rest.
 
-Uses Fernet (AES-128-CBC + HMAC) with a key derived from TOKEN_ENCRYPTION_KEY
-or JWT_SECRET. Ciphertext is stored as ``enc:v1:<base64>`` so legacy plaintext
-rows can still be read until re-saved.
+Uses Fernet (AES-128-CBC + HMAC) with a key derived from TOKEN_ENCRYPTION_KEY.
+Ciphertext is stored as ``enc:v1:<base64>`` so legacy plaintext rows can still
+be read until re-saved.
+
+Production fail-closed:
+  - ``TOKEN_ENCRYPTION_KEY`` MUST be set when APP_ENV is production/prod.
+  - ``JWT_SECRET`` is not accepted as the encryption key in production.
+  - Weak hardcoded defaults are refused in production.
 """
 from __future__ import annotations
 
@@ -10,12 +15,49 @@ import base64
 import hashlib
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger("app.token_crypto")
 
 _PREFIX = "enc:v1:"
 _fernet = None
+_DEV_FALLBACK_SECRET = "yoursecretkey_must_be_changed_in_prod"
+
+
+def _is_production() -> bool:
+    return (os.getenv("APP_ENV") or "development").strip().lower() in {
+        "production",
+        "prod",
+    }
+
+
+def _resolve_secret() -> str:
+    secret = (os.getenv("TOKEN_ENCRYPTION_KEY") or "").strip()
+    if secret:
+        return secret
+
+    # Legacy alias — only accepted outside production.
+    legacy = (os.getenv("JWT_SECRET") or "").strip()
+    if legacy:
+        if _is_production():
+            raise RuntimeError(
+                "TOKEN_ENCRYPTION_KEY is required in production. "
+                "JWT_SECRET is no longer accepted as a broker encryption key."
+            )
+        logger.warning(
+            "TOKEN_ENCRYPTION_KEY unset; falling back to JWT_SECRET (non-production only)"
+        )
+        return legacy
+
+    if _is_production():
+        raise RuntimeError(
+            "TOKEN_ENCRYPTION_KEY is required in production for broker token encryption. "
+            "Generate a long random secret and set it in the environment."
+        )
+
+    logger.warning(
+        "TOKEN_ENCRYPTION_KEY unset; using insecure development fallback secret"
+    )
+    return _DEV_FALLBACK_SECRET
 
 
 def _get_fernet():
@@ -27,16 +69,18 @@ def _get_fernet():
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("cryptography package is required for token encryption") from exc
 
-    secret = (
-        os.getenv("TOKEN_ENCRYPTION_KEY")
-        or os.getenv("JWT_SECRET")
-        or "yoursecretkey_must_be_changed_in_prod"
-    )
+    secret = _resolve_secret()
     # Fernet needs 32 url-safe base64-encoded bytes
     digest = hashlib.sha256(secret.encode("utf-8")).digest()
     key = base64.urlsafe_b64encode(digest)
     _fernet = Fernet(key)
     return _fernet
+
+
+def reset_fernet_cache() -> None:
+    """Test helper: clear cached Fernet instance after env changes."""
+    global _fernet
+    _fernet = None
 
 
 def encrypt_secret(plaintext: str | None) -> str | None:
@@ -62,7 +106,7 @@ def decrypt_secret(value: str | None) -> str | None:
     text = str(value)
     if not text.startswith(_PREFIX):
         return text
-    blob = text[len(_PREFIX):]
+    blob = text[len(_PREFIX) :]
     try:
         return _get_fernet().decrypt(blob.encode("utf-8")).decode("utf-8")
     except Exception:

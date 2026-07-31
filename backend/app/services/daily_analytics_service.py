@@ -1,8 +1,8 @@
 """
-User-scoped Daily Analytics for Paper Trading.
+Owner-scoped Daily Analytics for Paper Trading.
 
-All calculations use the authenticated user's paper account only.
-Never aggregates across users.
+All calculations use the single application owner's paper account only
+(static SYSTEM_OWNER_ID in single-user mode).
 """
 from __future__ import annotations
 

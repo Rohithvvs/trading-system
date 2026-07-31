@@ -29,7 +29,7 @@ export function useInfrastructureHealth() {
       { label: "FYERS API", key: "fyers", status: "sleeping" },
       { label: "Scanner Workers", key: "scanner", status: "sleeping" },
       { label: "WebSocket", key: "ws", status: "sleeping" },
-      { label: "Scheduler", key: "scheduler", status: "sleeping" },
+      { label: "Access Mode", key: "access", status: "active", meta: "single-owner" },
     ],
     lastCheckedAt: null,
     error: null,
@@ -73,10 +73,10 @@ export function useInfrastructureHealth() {
           { label: "Neon Database", key: "db", status: dbOk ? "active" : latencyMs > 3000 ? "waking" : "offline", meta: dbOk ? `${latencyMs}ms` : undefined },
           { label: "Redis Cache", key: "redis", status: healthData?.redis === "not_configured" ? "active" : redisOk ? "active" : latencyMs > 3000 ? "waking" : "sleeping", meta: healthData?.redis === "not_configured" ? "n/a" : redisOk ? "cached" : undefined },
           { label: "Market Feed", key: "feed", status: fyersOk ? "active" : "connecting", meta: fyersOk ? "streaming" : "connecting..." },
-          { label: "FYERS API", key: "fyers", status: fyersOk ? "active" : "offline", meta: fyersOk ? "authenticated" : undefined },
+          { label: "FYERS API", key: "fyers", status: fyersOk ? "active" : "offline", meta: fyersOk ? "broker oauth" : undefined },
           { label: "Scanner Workers", key: "scanner", status: wsOk ? "active" : "sleeping", meta: wsOk ? "ready" : undefined },
           { label: "WebSocket", key: "ws", status: wsOk ? "active" : "connecting", meta: wsOk ? "connected" : "connecting..." },
-          { label: "Auth Service", key: "auth", status: "active", meta: "jwt" },
+          { label: "Access Mode", key: "access", status: "active", meta: "single-owner" },
         ];
 
         setHealth({ services, lastCheckedAt: now, error: null });
@@ -86,7 +86,7 @@ export function useInfrastructureHealth() {
         setHealth({
           services: health.services.map(s => ({
             ...s,
-            status: s.key === "auth" ? "active" : "offline",
+            status: s.key === "access" ? "active" : "offline",
           })),
           lastCheckedAt: now,
           error: error instanceof Error ? error.message : "Health check failed",

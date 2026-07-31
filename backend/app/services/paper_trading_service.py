@@ -70,11 +70,11 @@ class PriceSnapshot:
 
 class PaperTradingService:
     """
-    Paper trading operations are always scoped to a single authenticated user.
+    Paper trading operations are scoped to a single owner context (user_id).
 
-    - Pass ``user_id`` for HTTP API paths (required for account get/create).
-    - Engine/background paths may omit ``user_id`` and must use account_id from
-      the order/position being processed (never a global shared account).
+    HTTP routes inject the static application owner id (single-user mode).
+    Engine/background paths may omit ``user_id`` and must use account_id from
+    the order/position being processed (never a global shared account).
     """
 
     def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:

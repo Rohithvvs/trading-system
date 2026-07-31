@@ -248,8 +248,7 @@ export type MainAppView =
   | "paper-trading"
   | "performance"
   | "logs"
-  | "central_command"
-  | "profile";
+  | "central_command";
 
 export type ScanHistoryItem = {
   id: string;

@@ -67,8 +67,6 @@ def normalize_database_url(raw_value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Trading System"
     app_env: str = Field(default="development", alias="APP_ENV")
-    # Must match the frontend VITE_GOOGLE_CLIENT_ID (GIS Web client).
-    google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
     quarantine_mode: bool = False
     app_host: str = Field(default="0.0.0.0", alias="HOST")   # ← critical change
     app_port: int = Field(default=8000, alias="PORT")
@@ -150,9 +148,9 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"
     llm_api_key: str = Field(default="", alias="GROQ_API_KEY")
     llm_model: str = "LLAMA_3_70B"
+    # Deprecated (026-remove-multi-user): multi-user admin/password-reset mail is gone.
+    # Fields retained only so existing .env keys do not break settings load.
     admin_email: str = Field(default="", alias="ADMIN_EMAIL")
-    # Canonical names: SMTP_*. Common MAIL_* aliases are accepted via model_validator
-    # (empty SMTP_* must not block MAIL_SERVER / MAIL_USERNAME / etc.).
     smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
     smtp_user: str = Field(default="", alias="SMTP_USER")
@@ -160,6 +158,10 @@ class Settings(BaseSettings):
     smtp_from: str = Field(default="", alias="SMTP_FROM")
     smtp_from_name: str = Field(default="TradeX", alias="SMTP_FROM_NAME")
     smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    # Operator/diagnostics bearer key (required when APP_ENV=production)
+    operator_api_key: str = Field(default="", alias="API_KEY")
+    # Broker token Fernet material (required when APP_ENV=production)
+    token_encryption_key: str = Field(default="", alias="TOKEN_ENCRYPTION_KEY")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
     # FEAT-008 realistic trade execution control plane
@@ -325,14 +327,16 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
+    def is_production(self) -> bool:
+        return (self.app_env or "").strip().lower() in {"production", "prod"}
+
     @model_validator(mode="after")
     def _resolve_smtp_mail_aliases(self):
         """
-        Accept both SMTP_* (canonical) and MAIL_* (common Flask/Django-style) names.
+        Accept both SMTP_* (canonical) and MAIL_* names for legacy env files.
 
-        Root cause of missed password-reset emails: .env had MAIL_SERVER / MAIL_USERNAME
-        filled while SMTP_HOST / SMTP_USER were empty. pydantic only binds SMTP_* aliases.
-        Empty SMTP_* must fall back to MAIL_*.
+        Password-reset email is removed (single-user). SMTP fields remain optional
+        for any future ops notifications only.
         """
         try:
             from dotenv import dotenv_values
@@ -368,7 +372,6 @@ class Settings(BaseSettings):
         if not (self.smtp_from_name or "").strip():
             self.smtp_from_name = pick("SMTP_FROM_NAME", "MAIL_FROM_NAME") or "TradeX"
 
-        # Port: only override default when MAIL_PORT / SMTP_PORT provides a value
         port_raw = pick("SMTP_PORT", "MAIL_PORT")
         if port_raw:
             try:
@@ -382,18 +385,36 @@ class Settings(BaseSettings):
 
         if self.smtp_host:
             _logger.info(
-                "SMTP configured | host=%s port=%s user=%s from=%s tls=%s",
+                "SMTP configured (optional/legacy) | host=%s port=%s",
                 self.smtp_host,
                 self.smtp_port,
-                self.smtp_user or "(none)",
-                self.smtp_from or self.smtp_user or "(none)",
-                self.smtp_use_tls,
             )
-        else:
-            _logger.warning(
-                "SMTP not configured | set SMTP_HOST/SMTP_USER/SMTP_PASSWORD "
-                "(or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) for password-reset emails"
+        return self
+
+    @model_validator(mode="after")
+    def _production_security_gates(self):
+        """Fail closed for production single-owner deploy secrets (audit H2/M7)."""
+        if not self.is_production():
+            return self
+
+        missing: list[str] = []
+        if not (self.token_encryption_key or os.getenv("TOKEN_ENCRYPTION_KEY") or "").strip():
+            missing.append("TOKEN_ENCRYPTION_KEY")
+        if not (self.operator_api_key or os.getenv("API_KEY") or "").strip():
+            missing.append("API_KEY")
+
+        if missing:
+            raise ValueError(
+                "Production single-owner deploy requires: "
+                + ", ".join(missing)
+                + ". User authentication is disabled; set these secrets and bind the API "
+                "to a trusted network (VPN / private host / reverse-proxy allowlist)."
             )
+
+        _logger.info(
+            "Production security gates OK | TOKEN_ENCRYPTION_KEY set | API_KEY set | "
+            "user_auth=disabled | trusted_network_required=true"
+        )
         return self
 
     @field_validator("database_url", mode="before")

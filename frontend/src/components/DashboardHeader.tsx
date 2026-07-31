@@ -1,5 +1,4 @@
-import { memo, type ChangeEvent, type ReactNode } from "react";
-import { useAuth } from '../hooks/useAuth';
+import { memo, type ReactNode } from "react";
 import type { ThemeMode } from "../types";
 import NotificationBell from "./NotificationBell";
 
@@ -65,8 +64,6 @@ export const DashboardHeader = memo(function DashboardHeader({
   theme,
   onThemeToggle,
 }: DashboardHeaderProps) {
-  const { user, logout } = useAuth();
-
   return (
     <header className="dashboard-header">
       {/* Row 1: Title + Market Status + Last Scan */}
@@ -137,11 +134,6 @@ export const DashboardHeader = memo(function DashboardHeader({
             <button type="button" className="dh-btn dh-btn--ghost" onClick={onThemeToggle} aria-label="Toggle theme">
               {theme === "dark" ? "Light" : "Dark"}
             </button>
-            {user && (
-              <button type="button" className="dh-btn dh-btn--ghost" onClick={logout}>
-                Sign Out
-              </button>
-            )}
             <button
               data-testid="run-scanner-button"
               type="button"

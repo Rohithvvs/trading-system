@@ -70,7 +70,8 @@ describe("CandidateTable Component", () => {
   it("renders favorites table with symbol and BUY signal (no fake alpha card)", () => {
     render(<CandidateTable rows={[mockRow]} selectedSymbol={null} onSelect={vi.fn()} />);
 
-    expect(screen.getByText("TCS.NS")).toBeDefined();
+    // Table + mobile card both render the symbol; require at least one.
+    expect(screen.getAllByText("TCS.NS").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("BUY").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("System Alpha Overview")).toBeNull();
   });
@@ -78,7 +79,8 @@ describe("CandidateTable Component", () => {
   it("renders the Regime Badge based on sentiment", () => {
     render(<CandidateTable rows={[mockRow]} selectedSymbol={null} onSelect={vi.fn()} />);
     // Because newsSentiment is 'Bullish', it should render 'CATALYST' badge
-    expect(screen.getByText("CATALYST")).toBeDefined();
+    // (desktop table + mobile card both show the badge).
+    expect(screen.getAllByText("CATALYST").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows empty state when no rows", () => {

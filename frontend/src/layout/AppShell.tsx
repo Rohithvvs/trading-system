@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { useDensity } from "../hooks/useDensity";
 import { useDeveloperMode } from "../hooks/useDeveloperMode";
@@ -33,7 +32,6 @@ function readSidebarCollapsed(): boolean {
 }
 
 export function AppShell({ children, topActions, title }: Props) {
-  const { user, logout } = useAuth();
   const { theme } = useTheme();
   const { density, setDensity } = useDensity();
   const { developerMode, setDeveloperMode } = useDeveloperMode();
@@ -43,7 +41,6 @@ export function AppShell({ children, topActions, title }: Props) {
     typeof window === "undefined" ? false : readSidebarCollapsed(),
   );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
 
   // Persist collapse preference — never fight the toggle with media-query forced state
   useEffect(() => {
@@ -56,47 +53,12 @@ export function AppShell({ children, topActions, title }: Props) {
 
   useEffect(() => {
     setMobileMenuOpen(false);
-    setProfileOpen(false);
   }, [location.pathname]);
 
   function toggleSidebar() {
     setSidebarCollapsed((c) => !c);
   }
 
-  const profileRef = useRef<HTMLDivElement>(null);
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches,
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)");
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-
-  // Click outside + ESC to close profile menu
-  useEffect(() => {
-    if (!profileOpen) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setProfileOpen(false);
-      }
-    };
-    const keyHandler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setProfileOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    document.addEventListener("keydown", keyHandler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-      document.removeEventListener("keydown", keyHandler);
-    };
-  }, [profileOpen]);
-
-  const initials = (user?.full_name || user?.email || "U").slice(0, 1).toUpperCase();
   const navItems = developerMode ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
 
   return (
@@ -219,47 +181,6 @@ export function AppShell({ children, topActions, title }: Props) {
             >
               SELL
             </button>
-            <div className="nav-profile-wrap" ref={profileRef}>
-              <button
-                type="button"
-                data-testid="nav-profile-menu"
-                className="nav-profile-btn app-topbar__profile"
-                onClick={() => setProfileOpen((o) => !o)}
-                aria-expanded={profileOpen}
-                aria-haspopup="menu"
-              >
-                <span className="nav-avatar" aria-hidden>
-                  {initials}
-                </span>
-                <span className="nav-profile-label app-topbar__name">
-                  {user?.full_name?.split(" ")[0] || "Profile"}
-                </span>
-              </button>
-              {profileOpen ? (
-                <div className={`nav-profile-menu ${isMobile ? "nav-profile-menu--mobile" : ""}`} role="menu">
-                  <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/profile"); }}>
-                    Profile
-                  </button>
-                  <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/profile?section=preferences"); }}>
-                    Preferences
-                  </button>
-                  <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/paper"); }}>
-                    Paper Desk
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="danger"
-                    onClick={() => {
-                      setProfileOpen(false);
-                      logout();
-                    }}
-                  >
-                    Sign out
-                  </button>
-                </div>
-              ) : null}
-            </div>
           </div>
         </header>
 
@@ -303,16 +224,6 @@ export function AppShell({ children, topActions, title }: Props) {
             </NavLink>
           );
         })}
-        <NavLink
-          to="/profile"
-          data-testid="nav-profile-mobile"
-          className={`app-bottom-nav__item ${location.pathname.startsWith("/profile") ? "is-active" : ""}`}
-        >
-          <span className="app-bottom-nav__icon" aria-hidden>
-            <span className="nav-avatar nav-avatar--sm">{initials}</span>
-          </span>
-          <span className="app-bottom-nav__label">Profile</span>
-        </NavLink>
       </nav>
     </div>
   );

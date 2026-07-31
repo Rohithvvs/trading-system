@@ -22,7 +22,6 @@ from . import system_log
 from . import infrastructure
 from . import research  # ensure tables are registered with Base.metadata
 from .live_trading import LiveAccount, LivePosition, LiveOrder, BrokerExecutionLog, OrderExecutionEvent
-from .auth import User, UserSession, Device, AuditLog, OTP
 from .experiment import Experiment
 from .research import (
     ResearchSession,
@@ -60,11 +59,6 @@ __all__ = [
     "LiveOrder",
     "BrokerExecutionLog",
     "OrderExecutionEvent",
-    "User",
-    "UserSession",
-    "Device",
-    "AuditLog",
-    "OTP",
     "Experiment",
     "ResearchSession",
     "ResearchIdea",

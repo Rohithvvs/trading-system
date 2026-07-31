@@ -4,7 +4,6 @@
  */
 
 import {
-  authMe,
   fetchAnalytics,
   fetchApiHealth,
   fetchMarketOverview,
@@ -27,9 +26,8 @@ export function prefetchAppData(): void {
   startKeepAlive();
 
   const runPriority = () => {
-    // Priority 1: auth + token + market (cheap, needed everywhere)
+    // Priority 1: token + market (cheap, needed everywhere)
     void Promise.all([
-      cachedFetch(CACHE_KEYS.authMe, () => authMe(), { swr: true }).catch(() => null),
       cachedFetch(CACHE_KEYS.fyersToken, () => getTokenStatus(), { swr: true }).catch(() => null),
     ]);
   };

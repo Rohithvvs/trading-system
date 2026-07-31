@@ -21,7 +21,6 @@ import type {
   StockAnalysisResult,
 } from "./types";
 
-import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { prefetchAppData } from "./utils/prefetchAppData";
 import { ChartSkeleton, PanelSkeleton } from "./components/Skeleton";
@@ -29,7 +28,6 @@ import { AppShell } from "./layout/AppShell";
 import { EmptyState, useToast } from "./design-system";
 import { ScannerProgress } from "./components/ScannerProgress";
 import { StatusCards } from "./components/StatusCards";
-import { AdminRoute } from "./components/AdminRoute";
 import FyersCallback from "./components/FyersCallback";
 import { PaperOrderProvider } from "./contexts/PaperOrderContext";
 import { navigateToPaperOrder } from "./utils/paperOrderNavigation";
@@ -40,9 +38,6 @@ const PaperTradingPage = lazy(() =>
 );
 const PaperOrderPage = lazy(() =>
   import("./pages/PaperOrderPage").then((m) => ({ default: m.PaperOrderPage })),
-);
-const UserProfilePage = lazy(() =>
-  import("./components/profile/UserProfilePage").then((m) => ({ default: m.UserProfilePage })),
 );
 const SystemLogs = lazy(() =>
   import("./pages/SystemLogs").then((m) => ({ default: m.SystemLogs })),
@@ -82,7 +77,6 @@ const DEFAULT_FILTERS: DashboardFilters = {
 };
 
 export default function App() {
-  const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
   const navigate = useNavigate();
@@ -142,10 +136,10 @@ export default function App() {
     navigate("/scanner", { replace: true });
   }, [navigate]);
 
-  // Warm app cache after login
+  // Warm app cache on mount
   useEffect(() => {
-    if (user?.id) prefetchAppData();
-  }, [user?.id]);
+    prefetchAppData();
+  }, []);
 
   useEffect(() => {
     function loadAndApply() {
@@ -543,19 +537,6 @@ export default function App() {
     </div>
   ), [paperTradingPrefill, shortlistRows, screenerResult?.analysis?.generated_at]);
 
-  const profileView = useMemo(() => (
-    <Suspense fallback={<ViewFallback />} key="profile">
-      <UserProfilePage
-        retailMode
-        onNavigate={(view) => {
-          if (view === "scanner") navigate("/scanner");
-          else if (view === "paper-trading") navigate("/paper");
-          else navigate("/markets");
-        }}
-      />
-    </Suspense>
-  ), [navigate]);
-
   return (
     <PaperOrderProvider>
       <AppShell>
@@ -622,26 +603,14 @@ export default function App() {
                 </Suspense>
               }
             />
-            <Route path="/profile" element={profileView} />
-            <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
-            <Route
-              path="/admin/logs"
-              element={
-                <AdminRoute>
-                  <Suspense fallback={<ViewFallback />}>
-                    <SystemLogs />
-                  </Suspense>
-                </AdminRoute>
-              }
-            />
+            <Route path="/logs" element={<Suspense fallback={<ViewFallback />}><SystemLogs /></Suspense>} />
+            <Route path="/admin/logs" element={<Navigate to="/logs" replace />} />
             <Route
               path="/admin/command"
               element={
-                <AdminRoute>
-                  <Suspense fallback={<ViewFallback />}>
-                    <CentralCommand />
-                  </Suspense>
-                </AdminRoute>
+                <Suspense fallback={<ViewFallback />}>
+                  <CentralCommand />
+                </Suspense>
               }
             />
             <Route path="/fyers/callback" element={<FyersCallback />} />

@@ -18,12 +18,10 @@ class PaperTradingAccount(Base):
     __tablename__ = "paper_trading_accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # Multi-tenant isolation: one paper account per authenticated user
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
-        unique=True,
+        default=uuid.UUID('00000000-0000-0000-0000-000000000001'),
         index=True,
     )
     name: Mapped[str] = mapped_column(String(80), default="Primary Paper Account")

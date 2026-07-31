@@ -16,7 +16,7 @@ const icon = (d: string) => (
   </svg>
 );
 
-/** Retail primary navigation — Markets, Scanner, Watchlist, Paper Desk, Performance, Profile */
+/** Retail primary navigation — Markets, Scanner, Paper Desk, Performance */
 export const RETAIL_NAV: NavItem[] = [
   {
     id: "markets",
@@ -49,14 +49,6 @@ export const RETAIL_NAV: NavItem[] = [
     match: "/performance",
     testId: "nav-performance",
     icon: icon("M4 19V5 M8 19v-8 M12 19v-5 M16 19V9 M20 19v-3"),
-  },
-  {
-    id: "profile",
-    label: "Profile",
-    path: "/profile",
-    match: "/profile",
-    testId: "nav-profile",
-    icon: icon("M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4z M4 20a8 8 0 0 1 16 0"),
   },
 ];
 

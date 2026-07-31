@@ -4,7 +4,7 @@ import { checkBackendHealth } from "../api";
 export type BackendHealthStatus = "checking" | "ok" | "down";
 
 /**
- * Probes GET /health before auth screens allow network-dependent actions.
+ * Probes GET /health for ops badges and network-dependent UI.
  */
 export function useBackendHealth() {
   const [status, setStatus] = useState<BackendHealthStatus>("checking");
