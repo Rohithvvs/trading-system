@@ -37,8 +37,8 @@ describe("navConfig single-user shell", () => {
 
   it("isNavActive matches prefix paths for paper desk", () => {
     const paper = RETAIL_NAV.find((i) => i.id === "paper")!;
-    expect(isNavActive("/paper", paper)).toBe(true);
-    expect(isNavActive("/paper/positions", paper)).toBe(true);
+    expect(isNavActive("/trading/paper-desk", paper)).toBe(true);
+    expect(isNavActive("/trading/paper-desk/positions", paper)).toBe(true);
     expect(isNavActive("/scanner", paper)).toBe(false);
   });
 

@@ -5,6 +5,8 @@ import { useDensity } from "../hooks/useDensity";
 import { useDeveloperMode } from "../hooks/useDeveloperMode";
 import { PLATFORM_NAV_DOMAINS, isNavActive, type NavItem } from "./navConfig";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { Breadcrumbs } from "../components/Breadcrumbs";
+import { GlobalSearch } from "../components/GlobalSearch";
 import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
 
 type Props = {
@@ -24,7 +26,7 @@ function readSidebarCollapsed(): boolean {
   } catch {
     /* ignore */
   }
-  if (typeof window !== "undefined" && window.matchMedia("(max-width: 1280px) and (min-width: 769px)").matches) {
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1280px) and (min-width: 769px)").matches) {
     return true;
   }
   return false;
@@ -159,7 +161,7 @@ export function AppShell({ children, topActions, title }: Props) {
       {/* Main column */}
       <div className="app-main-column">
         <header className="app-topbar">
-          <div className="app-topbar__left">
+          <div className="app-topbar__left" style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <button
               type="button"
               className="ds-icon-btn app-topbar__menu"
@@ -168,9 +170,11 @@ export function AppShell({ children, topActions, title }: Props) {
             >
               ☰
             </button>
-            {title ? <h1 className="app-topbar__title">{title}</h1> : null}
+            <Breadcrumbs />
+            {title ? <h1 className="app-topbar__title" style={{ fontSize: "1.1rem", margin: 0 }}>{title}</h1> : null}
           </div>
-          <div className="app-topbar__actions">
+          <div className="app-topbar__actions" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <GlobalSearch />
             {topActions}
             <button
               type="button"

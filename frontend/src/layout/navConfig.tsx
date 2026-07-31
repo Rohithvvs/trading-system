@@ -73,7 +73,7 @@ export const PLATFORM_NAV_DOMAINS: NavDomain[] = [
     label: "Execution & Portfolio",
     items: [
       {
-        id: "paper-desk",
+        id: "paper",
         label: "Paper Trading Desk",
         path: "/trading/paper-desk",
         match: "/trading/paper-desk",

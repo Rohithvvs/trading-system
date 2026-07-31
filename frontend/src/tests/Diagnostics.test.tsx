@@ -1,7 +1,15 @@
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { DiagnosticsPage } from "../pages/Diagnostics";
+import { ThemeProvider } from "../hooks/useTheme";
+
+function renderDiagnosticsPage() {
+  return render(
+    <ThemeProvider>
+      <DiagnosticsPage />
+    </ThemeProvider>
+  );
+}
 
 function mockFetch(handlers: Record<string, (url: string) => unknown>) {
   return vi.fn(async (url: string) => {
@@ -69,12 +77,12 @@ describe("Diagnostics Page", () => {
   });
 
   it("renders the page title 'Diagnostics Dashboard'", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     expect(screen.getByText("Diagnostics Dashboard")).toBeDefined();
   });
 
   it("renders all four diagnostic panels", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("System Metrics")).toBeDefined();
       expect(screen.getByText("Log Viewer")).toBeDefined();
@@ -84,7 +92,7 @@ describe("Diagnostics Page", () => {
   });
 
   it("System Metrics panel displays CPU and Memory values", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("System Metrics")).toBeDefined();
       // The mock returns cpu_percent=45.2 and memory_percent=62.1
@@ -94,14 +102,14 @@ describe("Diagnostics Page", () => {
   });
 
   it("Log Viewer panel displays ingested log entries", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("Experiment started")).toBeDefined();
     });
   });
 
   it("Alerts panel displays active alerts with severity badge", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("high-cpu")).toBeDefined();
       expect(screen.getByText("CPU exceeded 80%")).toBeDefined();
@@ -109,7 +117,7 @@ describe("Diagnostics Page", () => {
   });
 
   it("Resource Usage panel shows 'No active experiment' when none active", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("No active experiment.")).toBeDefined();
     });
@@ -140,9 +148,9 @@ describe("Diagnostics Page — Error State", () => {
   });
 
   it("shows error and Retry button when backend is unreachable", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
-      expect(screen.getByText("Backend unreachable")).toBeDefined();
+      expect(screen.getAllByText("Backend unreachable")[0]).toBeDefined();
     });
 
     // MetricsPanel should have a Retry button
@@ -156,9 +164,13 @@ describe("Diagnostics Page — Error State", () => {
     });
     vi.stubGlobal("fetch", mockFn);
 
-    render(<DiagnosticsPage />);
+    render(
+      <ThemeProvider>
+        <DiagnosticsPage />
+      </ThemeProvider>
+    );
     await waitFor(() => {
-      expect(screen.getByText("Backend unreachable")).toBeDefined();
+      expect(screen.getAllByText("Backend unreachable")[0]).toBeDefined();
     });
 
     const retryButtons = screen.getAllByText("Retry");
@@ -202,14 +214,14 @@ describe("Diagnostics Page — Empty State", () => {
   });
 
   it("Alerts panel shows 'No active alerts' when empty", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("No active alerts.")).toBeDefined();
     });
   });
 
   it("LogViewer shows 'No log entries found' when empty", async () => {
-    render(<DiagnosticsPage />);
+    renderDiagnosticsPage();
     await waitFor(() => {
       expect(screen.getByText("No log entries found.")).toBeDefined();
     });
