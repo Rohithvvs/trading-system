@@ -410,10 +410,30 @@ async def lifespan(app: FastAPI):
         try:
             from .db.session import check_alembic_head
             from .services.admin_bootstrap_service import ensure_default_admin_safe
+            from .services.feature_permission_service import (
+                assert_feature_permissions_table_ready,
+                ensure_default_feature_permissions,
+            )
 
             check_alembic_head()
             async with AsyncSessionLocal() as admin_db_session:
                 await ensure_default_admin_safe(admin_db_session, fail_closed=_is_prod_like())
+            # Sprint 3: table readiness (M-5) + idempotent catalog seed (H-1: commit on dedicated session)
+            try:
+                async with AsyncSessionLocal() as fp_db:
+                    await assert_feature_permissions_table_ready(
+                        fp_db, fail_closed=_is_prod_like()
+                    )
+                    inserted = await ensure_default_feature_permissions(
+                        fp_db, commit=True
+                    )
+                    if inserted:
+                        logger.info("FEATURE_PERMISSIONS_SEEDED | inserted=%s", inserted)
+            except Exception as fp_exc:
+                if _is_prod_like():
+                    logger.critical("FEATURE_PERMISSIONS_SEED | fatal: %s", fp_exc)
+                    raise
+                logger.warning("FEATURE_PERMISSIONS_SEED | skipped/failed: %s", fp_exc)
         except Exception as e:
             if _is_prod_like():
                 logger.critical("API-only pod migration/admin bootstrap failed fatally: %s", e)
@@ -442,6 +462,31 @@ async def lifespan(app: FastAPI):
                 logger.critical("Default admin bootstrap failed fatally: %s", e)
                 raise
             logger.warning("Default admin bootstrap check failed: %s", e)
+
+        # Sprint 3: feature permission table readiness + catalog seed (after schema gate).
+        try:
+            from .services.feature_permission_service import (
+                assert_feature_permissions_table_ready,
+                ensure_default_feature_permissions,
+            )
+
+            async with AsyncSessionLocal() as fp_db:
+                await assert_feature_permissions_table_ready(
+                    fp_db, fail_closed=_is_prod_like()
+                )
+                inserted = await ensure_default_feature_permissions(
+                    fp_db, commit=True
+                )
+                if inserted:
+                    logger.info("FEATURE_PERMISSIONS_SEEDED | inserted=%s", inserted)
+                else:
+                    logger.info("FEATURE_PERMISSIONS_SEED | catalog already present")
+        except Exception as e:
+            if _is_prod_like():
+                logger.critical("FEATURE_PERMISSIONS_SEED | fatal: %s", e)
+                raise
+            # Non-prod: list/update paths also ensure seeds; log for ops visibility.
+            logger.warning("FEATURE_PERMISSIONS_SEED | failed: %s", e)
 
         # Drop any async connections that may hold prepared plans from before DDL
         try:
