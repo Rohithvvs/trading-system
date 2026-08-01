@@ -73,10 +73,20 @@ def _smtp_config_status() -> str:
 
 
 def send_password_reset_email(recipient: str, reset_url: str) -> bool:
-    if not smtp_is_configured():
+    """Send a password-reset email. Always logs outcome (configured / skip / success / error)."""
+    configured = smtp_is_configured()
+    logger.info(
+        "PASSWORD_RESET_EMAIL_ATTEMPT | to=%s | smtp_configured=%s | %s",
+        recipient,
+        configured,
+        _smtp_config_status(),
+    )
+
+    if not configured:
         logger.warning(
             "SMTP not configured; skipping password reset email to %s | %s | "
-            "Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD (or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) in repo-root .env",
+            "Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD (or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) "
+            "in repo-root .env and restart the backend",
             recipient,
             _smtp_config_status(),
         )
@@ -101,6 +111,14 @@ def send_password_reset_email(recipient: str, reset_url: str) -> bool:
     use_tls = bool(getattr(settings, "smtp_use_tls", True))
 
     try:
+        logger.info(
+            "PASSWORD_RESET_EMAIL_SMTP_CONNECT | host=%s port=%s use_tls=%s user=%s from=%s",
+            host,
+            port,
+            use_tls,
+            settings.smtp_user,
+            from_addr,
+        )
         # Port 465 = implicit SSL; 587 = STARTTLS (typical Gmail)
         if port == 465:
             with smtplib.SMTP_SSL(host, port, timeout=20) as server:
@@ -112,14 +130,22 @@ def send_password_reset_email(recipient: str, reset_url: str) -> bool:
                     server.starttls()
                 server.login(settings.smtp_user, settings.smtp_password)
                 server.send_message(msg)
-        logger.info("Password reset email sent to %s via %s:%s", recipient, host, port)
-        return True
-    except Exception as exc:
-        logger.exception(
-            "Failed to send password reset email to %s via %s:%s: %s",
+        logger.info(
+            "Password reset email sent to %s via %s:%s | PASSWORD_RESET_EMAIL_SENT",
             recipient,
             host,
             port,
+        )
+        return True
+    except Exception as exc:
+        # Log full traceback + exception class so Gmail auth/TLS issues are visible.
+        logger.exception(
+            "Failed to send password reset email to %s via %s:%s | "
+            "PASSWORD_RESET_EMAIL_FAILED | error_type=%s | error=%s",
+            recipient,
+            host,
+            port,
+            type(exc).__name__,
             exc,
         )
         return False

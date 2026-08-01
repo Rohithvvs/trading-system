@@ -89,6 +89,11 @@ from .core import log_manager  # ensure module-level loggers (api/http) are crea
 request_logger = get_logger("app.http")
 config_logger = get_logger("app.config")
 logger = get_logger("app.scheduler")
+# Settings() runs before handlers exist; re-emit SMTP status so console/file show it.
+try:
+    settings.log_smtp_config_snapshot()
+except Exception as _smtp_log_exc:  # pragma: no cover
+    config_logger.warning("Could not log SMTP config snapshot: %s", _smtp_log_exc)
 
 
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED, EVENT_JOB_SUBMITTED
