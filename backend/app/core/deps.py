@@ -105,7 +105,9 @@ def require_roles(*allowed: str):
     return _dependency
 
 
-# Convenience dependencies for future admin-protected routes (stateless).
+# Convenience dependencies for lightweight/stateless gates.
+# WARNING (audit L-3): JWT role claim only — do NOT use as the sole gate for
+# privilege-sensitive /admin/* user-management APIs. Prefer get_current_admin_user.
 require_admin = require_roles(UserRole.ADMIN.value)
 require_trader_or_admin = require_roles(UserRole.TRADER.value, UserRole.ADMIN.value)
 
@@ -126,8 +128,43 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
 
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+    """Active, non-soft-deleted principal (audit L-4: soft-deleted cannot use protected APIs)."""
     if not current_user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    if current_user.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is unavailable",
+        )
+    return current_user
+
+
+async def get_current_admin_user(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Production admin gate for privilege-sensitive admin user-management APIs.
+
+    Resolves the caller via Sprint 1 session identity (Bearer or cookie JWT), loads
+    the live User row, and requires:
+      - is_active == True and deleted_at is None (via get_current_active_user)
+      - stored role == admin
+
+    Token/session role claims alone MUST NOT authorize these routes (FR-001–FR-005).
+    Prefer this dependency over JWT-only ``require_admin`` for /admin/* mutations and
+    directory APIs. Stateless ``require_admin`` remains for low-risk/future gates only.
+    """
+    # Defense-in-depth if called without get_current_active_user composition.
+    if current_user.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    if normalize_role(current_user.role) != UserRole.ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
     return current_user
 
 
@@ -143,6 +180,6 @@ def get_current_user_sync(
     """Load User via sync session — for paper-trading FastAPI sync handlers."""
     user_id = _extract_user_id_from_request(request)
     user = db.get(User, user_id)
-    if not user or not user.is_active:
+    if not user or not user.is_active or user.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
