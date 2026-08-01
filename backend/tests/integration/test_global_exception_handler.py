@@ -1,18 +1,39 @@
+"""Regression: global exception handler masks secrets and persists structured logs."""
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from backend.app.main import app
-from backend.app.models.system_log import SystemLog
-from backend.app.services.logger_service import logger_service
+# Import the same app instance used by conftest's client fixture (avoid dual-import split).
+try:
+    from app.main import app
+    from app.models.system_log import SystemLog
+    from app.services.logger_service import logger_service
+except ModuleNotFoundError:  # pragma: no cover
+    from backend.app.main import app
+    from backend.app.models.system_log import SystemLog
+    from backend.app.services.logger_service import logger_service
+
+_TEST_PATH = "/api/test/global-exception-logging"
 
 
-@app.get("/api/test/global-exception-logging")
-def global_exception_logging_test():
-    raise RuntimeError("broker failed password=supersecret access_token=tok_123")
+def _ensure_test_route() -> None:
+    """Register the intentional failure route on the live app instance once."""
+    for route in app.routes:
+        if getattr(route, "path", None) == _TEST_PATH:
+            return
+
+    @app.get(_TEST_PATH)
+    def global_exception_logging_test():
+        raise RuntimeError("broker failed password=supersecret access_token=tok_123")
 
 
-def test_global_exception_handler_masks_data_and_writes_log(client: TestClient, db_session: Session):
-    response = client.get("/api/test/global-exception-logging", headers={"X-Correlation-ID": "cid-test-500"})
+def test_global_exception_handler_masks_data_and_writes_log(db_session: Session):
+    _ensure_test_route()
+
+    # raise_server_exceptions=False: Starlette BaseHTTPMiddleware can re-surface the
+    # original exception to TestClient even after the app exception handler returns 500.
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(_TEST_PATH, headers={"X-Correlation-ID": "cid-test-500"})
 
     assert response.status_code == 500
     assert response.json() == {
@@ -26,18 +47,18 @@ def test_global_exception_handler_masks_data_and_writes_log(client: TestClient, 
         .all()
     )
 
-    assert logs
+    assert logs, "Expected an ERROR SystemLog row from global_exception_handler"
     log = logs[0]
     assert log.module == "global_exception_handler"
-    assert log.endpoint == "GET /api/test/global-exception-logging"
+    assert log.endpoint == f"GET {_TEST_PATH}"
     assert log.correlationId == "cid-test-500"
     assert log.error_hash
-    assert "***MASKED***" in log.message
-    assert "supersecret" not in log.message
-    assert "tok_123" not in log.message
+    assert "***MASKED***" in (log.message or "")
+    assert "supersecret" not in (log.message or "")
+    assert "tok_123" not in (log.message or "")
     assert log.traceback
-    assert "supersecret" not in log.traceback
-    assert "tok_123" not in log.traceback
+    assert "supersecret" not in (log.traceback or "")
+    assert "tok_123" not in (log.traceback or "")
 
 
 def test_logger_masks_structured_data_before_persist(db_session: Session):

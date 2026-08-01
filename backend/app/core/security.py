@@ -1,17 +1,32 @@
 from datetime import datetime, timedelta, timezone
+import logging
 import os
 import uuid
 from typing import Any, Dict, Optional, Tuple
 import jwt
 from passlib.context import CryptContext
 
+from .roles import DEFAULT_ROLE, VALID_ROLES, normalize_role
+
+logger = logging.getLogger("app.core.security")
+
 # Secret keys
-SECRET_KEY = os.getenv("JWT_SECRET", "yoursecretkey_must_be_changed_in_prod")
-REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET", "yourrefreshsecretkey_must_be_changed_in_prod")
+_INSECURE_JWT_DEFAULT = "yoursecretkey_must_be_changed_in_prod"
+_INSECURE_REFRESH_DEFAULT = "yourrefreshsecretkey_must_be_changed_in_prod"
+SECRET_KEY = os.getenv("JWT_SECRET", _INSECURE_JWT_DEFAULT)
+REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET", _INSECURE_REFRESH_DEFAULT)
 ALGORITHM = "HS256"
 
-# Expirations
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")) # 24 hours
+def _default_access_token_minutes() -> int:
+    """Shorter default TTL in production/staging (M-2); 24h remains for local/dev."""
+    env = os.getenv("APP_ENV", "development").strip().lower()
+    if env in {"production", "prod", "staging"}:
+        return int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))  # 1 hour
+    return int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 hours
+
+
+# Expirations (env ACCESS_TOKEN_EXPIRE_MINUTES always wins when set)
+ACCESS_TOKEN_EXPIRE_MINUTES = _default_access_token_minutes()
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # Crypt context for Argon2id
@@ -20,6 +35,27 @@ pwd_context = CryptContext(
     deprecated="auto",
 )
 
+
+def assert_jwt_secrets_safe_for_env(app_env: str | None = None) -> None:
+    """Fail closed in production when JWT secrets are missing or still the insecure defaults."""
+    env = (app_env or os.getenv("APP_ENV", "development")).strip().lower()
+    if env not in {"production", "prod", "staging"}:
+        if SECRET_KEY in {"", _INSECURE_JWT_DEFAULT}:
+            logger.warning(
+                "JWT_SECRET_INSECURE | Using default/empty JWT_SECRET outside production. "
+                "Set JWT_SECRET before deploying."
+            )
+        return
+    if not SECRET_KEY or SECRET_KEY == _INSECURE_JWT_DEFAULT:
+        raise RuntimeError(
+            "JWT_SECRET must be set to a strong non-default value in production/staging."
+        )
+    if not REFRESH_SECRET_KEY or REFRESH_SECRET_KEY == _INSECURE_REFRESH_DEFAULT:
+        raise RuntimeError(
+            "JWT_REFRESH_SECRET must be set to a strong non-default value in production/staging."
+        )
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
@@ -27,8 +63,9 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> Tuple[str, str]:
-    """Returns (token, jti)"""
+    """Returns (token, jti). Role claim is clamped to VALID_ROLES (trader|admin)."""
     to_encode = data.copy()
+    to_encode["role"] = normalize_role(to_encode.get("role"))
     jti = str(uuid.uuid4())
     to_encode.update({"jti": jti})
     

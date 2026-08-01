@@ -388,8 +388,37 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to verify partitions: {e}")
 
+    # JWT secret hardening (production/staging fail-closed).
+    try:
+        from .config import settings as _settings_for_jwt
+        from .core.security import assert_jwt_secrets_safe_for_env
+
+        assert_jwt_secrets_safe_for_env(_settings_for_jwt.app_env)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.warning("JWT secret safety check skipped: %s", e)
+
+    from .config import settings as _startup_settings
+
+    def _is_prod_like() -> bool:
+        return str(_startup_settings.app_env).strip().lower() in {"production", "prod", "staging"}
+
     if not worker_lease.acquired:
         logger.warning("Another instance owns singleton workers; API-only mode enabled for this pod.")
+        # Still ensure schema + default admin on API-only pods after migration gate.
+        try:
+            from .db.session import check_alembic_head
+            from .services.admin_bootstrap_service import ensure_default_admin_safe
+
+            check_alembic_head()
+            async with AsyncSessionLocal() as admin_db_session:
+                await ensure_default_admin_safe(admin_db_session, fail_closed=_is_prod_like())
+        except Exception as e:
+            if _is_prod_like():
+                logger.critical("API-only pod migration/admin bootstrap failed fatally: %s", e)
+                raise
+            logger.warning("API-only pod migration/admin bootstrap check failed: %s", e)
         yield
         return
     try:
@@ -397,10 +426,22 @@ async def lifespan(app: FastAPI):
         from .config import settings
         from .db.session import check_alembic_head
         
-        # Enforce Alembic Migration Gate
+        # Enforce Alembic Migration Gate BEFORE admin bootstrap (H-4).
         logger.info("STARTUP PROGRESS: Validating database schema lineage...")
         check_alembic_head()
         logger.info("STARTUP PROGRESS: Database schema is up-to-date.")
+
+        # Default admin seed only after schema is current (FR-011..014).
+        try:
+            from .services.admin_bootstrap_service import ensure_default_admin_safe
+
+            async with AsyncSessionLocal() as admin_db_session:
+                await ensure_default_admin_safe(admin_db_session, fail_closed=_is_prod_like())
+        except Exception as e:
+            if _is_prod_like():
+                logger.critical("Default admin bootstrap failed fatally: %s", e)
+                raise
+            logger.warning("Default admin bootstrap check failed: %s", e)
 
         # Drop any async connections that may hold prepared plans from before DDL
         try:
@@ -803,6 +844,49 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=600,
 )
+# Correlation ID propagation (X-Correlation-ID request/response header).
+from .middleware import CorrelationIdMiddleware  # noqa: E402
+
+app.add_middleware(CorrelationIdMiddleware)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Catch unhandled exceptions, mask secrets in logs, and return a safe 500 body.
+    Does not override FastAPI/Starlette HTTPException handlers (more specific).
+    """
+    from fastapi import HTTPException as FastAPIHTTPException
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    from fastapi.exceptions import RequestValidationError
+
+    if isinstance(exc, (FastAPIHTTPException, StarletteHTTPException, RequestValidationError)):
+        raise exc
+
+    from .services.logger_service import logger_service
+
+    cid = getattr(request.state, "correlationId", None) or request.headers.get("X-Correlation-ID")
+    endpoint = f"{request.method} {request.url.path}"
+    try:
+        logger_service.log_error(
+            module="global_exception_handler",
+            message=str(exc),
+            exc=exc,
+            endpoint=endpoint,
+            correlationId=cid,
+        )
+        await logger_service.flush_now()
+        # Prevent middleware safety-net from double-logging the same exception (L-1).
+        request.state.exception_logged = True
+    except Exception:
+        logger.exception("Failed to persist global exception log")
+
+    headers = {"X-Correlation-ID": cid} if cid else None
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected system error occurred. This has been logged for our engineers."},
+        headers=headers,
+    )
 
 
 @app.get("/scanner/health")
@@ -831,6 +915,8 @@ async def log_http_requests(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception as exc:
+        # BaseHTTPMiddleware may re-surface route exceptions even after the app
+        # exception handler runs — convert to a safe 500 here as a safety net.
         elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
         request_logger.exception(
             "HTTP request failed | method=%s | path=%s | elapsed_ms=%s",
@@ -838,20 +924,29 @@ async def log_http_requests(request: Request, call_next):
             request.url.path,
             elapsed_ms,
         )
-        
-        # Log to DB and return 500 gracefully
-        tb = traceback.format_exc()
-        print(f"EXCEPTION CAUGHT IN MIDDLEWARE:\n{tb}")
-        await log_to_db(
-            level="ERROR",
-            module="http_middleware_exception",
-            message=str(exc),
-            endpoint=request.url.path,
-            tb=tb
-        )
+        cid = getattr(request.state, "correlationId", None) or request.headers.get("X-Correlation-ID")
+        # Skip DB log if global_exception_handler already persisted this failure.
+        if not getattr(request.state, "exception_logged", False):
+            from .services.logger_service import logger_service
+
+            endpoint = f"{request.method} {request.url.path}"
+            try:
+                logger_service.log_error(
+                    module="global_exception_handler",
+                    message=str(exc),
+                    exc=exc,
+                    endpoint=endpoint,
+                    correlationId=cid,
+                )
+                await logger_service.flush_now()
+                request.state.exception_logged = True
+            except Exception:
+                logger.exception("Failed to persist middleware exception log")
+        headers = {"X-Correlation-ID": cid} if cid else None
         return JSONResponse(
             status_code=500,
-            content={"detail": "An unexpected system error occurred. This has been logged for our engineers."}
+            content={"detail": "An unexpected system error occurred. This has been logged for our engineers."},
+            headers=headers,
         )
 
     elapsed_ms = round((perf_counter() - started_at) * 1000, 1)

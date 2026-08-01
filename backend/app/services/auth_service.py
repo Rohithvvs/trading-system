@@ -47,11 +47,13 @@ async def create_user(db: AsyncSession, user_in: UserCreate, ip_address: str = N
             detail="The user with this email already exists in the system.",
         )
     
+    from ..core.roles import UserRole
+
     db_user = User(
         id=uuid.uuid4(),
         email=user_in.email,
         full_name=user_in.full_name,
-        role=user_in.role,
+        role=UserRole.TRADER.value,
         password_hash=get_password_hash(user_in.password),
         is_active=True,
     )
@@ -119,9 +121,11 @@ async def authenticate_user(db: AsyncSession, email: str, password: str, ip_addr
     await AuditService.log_event(db, str(user.id), "login_success", ip_address, user_agent)
     return user
 
-async def create_user_session(db: AsyncSession, user_id: str, ip_address: str = None, user_agent: str = None, remember_me: bool = False) -> Tuple[str, str]:
-    # Generate tokens
-    access_token, access_jti = create_access_token({"sub": user_id})
+async def create_user_session(db: AsyncSession, user_id: str, role: str = "trader", ip_address: str = None, user_agent: str = None, remember_me: bool = False) -> Tuple[str, str]:
+    from ..core.roles import normalize_role
+
+    # Generate tokens (role clamped at issuance).
+    access_token, access_jti = create_access_token({"sub": user_id, "role": normalize_role(role)})
     
     if remember_me:
         refresh_token, refresh_jti = create_refresh_token({"sub": user_id}, expires_delta=timedelta(days=30))
@@ -237,6 +241,8 @@ async def google_auth(db: AsyncSession, id_token_str: str, ip_address: str = Non
         logger.info("GOOGLE_AUTH_SUCCESS | existing_user | user_id=%s | email=%s", user.id, email)
         return user
 
+    from ..core.roles import UserRole as _UserRole
+
     user = User(
         id=uuid.uuid4(),
         email=email,
@@ -246,6 +252,7 @@ async def google_auth(db: AsyncSession, id_token_str: str, ip_address: str = Non
         profile_picture=picture,
         is_active=True,
         is_email_verified=True,
+        role=_UserRole.TRADER.value,
         password_hash=get_password_hash(uuid.uuid4().hex),
     )
     db.add(user)
