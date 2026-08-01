@@ -10,8 +10,19 @@ import {
 } from "../utils/profilePrefs";
 import { Card, CardHeader, EmptyState, Button, ConfirmDialog, useToast } from "../design-system";
 import { ListSkeleton } from "../components/Skeleton";
+import { FeatureGuard } from "../components/FeatureGuard";
+import { AccessDenied } from "../components/AccessDenied";
 
+/** Full-page watchlist — gated by feature key `watchlist` (Sprint 5). */
 export function WatchlistPage() {
+  return (
+    <FeatureGuard feature="watchlist" fallback={<AccessDenied />}>
+      <WatchlistPageContent />
+    </FeatureGuard>
+  );
+}
+
+function WatchlistPageContent() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
@@ -87,7 +98,7 @@ export function WatchlistPage() {
   }
 
   return (
-    <div className="page-container">
+    <div className="page-container" data-testid="watchlist-page-content">
       <header className="page-hero">
         <div>
           <p className="ds-label">Watchlist</p>

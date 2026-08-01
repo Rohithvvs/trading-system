@@ -33,6 +33,9 @@ import { AdminRoute } from "./components/AdminRoute";
 import FyersCallback from "./components/FyersCallback";
 import { PaperOrderProvider } from "./contexts/PaperOrderContext";
 import { navigateToPaperOrder } from "./utils/paperOrderNavigation";
+import { FeaturePermissionsProvider } from "./contexts/FeaturePermissionsContext";
+import { FeatureGuard } from "./components/FeatureGuard";
+import { AccessDenied } from "./components/AccessDenied";
 
 /** Code-split heavy modules — shell/nav paint first */
 const PaperTradingPage = lazy(() =>
@@ -61,6 +64,9 @@ const PerformancePage = lazy(() =>
 );
 const DiagnosticsPage = lazy(() =>
   import("./pages/Diagnostics").then((m) => ({ default: m.DiagnosticsPage })),
+);
+const AdminPanelPage = lazy(() =>
+  import("./components/admin/AdminPanelPage").then((m) => ({ default: m.AdminPanelPage })),
 );
 
 function ViewFallback() {
@@ -338,24 +344,6 @@ export default function App() {
     }
   }
 
-  function handleExportCsv() {
-    const rows = screenerResult?.all_analyzed_stocks?.length ? screenerResult.all_analyzed_stocks : screenerResult?.matches ?? [];
-    if (!rows.length) {
-      toast.info("Nothing to export yet");
-      return;
-    }
-    const headers = ["symbol", "close", "screener_score", "technical_signal", "matched", "volume"];
-    const csv = [headers.join(","), ...rows.map((row: any) => headers.map((key) => JSON.stringify(row[key] ?? "")).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `scan-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success("CSV exported");
-  }
-
   function loadSavedScan(scan: any) {
     setSelectedUniverse(scan.universe ?? "NIFTY500");
     setTimeframe(scan.timeframe ?? "1d");
@@ -557,101 +545,127 @@ export default function App() {
   ), [navigate]);
 
   return (
-    <PaperOrderProvider>
-      <AppShell>
-        <Suspense fallback={<ViewFallback />}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/scanner" replace />} />
-            <Route path="/home" element={<Navigate to="/scanner" replace />} />
-            <Route
-              path="/markets"
-              element={
-                <Suspense fallback={<ViewFallback />}>
-                  <MarketsPage
-                    onLoadSavedScan={loadSavedScan}
-                    screenerResult={screenerResult}
-                    isLoading={isLoading}
-                    scanError={error}
-                    selectedUniverse={selectedUniverse}
-                    timeframe={timeframe}
-                    summaryMetrics={summaryMetrics}
-                    onRunScanner={handleRunScanner}
-                    search={filters.search}
-                    onSearchChange={handleSearchChange}
-                    topN={topN}
-                    lookback={lookback}
-                    universe={selectedUniverse}
-                    universes={universesMapped}
-                    onTopNChange={setTopN}
-                    onLookbackChange={setLookback}
-                    onTimeframeChange={setTimeframe}
-                    onUniverseChange={setSelectedUniverse}
-                    theme={theme}
-                    onThemeToggle={toggleTheme}
-                    progressData={progressData}
-                    scanStartTime={scanStartTime}
-                  />
-                </Suspense>
-              }
-            />
-            <Route path="/scanner" element={scannerView} />
-            <Route path="/watchlist" element={<Navigate to="/paper?tab=watchlist" replace />} />
-            <Route path="/paper" element={paperDeskView} />
-            <Route path="/paper/:section" element={paperDeskView} />
-            <Route
-              path="/paper-order"
-              element={
-                <Suspense fallback={<ViewFallback />}>
-                  <PaperOrderPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/performance"
-              element={
-                <Suspense fallback={<ViewFallback />}>
-                  <PerformancePage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/diagnostics"
-              element={
-                <Suspense fallback={<ViewFallback />}>
-                  <DiagnosticsPage />
-                </Suspense>
-              }
-            />
-            <Route path="/profile" element={profileView} />
-            <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
-            <Route
-              path="/admin/logs"
-              element={
-                <AdminRoute>
+    <FeaturePermissionsProvider>
+      <PaperOrderProvider>
+        <AppShell>
+          <Suspense fallback={<ViewFallback />}>
+            <Routes>
+              {/* Ungated core landing (audit M-4) — avoid defaulting into a gated route */}
+              <Route path="/" element={<Navigate to="/markets" replace />} />
+              <Route path="/home" element={<Navigate to="/markets" replace />} />
+              <Route
+                path="/markets"
+                element={
                   <Suspense fallback={<ViewFallback />}>
-                    <SystemLogs />
+                    <MarketsPage
+                      onLoadSavedScan={loadSavedScan}
+                      screenerResult={screenerResult}
+                      isLoading={isLoading}
+                      scanError={error}
+                      selectedUniverse={selectedUniverse}
+                      timeframe={timeframe}
+                      summaryMetrics={summaryMetrics}
+                      onRunScanner={handleRunScanner}
+                      search={filters.search}
+                      onSearchChange={handleSearchChange}
+                      topN={topN}
+                      lookback={lookback}
+                      universe={selectedUniverse}
+                      universes={universesMapped}
+                      onTopNChange={setTopN}
+                      onLookbackChange={setLookback}
+                      onTimeframeChange={setTimeframe}
+                      onUniverseChange={setSelectedUniverse}
+                      theme={theme}
+                      onThemeToggle={toggleTheme}
+                      progressData={progressData}
+                      scanStartTime={scanStartTime}
+                    />
                   </Suspense>
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/admin/command"
-              element={
-                <AdminRoute>
+                }
+              />
+              <Route
+                path="/scanner"
+                element={
+                  <FeatureGuard feature="advanced_scanner" fallback={<AccessDenied />}>
+                    {scannerView}
+                  </FeatureGuard>
+                }
+              />
+              <Route path="/watchlist" element={<Navigate to="/paper?tab=watchlist" replace />} />
+              <Route path="/paper" element={paperDeskView} />
+              <Route path="/paper/:section" element={paperDeskView} />
+              <Route
+                path="/paper-order"
+                element={
                   <Suspense fallback={<ViewFallback />}>
-                    <CentralCommand />
+                    <PaperOrderPage />
                   </Suspense>
-                </AdminRoute>
-              }
-            />
-            <Route path="/fyers/callback" element={<FyersCallback />} />
-            <Route path="*" element={<Navigate to="/scanner" replace />} />
-          </Routes>
-        </Suspense>
-      </AppShell>
-      {/* Global BUY/SELL bus → dedicated /paper-order page (no drawer) */}
-      <PaperOrderRouteBridge />
-    </PaperOrderProvider>
+                }
+              />
+              <Route
+                path="/performance"
+                element={
+                  <FeatureGuard feature="portfolio_analytics" fallback={<AccessDenied />}>
+                    <Suspense fallback={<ViewFallback />}>
+                      <PerformancePage />
+                    </Suspense>
+                  </FeatureGuard>
+                }
+              />
+              <Route
+                path="/diagnostics"
+                element={
+                  <Suspense fallback={<ViewFallback />}>
+                    <DiagnosticsPage />
+                  </Suspense>
+                }
+              />
+              <Route path="/profile" element={profileView} />
+              <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <Suspense fallback={<ViewFallback />}>
+                      <AdminPanelPage />
+                    </Suspense>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <AdminRoute>
+                    <FeatureGuard feature="system_logs" fallback={<AccessDenied />}>
+                      <Suspense fallback={<ViewFallback />}>
+                        <SystemLogs />
+                      </Suspense>
+                    </FeatureGuard>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/command"
+                element={
+                  <AdminRoute>
+                    <FeatureGuard feature="central_command" fallback={<AccessDenied />}>
+                      <Suspense fallback={<ViewFallback />}>
+                        <CentralCommand />
+                      </Suspense>
+                    </FeatureGuard>
+                  </AdminRoute>
+                }
+              />
+              <Route path="/fyers/callback" element={<FyersCallback />} />
+              <Route path="*" element={<Navigate to="/markets" replace />} />
+            </Routes>
+          </Suspense>
+        </AppShell>
+        {/* Global BUY/SELL bus → dedicated /paper-order page (no drawer) */}
+        <PaperOrderRouteBridge />
+      </PaperOrderProvider>
+    </FeaturePermissionsProvider>
   );
 }
 

@@ -71,6 +71,11 @@ describe("Diagnostics Page", () => {
   it("renders the page title 'Diagnostics Dashboard'", async () => {
     render(<DiagnosticsPage />);
     expect(screen.getByText("Diagnostics Dashboard")).toBeDefined();
+    // Wait for panel fetch effects so setState is not outside act()
+    await waitFor(() => {
+      expect(screen.getByText("System Metrics")).toBeDefined();
+      expect(screen.getByText("45.2%")).toBeDefined();
+    });
   });
 
   it("renders all four diagnostic panels", async () => {
@@ -80,6 +85,9 @@ describe("Diagnostics Page", () => {
       expect(screen.getByText("Log Viewer")).toBeDefined();
       expect(screen.getByText("Active Alerts")).toBeDefined();
       expect(screen.getByText("Experiment Resource Usage")).toBeDefined();
+      // Assert data loaded so child panel updates complete under waitFor/act
+      expect(screen.getByText("45.2%")).toBeDefined();
+      expect(screen.getByText("Experiment started")).toBeDefined();
     });
   });
 
@@ -120,6 +128,8 @@ describe("Diagnostics Page", () => {
     await waitFor(() => {
       const select = container.querySelector("select");
       expect(select).toBeDefined();
+      // Settle log fetch before ending the test
+      expect(screen.getByText("Experiment started")).toBeDefined();
     });
   });
 });
@@ -142,7 +152,7 @@ describe("Diagnostics Page — Error State", () => {
   it("shows error and Retry button when backend is unreachable", async () => {
     render(<DiagnosticsPage />);
     await waitFor(() => {
-      expect(screen.getByText("Backend unreachable")).toBeDefined();
+      expect(screen.getAllByText("Backend unreachable")[0]).toBeDefined();
     });
 
     // MetricsPanel should have a Retry button
@@ -158,7 +168,7 @@ describe("Diagnostics Page — Error State", () => {
 
     render(<DiagnosticsPage />);
     await waitFor(() => {
-      expect(screen.getByText("Backend unreachable")).toBeDefined();
+      expect(screen.getAllByText("Backend unreachable")[0]).toBeDefined();
     });
 
     const retryButtons = screen.getAllByText("Retry");

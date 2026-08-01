@@ -10,8 +10,22 @@ import {
 import { useToast, Button, EmptyState } from "../design-system";
 import { ListSkeleton } from "./Skeleton";
 import { ConfirmDialog } from "../design-system";
+import { FeatureGuard } from "./FeatureGuard";
+import { AccessDenied } from "./AccessDenied";
 
+/**
+ * Paper Desk watchlist panel — gated by feature key `watchlist` (Sprint 5).
+ * Denied users see AccessDenied and never load preference data.
+ */
 export function WatchlistTab() {
+  return (
+    <FeatureGuard feature="watchlist" fallback={<AccessDenied />}>
+      <WatchlistTabContent />
+    </FeatureGuard>
+  );
+}
+
+function WatchlistTabContent() {
   const { user } = useAuth();
   const toast = useToast();
   const [prefs, setPrefs] = useState<ProfilePreferences>(() => loadProfilePrefs(user?.id));
@@ -94,7 +108,7 @@ export function WatchlistTab() {
   }
 
   return (
-    <section>
+    <section data-testid="watchlist-tab-content">
       <div className="panel">
         <div className="panel-header">
           <div>

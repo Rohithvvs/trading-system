@@ -103,6 +103,41 @@ def _sqlite_async_url(sync_or_async_url: str) -> str:
     return sync_or_async_url
 
 
+def _rebind_sync_sqlite(db_path: Path) -> None:
+    """Point process-wide SessionLocal / get_sync_db at the per-test SQLite file.
+
+    Complements async rebind so paper-trading and other sync FastAPI deps see the
+    same schema/file as ``db_session`` and ``AsyncSessionLocal``.
+    """
+    sync_url = f"sqlite:///{db_path.as_posix()}"
+    for sm in _session_modules():
+        if not hasattr(sm, "SessionLocal"):
+            continue
+        new_engine = create_engine(
+            sync_url,
+            connect_args={"check_same_thread": False},
+            poolclass=NullPool,
+        )
+        old = getattr(sm, "sync_engine", None)
+        sm.sync_engine = new_engine
+        sm.SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=new_engine,
+            expire_on_commit=False,
+        )
+        if old is not None:
+            try:
+                old.dispose(close=True)
+            except TypeError:
+                try:
+                    old.dispose()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+
 def _rebind_async_sqlite(db_path: Path) -> None:
     """Point process-wide AsyncSessionLocal at the per-test SQLite file (NullPool).
 
@@ -144,6 +179,9 @@ def _rebind_async_sqlite(db_path: Path) -> None:
     except Exception:
         pass
 
+    # Sync SessionLocal must track the same file as async + db_session
+    _rebind_sync_sqlite(db_path)
+
 
 def _dispose_async_sqlite() -> None:
     for sm in _session_modules():
@@ -154,7 +192,7 @@ def _dispose_async_sqlite() -> None:
 
 
 def _restore_default_async_engine() -> None:
-    """Restore process-wide async engine after per-test rebind teardown."""
+    """Restore process-wide async + sync engines after per-test rebind teardown."""
     global CURRENT_TEST_DB_PATH
     CURRENT_TEST_DB_PATH = None
     sync_url = _DEFAULT_TEST_DATABASE_URL
@@ -185,6 +223,13 @@ def _restore_default_async_engine() -> None:
                 expire_on_commit=False,
                 class_=AsyncSession,
             )
+    # Restore sync SessionLocal to the default test DATABASE_URL
+    try:
+        default_path = Path(sync_url.replace("sqlite:///", "", 1))
+        if default_path.suffix or "sqlite" in sync_url:
+            _rebind_sync_sqlite(default_path)
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -272,11 +317,19 @@ async def async_db_session():
 
 
 @pytest.fixture()
-def client(db_session: Session) -> Generator[TestClient, None, None]:
-    def override_get_db() -> Generator[Session, None, None]:
-        yield db_session
+def client(test_engine) -> Generator[TestClient, None, None]:
+    """HTTP client against the per-test DB using real async/sync session factories.
 
-    app.dependency_overrides[get_db] = override_get_db
+    Do **not** override ``get_db`` with a sync ``Session``: FastAPI async routes
+    call ``await db.execute`` and fail with ChunkedIteratorResult errors when a
+    sync session is injected. ``test_engine`` rebinds ``AsyncSessionLocal`` and
+    ``SessionLocal`` to the same SQLite file used by ``db_session``.
+
+    Prefer ``db_session.commit()`` before API reads when seeding via the sync
+    fixture so the async path observes committed rows.
+    """
+    # Clear any leftover overrides from other fixtures
+    app.dependency_overrides.pop(get_db, None)
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -2,6 +2,8 @@ import json
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
+from ..core.deps import require_feature
+from ..models.auth import User
 from ..services.latest_scan_service import LatestScanService
 from ..services.scanner_cache_service import scanner_cache_service, wants_force_refresh
 from ..config.settings import settings
@@ -26,6 +28,7 @@ async def get_latest_completed_scan(
     request: Request,
     force: bool = Query(default=False, description="Force refresh cache"),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_feature("advanced_scanner")),
 ):
     import time
     from ..services.diagnostics_service import diagnostics

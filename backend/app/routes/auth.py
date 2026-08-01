@@ -317,6 +317,7 @@ async def reset_password(request_data: ResetPasswordRequest, db: AsyncSession = 
 from ..core.deps import get_current_active_user
 from ..schemas.user_profile import UserProfileResponse, UserProfileUpdate, UserProfilePatch
 from ..services.user_profile_service import get_or_create_profile, profile_to_dict, update_profile
+from ..services import feature_permission_service
 
 @router.get('/me', response_model=UserResponse)
 async def get_me(current_user = Depends(get_current_active_user)):
@@ -351,6 +352,17 @@ async def patch_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """Partial profile update; preferences are deep-merged."""
+    # Sprint 5 M-5: mutating watchlist requires watchlist feature access
+    prefs = body.preferences if isinstance(body.preferences, dict) else None
+    if prefs is not None and "watchlist" in prefs:
+        allowed = await feature_permission_service.can_access_feature(
+            db, "watchlist", current_user.role
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Feature not available: watchlist",
+            )
     profile = await update_profile(db, current_user, body, partial=True)
     return profile_to_dict(profile, current_user)
 

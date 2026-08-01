@@ -6,7 +6,9 @@ import time
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import RouterAgent
+from ..core.deps import require_feature
 from ..db import get_db
+from ..models.auth import User
 from ..db.scan_store import load_latest_scan, save_latest_scan
 from ..schemas import (
     AnalysisRequest,
@@ -89,7 +91,10 @@ def rankings(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> Ra
 
 
 @router.post("/screener/full")
-async def screener_full(payload: ScreenerRequest):
+async def screener_full(
+    payload: ScreenerRequest,
+    _: User = Depends(require_feature("advanced_scanner")),
+):
     logger.info(
         "[SCAN] API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
         payload.mode.value,
@@ -481,6 +486,7 @@ async def get_latest_scan(
     request: Request,
     force: bool = Query(default=False, description="Force refresh cache"),
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_feature("advanced_scanner")),
 ):
     from ..services.scanner_cache_service import scanner_cache_service, wants_force_refresh
     from ..services.latest_scan_service import LatestScanService

@@ -5,6 +5,7 @@ import { TOOLTIPS } from '../constants/tooltips';
 import { apiUrl } from '../config';
 import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
 import { WatchlistTab } from './WatchlistTab';
+import { useFeaturePermissions } from "../hooks/useFeaturePermissions";
 
 const DailyAnalyticsPanel = lazy(() =>
   import("./DailyAnalyticsPanel").then((m) => ({ default: m.DailyAnalyticsPanel })),
@@ -230,6 +231,9 @@ export function PaperTradingPage({
     side: urlSide === "SELL" ? "SELL" : "BUY",
   });
   const [listTab, setListTab] = useState<PaperPanelTab>(() => readPaperTabFromUrl());
+  const { canAccess } = useFeaturePermissions();
+  const canAccessWatchlist = canAccess("watchlist");
+  const canAccessPortfolioAnalytics = canAccess("portfolio_analytics");
   const [resetBalance, setResetBalance] = useState(1000000);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +277,20 @@ export function PaperTradingPage({
       window.history.replaceState(null, "", full);
     }
   }, [listTab]);
+
+  // Sprint 5: fall back when deep-linked to a feature-denied tab
+  useEffect(() => {
+    if (listTab === "watchlist" && !canAccessWatchlist) {
+      setListTab("positions");
+      return;
+    }
+    if (
+      (listTab === "analytics" || listTab === "daily-analytics") &&
+      !canAccessPortfolioAnalytics
+    ) {
+      setListTab("positions");
+    }
+  }, [listTab, canAccessWatchlist, canAccessPortfolioAnalytics]);
 
   // Deep link: /paper?symbol=X&side=BUY|SELL → dedicated full-page order ticket
   useEffect(() => {
@@ -1240,16 +1258,24 @@ export function PaperTradingPage({
       {/* TRADING WORKSPACE - Positions / Orders / History / Analytics / Daily / Alerts / Capital */}
       <section className="panel paper-tabs-panel">
         <div className="detail-tabs" role="tablist" aria-label="Paper trading data tabs">
-          {[
-            ["positions", "Positions"],
-            ["orders", "Orders"],
-            ["history", "History"],
-            ["analytics", "Analytics"],
-            ["daily-analytics", "Daily"],
-            ["alerts", "Alerts"],
-            ["account", "Capital"],
-            ["watchlist", "Watchlist"],
-          ].map(([id, label]) => (
+          {(
+            [
+              ["positions", "Positions"],
+              ["orders", "Orders"],
+              ["history", "History"],
+              // Sprint 5: hide analytics tabs when portfolio_analytics denied (matches API gates)
+              ...(canAccessPortfolioAnalytics
+                ? ([
+                    ["analytics", "Analytics"],
+                    ["daily-analytics", "Daily"],
+                  ] as const)
+                : []),
+              ["alerts", "Alerts"],
+              ["account", "Capital"],
+              // Sprint 5: hide watchlist tab when feature permission denied
+              ...(canAccessWatchlist ? ([["watchlist", "Watchlist"]] as const) : []),
+            ] as const
+          ).map(([id, label]) => (
             <button
               key={id}
               data-testid={`paper-tab-${id}`}

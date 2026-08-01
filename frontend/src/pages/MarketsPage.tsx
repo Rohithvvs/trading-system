@@ -14,9 +14,11 @@ import { getCached, CACHE_KEYS } from "../utils/appCache";
 import { MetricCardSkeleton, ListSkeleton } from "../components/Skeleton";
 import { Card, CardHeader, EmptyState, Button, PnL, StatusPill } from "../design-system";
 import { useAuth } from "../hooks/useAuth";
+import { useFeaturePermissions } from "../hooks/useFeaturePermissions";
 import type { ProfilePreferences } from "../utils/profilePrefs";
 import { SwingDecisionDashboard } from "../components/swing";
 import type { ScreenerResponse, ThemeMode } from "../types";
+import { FeatureGuard } from "../components/FeatureGuard";
 
 type SummaryMetric = {
   label: string;
@@ -92,6 +94,9 @@ export const MarketsPage = memo(function MarketsPage({
 }: Props) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { canAccess, isLoading: permsLoading } = useFeaturePermissions();
+  const canAccessWatchlist = !permsLoading && canAccess("watchlist");
+  const canAccessScanner = !permsLoading && canAccess("advanced_scanner");
   const [market, setMarket] = useState<any | null>(() => getCached(CACHE_KEYS.marketOverview));
   const [savedScans, setSavedScans] = useState<any[]>(() => getCached(CACHE_KEYS.savedScans) || []);
   const [alerts, setAlerts] = useState<any[]>(() => getCached(CACHE_KEYS.workstationAlerts) || []);
@@ -138,17 +143,20 @@ export const MarketsPage = memo(function MarketsPage({
       setLoading(false);
 
       // Wave 2 (secondary): scans, alerts, profile watchlist — non-blocking
+      // Skip watchlist profile fetch when feature denied (audit L-4)
       const [savedData, alertsData, profile] = await Promise.all([
         fetchSavedScans().catch(() => []),
         fetchWorkstationAlerts().catch(() => []),
-        user?.id
+        user?.id && canAccessWatchlist
           ? fetchUserProfile().catch(() => null)
           : Promise.resolve(null),
       ]);
       if (!mounted.current) return;
       setSavedScans(savedData || []);
       setAlerts(alertsData || []);
-      if (profile?.preferences?.watchlist) {
+      if (!canAccessWatchlist) {
+        setWatchlist([]);
+      } else if (profile?.preferences?.watchlist) {
         setWatchlist(profile.preferences.watchlist);
       } else if (profile?.watchlist) {
         setWatchlist(profile.watchlist);
@@ -162,7 +170,7 @@ export const MarketsPage = memo(function MarketsPage({
         setRefreshing(false);
       }
     }
-  }, [user?.id]);
+  }, [user?.id, canAccessWatchlist]);
 
   useEffect(() => {
     mounted.current = true;
@@ -309,37 +317,54 @@ export const MarketsPage = memo(function MarketsPage({
 
       {/* ── Secondary: watchlist, highlights, desk, presets, alerts ── */}
       <div className="markets-grid-2">
-        <Card>
-          <CardHeader
-            label="Watchlist"
-            title="Your favorites"
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => navigate("/watchlist")}>
-                View all
-              </Button>
-            }
-          />
-          {watchlist.length === 0 ? (
-            <EmptyState
-              title="No watchlist yet"
-              description="Star symbols from the scanner or stock page to track them here."
-              primaryAction={{ label: "Open Scanner", onClick: () => navigate("/scanner"), variant: "trade" }}
+        <FeatureGuard feature="watchlist">
+          <Card data-testid="markets-watchlist-card">
+            <CardHeader
+              label="Watchlist"
+              title="Your favorites"
+              actions={
+                <Button variant="ghost" size="sm" onClick={() => navigate("/watchlist")}>
+                  View all
+                </Button>
+              }
             />
-          ) : (
-            <ul className="markets-symbol-list">
-              {watchlist.slice(0, 8).map((sym) => (
-                <li key={sym}>
-                  <button type="button" className="markets-symbol-row" onClick={() => navigate(`/scanner?symbol=${sym}`)}>
-                    <strong>{sym}</strong>
-                    <span className="ds-caption">View</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+            {watchlist.length === 0 ? (
+              <EmptyState
+                title="No watchlist yet"
+                description="Star symbols from the scanner or stock page to track them here."
+                primaryAction={
+                  canAccessScanner
+                    ? { label: "Open Scanner", onClick: () => navigate("/scanner"), variant: "trade" }
+                    : undefined
+                }
+              />
+            ) : (
+              <ul className="markets-symbol-list">
+                {watchlist.slice(0, 8).map((sym) => (
+                  <li key={sym}>
+                    <button
+                      type="button"
+                      className="markets-symbol-row"
+                      onClick={() =>
+                        navigate(
+                          canAccessScanner
+                            ? `/scanner?symbol=${encodeURIComponent(sym)}`
+                            : `/paper?symbol=${encodeURIComponent(sym)}`,
+                        )
+                      }
+                    >
+                      <strong>{sym}</strong>
+                      <span className="ds-caption">View</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </FeatureGuard>
 
-        <Card>
+        <FeatureGuard feature="advanced_scanner">
+        <Card data-testid="markets-scanner-highlights">
           <CardHeader
             label="Scanner"
             title="Highlights"
@@ -380,6 +405,7 @@ export const MarketsPage = memo(function MarketsPage({
             </ul>
           )}
         </Card>
+        </FeatureGuard>
       </div>
 
       <div className="markets-grid-2">

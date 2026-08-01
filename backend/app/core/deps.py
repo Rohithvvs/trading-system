@@ -112,6 +112,60 @@ require_admin = require_roles(UserRole.ADMIN.value)
 require_trader_or_admin = require_roles(UserRole.TRADER.value, UserRole.ADMIN.value)
 
 
+def require_feature(feature_key: str):
+    """
+    Sprint 5 M-5: fail-closed FastAPI dependency for product feature gates.
+
+    Loads the live User row and evaluates feature_permissions (DB).
+    Use on async routes that complement frontend FeatureGuard.
+    """
+
+    async def _dependency(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        from ..services import feature_permission_service
+
+        allowed = await feature_permission_service.can_access_feature(
+            db, feature_key, current_user.role
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Feature not available: {feature_key}",
+            )
+        return current_user
+
+    return _dependency
+
+
+def require_feature_sync(feature_key: str):
+    """
+    Sync variant of require_feature for paper-trading style handlers.
+
+    Uses verified JWT principal role + DB feature catalog (no extra User row load)
+    so it composes cleanly with get_current_user_id_sync-based services.
+    """
+
+    def _dependency(
+        principal: Annotated[TokenPrincipal, Depends(get_token_principal)],
+        db: Session = Depends(get_sync_db),
+    ) -> TokenPrincipal:
+        from ..services import feature_permission_service
+
+        allowed = feature_permission_service.can_access_feature_sync(
+            db, feature_key, principal.role
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Feature not available: {feature_key}",
+            )
+        return principal
+
+    return _dependency
+
+
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     user_id = _extract_user_id_from_request(request)
     try:
