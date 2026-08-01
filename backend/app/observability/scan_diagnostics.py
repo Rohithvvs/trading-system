@@ -23,15 +23,16 @@ import traceback as traceback_module
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
+
+from ..utils.datetime_utils import parse_utc, utc_now
 
 logger = logging.getLogger("app.scan_diagnostics")
 
 # ---------------------------------------------------------------------------
 # Global context — deployment / process identity
 # ---------------------------------------------------------------------------
-_PROCESS_START_TIME = datetime.now(timezone.utc).isoformat()
+_PROCESS_START_TIME = utc_now().isoformat()
 _PROCESS_PID = os.getpid()
 _HOSTNAME = socket.gethostname()
 _DEPLOYMENT_ID = os.getenv("RENDER_SERVICE_ID", os.getenv("RENDER_INSTANCE_ID", "local"))
@@ -70,7 +71,7 @@ class ScanContext:
     scan_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     trigger_source: str = "unknown"  # manual / scheduler / api
     start_time: float = field(default_factory=time.perf_counter)
-    start_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    start_timestamp: str = field(default_factory=lambda: utc_now().isoformat())
     universe: str = "unknown"
     symbols_requested: int = 0
 
@@ -120,7 +121,7 @@ class ScanContext:
             "pid": ctx["pid"],
             "hostname": ctx["hostname"],
             "deployment_id": ctx["deployment_id"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
 
     def format_log(self, event: str, **kwargs: Any) -> str:
@@ -401,7 +402,7 @@ def log_dashboard_request(scan_id: str | None, endpoint: str, returned_records: 
         f"returned_records={returned_records}",
         f"query_duration_ms={query_duration_ms}",
         f"pid={_PROCESS_PID}",
-        f"timestamp={datetime.now(timezone.utc).isoformat()}",
+        f"timestamp={utc_now().isoformat()}",
     ]
     logger.info(" | ".join(parts))
 
@@ -412,7 +413,7 @@ def log_scheduler_event(event: str, job_name: str, **kwargs: Any) -> None:
         f"event={event}",
         f"job_name={job_name}",
         f"pid={_PROCESS_PID}",
-        f"timestamp={datetime.now(timezone.utc).isoformat()}",
+        f"timestamp={utc_now().isoformat()}",
     ]
     for k, v in kwargs.items():
         parts.append(f"{k}={v}")
@@ -428,7 +429,7 @@ def log_db_pool_status(pool_size: int = 0, checked_out: int = 0, overflow: int =
         f"overflow={overflow}",
         f"checkedin={checkedin}",
         f"pid={_PROCESS_PID}",
-        f"timestamp={datetime.now(timezone.utc).isoformat()}",
+        f"timestamp={utc_now().isoformat()}",
     ]
     logger.info(" | ".join(parts))
 
@@ -441,7 +442,7 @@ def log_process_event(event: str, reason: str = "") -> None:
         f"hostname={_HOSTNAME}",
         f"deployment_id={_DEPLOYMENT_ID}",
         f"render_instance={_RENDER_INSTANCE}",
-        f"timestamp={datetime.now(timezone.utc).isoformat()}",
+        f"timestamp={utc_now().isoformat()}",
         f"startup_timestamp={_PROCESS_START_TIME}",
     ]
     if reason:
@@ -471,8 +472,6 @@ def log_scan_environment(
     token_age_minutes: float,
     token_hash: str,
     app_uptime_minutes: float,
-    market_open: bool,
-    market_session: str,
     exchange_time: str,
     weekday: str,
     db_connected: bool,
@@ -496,16 +495,17 @@ def log_scan_environment(
         
     if token_saved_at:
         try:
-            token_saved_dt = datetime.fromisoformat(token_saved_at)
-            if token_saved_dt.tzinfo is None:
-                token_saved_dt = token_saved_dt.replace(tzinfo=timezone.utc)
-            startup_dt = datetime.fromisoformat(_PROCESS_START_TIME)
-            if startup_dt.tzinfo is None:
-                startup_dt = startup_dt.replace(tzinfo=timezone.utc)
-            if token_saved_dt > startup_dt:
-                logger.warning(f"TOKEN_POSSIBLY_STALE | token_saved_at={token_saved_at} | app_started_at={_PROCESS_START_TIME}")
+            token_saved_dt = parse_utc(token_saved_at)
+            startup_dt = parse_utc(_PROCESS_START_TIME)
+            if token_saved_dt is not None and startup_dt is not None and token_saved_dt > startup_dt:
+                logger.warning(
+                    "TOKEN_POSSIBLY_STALE | token_saved_at=%s | app_started_at=%s",
+                    token_saved_at,
+                    _PROCESS_START_TIME,
+                )
         except Exception:
-            pass
+            # Observability only — never fail the scan because of parse issues
+            logger.debug("token_saved_at parse failed for SCAN_ENVIRONMENT warning", exc_info=True)
 
     if token_source == "memory" and token_age_minutes < app_uptime_minutes:
         logger.warning(f"PROCESS_RUNNING_OLD_TOKEN | token_age_minutes={token_age_minutes:.1f} | app_uptime_minutes={app_uptime_minutes:.1f} | token_source=memory")
@@ -521,8 +521,6 @@ def log_scan_environment(
         f"process_id={_PROCESS_PID}",
         f"deployment_id={_DEPLOYMENT_ID}",
         f"app_uptime_minutes={app_uptime_minutes:.1f}",
-        f"market_open={str(market_open).lower()}",
-        f"market_session={market_session}",
         f"database_connected={str(db_connected).lower()}",
         f"pool_size={pool_size}",
         f"checked_out={checked_out}",

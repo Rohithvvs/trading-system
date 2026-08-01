@@ -4,9 +4,32 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from ..core.audit_store import AuditStore
+
+# FEAT-011 Spec 1 / US3 / SC-005: registered shadow audit action catalog.
+# Observability consumers should treat these as the stable action routes.
+SHADOW_AUDIT_ACTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "shadow.execution.start",
+        "shadow.execution.complete",
+        "shadow.discrepancy.detected",
+    }
+)
+
+# Named metric keys introduced by Spec 1 (wired in later telemetry specs).
+SHADOW_METRIC_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "shadow_mismatch_rate",
+        "shadow_score_delta_mean",
+    }
+)
+
+
+def is_registered_shadow_action(action: str) -> bool:
+    """Return True when *action* is in the Spec 1 shadow audit catalog."""
+    return action in SHADOW_AUDIT_ACTIONS
 
 
 class AuditTrailManager:
@@ -20,6 +43,11 @@ class AuditTrailManager:
         if file_path is None:
             file_path = os.getenv("AUDIT_LOG_PATH", "logs/audit.jsonl")
         self.store = AuditStore(file_path)
+
+    @staticmethod
+    def registered_shadow_actions() -> frozenset[str]:
+        """SC-005: expose the registered ``shadow.*`` audit action routes."""
+        return SHADOW_AUDIT_ACTIONS
 
     async def record(
         self,

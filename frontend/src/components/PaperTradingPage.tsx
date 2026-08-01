@@ -1,7 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState, useRef, memo } from "react";
+import { useNavigate } from "react-router-dom";
 import { InfoTooltip } from './InfoTooltip';
 import { TOOLTIPS } from '../constants/tooltips';
 import { apiUrl } from '../config';
+import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
+import { WatchlistTab } from './WatchlistTab';
+import { useFeaturePermissions } from "../hooks/useFeaturePermissions";
 
 const DailyAnalyticsPanel = lazy(() =>
   import("./DailyAnalyticsPanel").then((m) => ({ default: m.DailyAnalyticsPanel })),
@@ -39,10 +43,14 @@ import {
   stopMarketEngine,
   invalidatePaperCaches,
 } from "../api";
-import { checkCanPlaceBuyOrder, showMarketClosedAlert } from "../utils/tradingHours";
+
 import TokenStatus from "./TokenStatus";
 import { MetricCardSkeleton, TableSkeleton, ChartSkeleton } from "./Skeleton";
 import { getCached, CACHE_KEYS } from "../utils/appCache";
+import {
+  extractPaperAvailableCash,
+  logPaperCapital,
+} from "../utils/paperCapital";
 import type {
   CandidateRow,
   PaperOrder,
@@ -151,7 +159,7 @@ type PaperTradingPageProps = {
   retailMode?: boolean;
 };
 
-type PaperPanelTab = "positions" | "orders" | "history" | "analytics" | "daily-analytics" | "alerts" | "account";
+export type PaperPanelTab = "positions" | "orders" | "history" | "analytics" | "daily-analytics" | "alerts" | "account" | "watchlist";
 
 const VALID_PAPER_TABS: PaperPanelTab[] = [
   "positions",
@@ -161,13 +169,15 @@ const VALID_PAPER_TABS: PaperPanelTab[] = [
   "daily-analytics",
   "alerts",
   "account",
+  "watchlist",
 ];
 
 // Chart.js global loaded from CDN
 declare const Chart: any;
 
 const DEFAULT_TICKET: PaperOrderTicketState = {
-  symbol: "INFY-EQ",
+  // Canonical cash symbol (no -EQ). Universe + quote validation use canonical form.
+  symbol: "INFY",
   side: "BUY",
   type: "LIMIT",
   qty: 1,
@@ -203,6 +213,7 @@ export function PaperTradingPage({
   lastScanAt = null,
   retailMode = false,
 }: PaperTradingPageProps) {
+  const navigate = useNavigate();
   // Insert TokenStatus panel in account tab when active
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const urlSymbol = urlParams?.get("symbol");
@@ -220,11 +231,26 @@ export function PaperTradingPage({
     side: urlSide === "SELL" ? "SELL" : "BUY",
   });
   const [listTab, setListTab] = useState<PaperPanelTab>(() => readPaperTabFromUrl());
+  const { canAccess } = useFeaturePermissions();
+  const canAccessWatchlist = canAccess("watchlist");
+  const canAccessPortfolioAnalytics = canAccess("portfolio_analytics");
   const [resetBalance, setResetBalance] = useState(1000000);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  /** User toggle — live pricing stays enabled across transient failures. */
   const [isLivePricing, setIsLivePricing] = useState(true);
+  /** Connection lifecycle for quote stream (never permanently killed on one failure). */
+  const [quoteFeedStatus, setQuoteFeedStatus] = useState<
+    "connecting" | "live" | "reconnecting" | "degraded" | "paused"
+  >("connecting");
+  const [quoteStatusDetail, setQuoteStatusDetail] = useState<string | null>(null);
+  const [lastQuoteAt, setLastQuoteAt] = useState<number | null>(null);
+  const [lastSuccessfulPrice, setLastSuccessfulPrice] = useState<number | null>(null);
+  const quoteRetryCountRef = useRef(0);
+  const quoteInFlightRef = useRef(false);
+  const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevQuoteSymbolRef = useRef<string | null>(null);
   const [accountSummary, setAccountSummary] = useState<any | null>(
     () => getCached(CACHE_KEYS.paperAccount),
   );
@@ -251,6 +277,86 @@ export function PaperTradingPage({
       window.history.replaceState(null, "", full);
     }
   }, [listTab]);
+
+  // Sprint 5: fall back when deep-linked to a feature-denied tab
+  useEffect(() => {
+    if (listTab === "watchlist" && !canAccessWatchlist) {
+      setListTab("positions");
+      return;
+    }
+    if (
+      (listTab === "analytics" || listTab === "daily-analytics") &&
+      !canAccessPortfolioAnalytics
+    ) {
+      setListTab("positions");
+    }
+  }, [listTab, canAccessWatchlist, canAccessPortfolioAnalytics]);
+
+  // Deep link: /paper?symbol=X&side=BUY|SELL → dedicated full-page order ticket
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const side = params.get("side");
+      const symbol = params.get("symbol") ?? selectedSymbol;
+      if (side === "BUY" || side === "SELL") {
+        navigateToPaperOrder(navigate, {
+          symbol: symbol || undefined,
+          side,
+          returnTo: "/paper",
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // After successful order from Paper Order page — Positions tab + full refresh (no browser reload)
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail || {};
+      const sym = detail.symbol || selectedSymbol;
+      setListTab("positions");
+      setStatusMessage("✓ Paper Order Placed Successfully");
+      if (sym) setSelectedSymbol(sym);
+      invalidatePaperCaches();
+      void (async () => {
+        try {
+          const [dash, summary, positions, pending, trades] = await Promise.all([
+            fetchPaperTradingDashboard(sym, { force: true }).catch(() => null),
+            fetchPaperAccountSummary({ force: true }).catch(() => null),
+            fetchPositions().catch(() => null),
+            fetchPendingPaperOrders().catch(() => null),
+            fetchPaperTrades().catch(() => null),
+          ]);
+          if (dash) {
+            setDashboard({
+              ...dash,
+              positions: positions ?? dash.positions,
+              open_orders: pending ?? dash.open_orders,
+              trades: trades ?? dash.trades,
+            });
+          } else if (positions || pending || trades) {
+            setDashboard((current) =>
+              current
+                ? {
+                    ...current,
+                    positions: positions ?? current.positions,
+                    open_orders: pending ?? current.open_orders,
+                    trades: trades ?? current.trades,
+                  }
+                : current,
+            );
+          }
+          if (summary) setAccountSummary(summary);
+        } catch {
+          /* ignore */
+        }
+      })();
+    };
+    window.addEventListener("paper:order-success", handler);
+    return () => window.removeEventListener("paper:order-success", handler);
+  }, [selectedSymbol]);
 
   // Check for offline gap replay after initial dashboard load.
   async function checkGapReplay() {
@@ -302,8 +408,26 @@ export function PaperTradingPage({
         void getTokenStatus().catch(() => null);
 
         if (!mounted) return;
-        if (dash) setDashboard(dash);
-        if (summary) setAccountSummary(summary);
+        if (dash) {
+          setDashboard(dash);
+          const wp = dash.selected_workspace?.current_price;
+          if (wp != null && Number(wp) > 0) {
+            setLastSuccessfulPrice(Number(wp));
+            if (dash.selected_workspace?.price_fetched_at) {
+              const ts = Date.parse(dash.selected_workspace.price_fetched_at);
+              if (!Number.isNaN(ts)) setLastQuoteAt(ts);
+            } else {
+              setLastQuoteAt(Date.now());
+            }
+          }
+        }
+        if (summary) {
+          setAccountSummary(summary);
+          logPaperCapital("paper-desk", "account_summary_loaded", summary, {
+            dashboard_available_cash: dash?.account?.available_cash ?? null,
+            resolved_available_cash: extractPaperAvailableCash(summary),
+          });
+        }
         if (engStatus) setEngineStatus(engStatus);
         if (engHealth) {
           setEngineHealth(engHealth);
@@ -366,14 +490,79 @@ export function PaperTradingPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial mount + selectedSymbol handled by poll
   }, [selectedSymbol]);
 
+  // Live quote poller with exponential backoff and automatic resume.
+  // Never permanently disables pricing after a single failure.
   useEffect(() => {
     if (!isLivePricing) {
+      setQuoteFeedStatus("paused");
+      setQuoteStatusDetail(null);
+      if (quoteTimerRef.current) {
+        window.clearTimeout(quoteTimerRef.current);
+        quoteTimerRef.current = null;
+      }
       return undefined;
     }
-    const intervalId = window.setInterval(() => {
-      void loadLiveQuote(selectedSymbol);
-    }, 1000);
-    return () => window.clearInterval(intervalId);
+
+    let cancelled = false;
+    quoteRetryCountRef.current = 0;
+    if (prevQuoteSymbolRef.current !== selectedSymbol) {
+      // Symbol switch: drop prior LTP so we never show the wrong instrument's price.
+      setLastSuccessfulPrice(null);
+      setLastQuoteAt(null);
+      prevQuoteSymbolRef.current = selectedSymbol;
+    }
+    setQuoteFeedStatus((prev) => (prev === "live" || prev === "degraded" ? prev : "connecting"));
+    setQuoteStatusDetail((prev) => prev ?? "Connecting to Live Market...");
+
+    const BACKOFF_MS = [1000, 2000, 5000, 10000];
+    const MAX_RETRIES = BACKOFF_MS.length;
+    const LIVE_INTERVAL_MS = 2000;
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return;
+      if (quoteTimerRef.current) {
+        window.clearTimeout(quoteTimerRef.current);
+      }
+      quoteTimerRef.current = window.setTimeout(() => {
+        void tick();
+      }, delayMs);
+    };
+
+    async function tick() {
+      if (cancelled || quoteInFlightRef.current) {
+        scheduleNext(LIVE_INTERVAL_MS);
+        return;
+      }
+      quoteInFlightRef.current = true;
+      try {
+        await loadLiveQuote(selectedSymbol);
+        if (cancelled) return;
+        quoteRetryCountRef.current = 0;
+        scheduleNext(LIVE_INTERVAL_MS);
+      } catch {
+        if (cancelled) return;
+        const attempt = Math.min(quoteRetryCountRef.current, MAX_RETRIES - 1);
+        const delay = BACKOFF_MS[attempt] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
+        quoteRetryCountRef.current += 1;
+        // Keep retrying indefinitely after max backoff (do not require manual refresh)
+        scheduleNext(delay);
+      } finally {
+        quoteInFlightRef.current = false;
+      }
+    }
+
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (quoteTimerRef.current) {
+        window.clearTimeout(quoteTimerRef.current);
+        quoteTimerRef.current = null;
+      }
+      quoteInFlightRef.current = false;
+    };
+    // loadLiveQuote closes over latest dashboard via setState; symbol/toggle drive reschedule
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLivePricing, selectedSymbol]);
 
   useEffect(() => {
@@ -586,15 +775,62 @@ export function PaperTradingPage({
   }
 
   async function loadLiveQuote(symbol: string) {
-    if (!dashboard) {
-      return;
-    }
+    // Allow quote polling even before full dashboard paint so recovery is not blocked.
     try {
+      if (quoteRetryCountRef.current === 0) {
+        setQuoteFeedStatus((prev) => (prev === "live" || prev === "degraded" ? prev : "connecting"));
+      } else {
+        setQuoteFeedStatus("reconnecting");
+        setQuoteStatusDetail(
+          quoteRetryCountRef.current === 1
+            ? "Reconnecting..."
+            : `Reconnecting... (attempt ${quoteRetryCountRef.current + 1})`,
+        );
+      }
+
       const quote = await fetchPaperQuote(symbol);
-      setDashboard((current) => updateDashboardQuote(current, quote.symbol, quote.current_price));
-    } catch {
-      setIsLivePricing(false);
-      setStatusMessage("Live price paused because the quote request failed. Use Refresh to reload the full dashboard.");
+      const price = Number(quote.current_price);
+      const hasPrice = Number.isFinite(price) && price > 0;
+
+      if (hasPrice) {
+        setDashboard((current) => updateDashboardQuote(current, quote.symbol, price));
+        setLastSuccessfulPrice(price);
+        setLastQuoteAt(Date.now());
+      }
+
+      if (quote.source === "FYERS_QUOTE" && hasPrice && !quote.is_stale) {
+        setQuoteFeedStatus("live");
+        setQuoteStatusDetail("Live Market Connected");
+      } else if (hasPrice) {
+        setQuoteFeedStatus("degraded");
+        setQuoteStatusDetail(quote.reason || "Waiting for Market Data...");
+      } else {
+        setQuoteFeedStatus("degraded");
+        setQuoteStatusDetail(quote.reason || "Waiting for Market Data...");
+        // Soft-fail: keep poller alive; throw so outer backoff engages when no usable price
+        if (!hasPrice) {
+          throw new Error(quote.reason || "Quote Provider Timeout");
+        }
+      }
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error ? requestError.message : "Quote request failed";
+      const lower = message.toLowerCase();
+      let detail = "Reconnecting...";
+      if (lower.includes("timeout")) {
+        detail = "Quote Provider Timeout";
+      } else if (lower.includes("network") || lower.includes("fetch") || lower.includes("failed to fetch")) {
+        detail = "Reconnecting...";
+      } else if (lower.includes("unavailable") || lower.includes("503") || lower.includes("market data")) {
+        detail = "Waiting for Market Data...";
+      } else if (message && message.length < 80) {
+        detail = message;
+      }
+      setQuoteFeedStatus("reconnecting");
+      setQuoteStatusDetail(detail);
+      // Do NOT setIsLivePricing(false) — automatic resume after temporary failures.
+      // Do NOT require full dashboard refresh for recovery.
+      throw requestError instanceof Error ? requestError : new Error(detail);
     }
   }
 
@@ -644,16 +880,6 @@ export function PaperTradingPage({
   }
 
   async function handlePlaceOrder() {
-    // Centralized pre-check: prevent any API call for BUY when market closed
-    if (ticket.side === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        setIsBusy(false);
-        return;
-      }
-    }
-
     setIsBusy(true);
     setError(null);
     setStatusMessage(null);
@@ -704,24 +930,15 @@ export function PaperTradingPage({
   }
 
   function handleQuickOrder(side: "BUY" | "SELL", symbol?: string) {
-    if (side === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        return;
-      }
-    }
     const normalized = (symbol ?? selectedSymbol ?? ticket.symbol).trim().toUpperCase();
     if (!normalized) return;
-    setTicket((current) => ({ ...current, symbol: normalized, side, type: "MARKET" }));
     setSelectedSymbol(normalized);
-    // Scroll the order ticket into view
-    try {
-      const el = document.querySelector(".paper-ticket-section") as HTMLElement | null;
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    } catch {
-      /* ignore */
-    }
+    navigateToPaperOrder(navigate, {
+      symbol: normalized,
+      side,
+      currentPrice: workspace?.current_price ?? null,
+      returnTo: "/paper",
+    });
   }
 
   function handleSymbolSelect(symbol: string) {
@@ -775,23 +992,32 @@ export function PaperTradingPage({
   }
 
   function handleEditOrder(order: PaperOrder) {
-    setEditingOrderId(order.id);
-    setTicket((current) => ({
-      ...current,
-      symbol: order.symbol,
-      side: order.side,
-      type: order.type as any,
-      productType: order.product_type as any,
-      qty: order.qty,
-      limitPrice: order.price ?? null,
-      stopPrice: order.stop_price ?? null,
-      stopLoss: order.stop_loss ?? null,
-      target: order.target ?? null,
-      notes: order.notes ?? "",
-    }));
-    setSelectedSymbol(order.symbol);
-    // switch to ticket view if needed
-    setListTab("orders");
+    try {
+      navigateToPaperOrder(navigate, {
+        symbol: order.symbol,
+        side: order.side,
+        orderId: order.id,
+        returnTo: "/paper",
+      });
+      return;
+    } catch {
+      setEditingOrderId(order.id);
+      setTicket((current) => ({
+        ...current,
+        symbol: order.symbol,
+        side: order.side,
+        type: order.type as any,
+        productType: order.product_type as any,
+        qty: order.qty,
+        limitPrice: order.price ?? null,
+        stopPrice: order.stop_price ?? null,
+        stopLoss: order.stop_loss ?? null,
+        target: order.target ?? null,
+        notes: order.notes ?? "",
+      }));
+      setSelectedSymbol(order.symbol);
+      setListTab("orders");
+    }
   }
 
   async function handleDeleteOrder(orderId: number) {
@@ -997,9 +1223,32 @@ export function PaperTradingPage({
           <button type="button" className="button ghost-button" onClick={() => void loadDashboard(selectedSymbol)} disabled={isBusy}>
             Refresh
           </button>
-          <button type="button" className="button ghost-button" onClick={() => setIsLivePricing((current) => !current)}>
+          <button
+            type="button"
+            className="button ghost-button"
+            onClick={() => {
+              setIsLivePricing((current) => {
+                const next = !current;
+                if (next) {
+                  quoteRetryCountRef.current = 0;
+                  setQuoteFeedStatus("connecting");
+                  setQuoteStatusDetail("Connecting to Live Market...");
+                } else {
+                  setQuoteFeedStatus("paused");
+                  setQuoteStatusDetail(null);
+                }
+                return next;
+              });
+            }}
+          >
             {isLivePricing ? "Live price on" : "Live price off"}
           </button>
+          <LiveQuoteStatusBadge
+            status={isLivePricing ? quoteFeedStatus : "paused"}
+            detail={quoteStatusDetail}
+            lastQuoteAt={lastQuoteAt}
+            lastSuccessfulPrice={lastSuccessfulPrice ?? workspace?.current_price ?? null}
+          />
           <button type="button" className="button ghost-button" onClick={() => setConfirmAction("reset")} disabled={isBusy}>
             Reset account
           </button>
@@ -1009,15 +1258,24 @@ export function PaperTradingPage({
       {/* TRADING WORKSPACE - Positions / Orders / History / Analytics / Daily / Alerts / Capital */}
       <section className="panel paper-tabs-panel">
         <div className="detail-tabs" role="tablist" aria-label="Paper trading data tabs">
-          {[
-            ["positions", "Positions"],
-            ["orders", "Orders"],
-            ["history", "History"],
-            ["analytics", "Analytics"],
-            ["daily-analytics", "Daily"],
-            ["alerts", "Alerts"],
-            ["account", "Capital"],
-          ].map(([id, label]) => (
+          {(
+            [
+              ["positions", "Positions"],
+              ["orders", "Orders"],
+              ["history", "History"],
+              // Sprint 5: hide analytics tabs when portfolio_analytics denied (matches API gates)
+              ...(canAccessPortfolioAnalytics
+                ? ([
+                    ["analytics", "Analytics"],
+                    ["daily-analytics", "Daily"],
+                  ] as const)
+                : []),
+              ["alerts", "Alerts"],
+              ["account", "Capital"],
+              // Sprint 5: hide watchlist tab when feature permission denied
+              ...(canAccessWatchlist ? ([["watchlist", "Watchlist"]] as const) : []),
+            ] as const
+          ).map(([id, label]) => (
             <button
               key={id}
               data-testid={`paper-tab-${id}`}
@@ -1133,6 +1391,9 @@ export function PaperTradingPage({
             onDashboardUpdate={(d) => setDashboard(d)}
           />
         ) : null}
+        {listTab === "watchlist" ? (
+          <WatchlistTab />
+        ) : null}
       </section>
 
       <AccountSummaryStrip dashboard={dashboard} />
@@ -1179,52 +1440,6 @@ export function PaperTradingPage({
         </div>
       ) : null}
 
-      {/* ORDER TICKET + SELECTED SYMBOL */}
-      <section className="paper-ticket-section">
-        <section className="paper-ticket-main">
-          <OrderTicketCard
-            symbols={ticketSymbols}
-            scannerSymbols={scannerSymbols}
-            ticket={ticket}
-            onChange={setTicket}
-            onSymbolSelect={(symbol) => setTicket((prev) => ({ ...prev, symbol }))}
-            onPlace={() => void handlePlaceOrder()}
-            isBusy={isBusy}
-            currentPrice={workspace?.current_price ?? null}
-            riskMetrics={riskMetrics}
-            maxRiskPercent={dashboard?.account.max_risk_per_trade ?? 0.02}
-            availableCash={dashboard?.account.available_cash ?? null}
-            scannerCandidate={selectedScannerCandidate}
-            lastScanAt={lastScanAt}
-            statusMessage={statusMessage}
-            error={error}
-            onDismissStatus={() => setStatusMessage(null)}
-            onDismissError={() => setError(null)}
-          />
-        </section>
-
-        <section className="paper-chart-sidebar">
-          <section className="panel">
-            <div className="panel-header">
-              <div>
-                <p className="section-label">Selected symbol</p>
-                <h2>{workspace?.symbol ?? selectedSymbol}</h2>
-              </div>
-              <div className="meta-inline" style={{ gap: 8, alignItems: 'center' }}>
-                <span className="helper-chip">Current ₹{workspace?.current_price.toFixed(2) ?? "--"}</span>
-                {workspace?.price_source ? (
-                  <span className={`helper-chip ${workspace?.is_price_stale ? "is-risk" : ""}`} title={`Price source: ${workspace.price_source}${workspace.price_fetched_at ? ` • ${new Date(workspace.price_fetched_at).toLocaleTimeString()}` : ""}`}>
-                    {workspace.price_source}{workspace.is_price_stale ? " (stale)" : ""}
-                  </span>
-                ) : null}
-                {workspace?.source_signal ? <span className={`signal-badge signal-${workspace.source_signal.toLowerCase()}`}>{workspace.source_signal}</span> : null}
-              </div>
-            </div>
-            <PaperChart workspace={workspace} ticket={ticket} />
-          </section>
-        </section>
-      </section>
-
       {/* TRADE DETAILS */}
       <TradeDetailsCard
         position={selectedPosition}
@@ -1232,6 +1447,86 @@ export function PaperTradingPage({
         onPositionChange={(position) => void handleSyncPosition(position)}
       />
     </main>
+  );
+}
+
+function LiveQuoteStatusBadge({
+  status,
+  detail,
+  lastQuoteAt,
+  lastSuccessfulPrice,
+}: {
+  status: "connecting" | "live" | "reconnecting" | "degraded" | "paused";
+  detail: string | null;
+  lastQuoteAt: number | null;
+  lastSuccessfulPrice: number | null;
+}) {
+  const labelMap: Record<typeof status, string> = {
+    connecting: "Connecting to Live Market...",
+    live: "Live Market Connected",
+    reconnecting: detail || "Reconnecting...",
+    degraded: detail || "Waiting for Market Data...",
+    paused: "Live price off",
+  };
+  const color =
+    status === "live"
+      ? "#3fb950"
+      : status === "reconnecting" || status === "connecting"
+        ? "#d29922"
+        : status === "degraded"
+          ? "#f0883e"
+          : "#8b949e";
+  const ageSec =
+    lastQuoteAt != null ? Math.max(0, Math.round((Date.now() - lastQuoteAt) / 1000)) : null;
+  const showSpinner = status === "connecting" || status === "reconnecting";
+
+  return (
+    <div
+      className="helper-chip"
+      data-testid="live-quote-status"
+      title={
+        lastSuccessfulPrice != null
+          ? `Last successful ₹${lastSuccessfulPrice.toFixed(2)}${ageSec != null ? ` · ${ageSec}s ago` : ""}`
+          : labelMap[status]
+      }
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        borderColor: color,
+        color,
+        maxWidth: 360,
+      }}
+    >
+      {showSpinner ? (
+        <span
+          aria-hidden
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            border: `2px solid ${color}`,
+            borderTopColor: "transparent",
+            animation: "paper-quote-spin 0.8s linear infinite",
+            display: "inline-block",
+          }}
+        />
+      ) : (
+        <span aria-hidden style={{ fontSize: "0.75rem" }}>
+          {status === "live" ? "●" : status === "degraded" ? "◐" : "○"}
+        </span>
+      )}
+      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {labelMap[status]}
+      </span>
+      {status !== "live" && lastSuccessfulPrice != null ? (
+        <span style={{ opacity: 0.85, whiteSpace: "nowrap" }}>
+          · ₹{lastSuccessfulPrice.toFixed(2)}
+          {ageSec != null ? ` (${ageSec}s ago)` : ""}
+        </span>
+      ) : null}
+      <style>{`@keyframes paper-quote-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
   );
 }
 
@@ -1255,13 +1550,15 @@ function AccountSummaryStrip({ dashboard }: { dashboard: PaperTradingDashboardRe
     );
   }
   const account = dashboard.account;
+  // Same available-cash resolution as Paper Order page.
+  const availableCash = extractPaperAvailableCash(account);
   const metrics = [
     ["Balance", formatCurrency(account?.balance)],
     ["Equity", formatCurrency(account?.equity)],
     ["Realized P&L", formatCurrency(account?.realized_pnl)],
     ["Unrealized P&L", formatCurrency(account?.unrealized_pnl)],
     ["Invested", formatCurrency(account?.total_invested)],
-    ["Available cash", formatCurrency(account?.available_cash)],
+    ["Available cash", formatCurrency(availableCash)],
     ["Open positions", account?.open_positions_count ?? "--"],
     ["Open orders", account?.open_orders_count ?? "--"],
   ];
@@ -1304,6 +1601,9 @@ function PaperAccountWidgets({
   const s = summary ?? {};
   const fmt = (v: number | undefined | null) => (v === undefined || v === null ? "--" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(v));
   const pct = (v: number | undefined | null) => (v === undefined || v === null ? "--" : `${v.toFixed(2)}%`);
+  // Same capital extractor as Paper Order — never diverge field names.
+  const availableFunds = extractPaperAvailableCash(s);
+  const investedValue = s.invested_value ?? s.total_invested ?? null;
 
   const pnlClass = (v: number | undefined | null) => (v && v > 0 ? "metric-card-positive" : v && v < 0 ? "metric-card-negative" : "");
 
@@ -1315,7 +1615,7 @@ function PaperAccountWidgets({
             <span>
               Total capital
             </span>
-            <strong>{fmt(s.total_capital)}</strong>
+            <strong>{fmt(s.total_capital ?? s.equity)}</strong>
             <p>Virtual account value</p>
           </div>
 
@@ -1324,13 +1624,13 @@ function PaperAccountWidgets({
               Available funds
               <InfoTooltip content={TOOLTIPS.PAPER_TRADING.AVAILABLE_CASH} />
             </span>
-            <strong>{fmt(s.available_funds)}</strong>
+            <strong>{fmt(availableFunds)}</strong>
             <p>Cash available to place buys</p>
           </div>
 
           <div className="metric-card">
             <span>Invested value</span>
-            <strong>{fmt(s.invested_value)}</strong>
+            <strong>{fmt(investedValue)}</strong>
             <p>Sum of open positions</p>
           </div>
 
@@ -1352,14 +1652,7 @@ function PaperAccountWidgets({
             <p>{pct(s.daily_pnl_pct)}</p>
           </div>
 
-          <div className="metric-card">
-            <span>
-              Market status
-              <InfoTooltip content={TOOLTIPS.PAPER_TRADING.MARKET_STATUS} />
-            </span>
-            <strong>{s.market_status ?? "--"}</strong>
-            <p>Based on IST clock</p>
-          </div>
+
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1608,7 +1901,7 @@ function OrderTicketCard({
             <p>{scannerCandidate.recommendationSummary}</p>
           </div>
           <div className="scan-prefill-metrics">
-            <Metric label="Score" value={scannerCandidate.score.toFixed(1)} />
+            <Metric label="Score" value={scannerCandidate.score === null || scannerCandidate.score === undefined ? "N/A" : scannerCandidate.score.toFixed(1)} />
             <Metric label="Confidence" value={scannerCandidate.confidence === null ? "--" : `${Math.round(scannerCandidate.confidence * 100)}%`} />
             <Metric label="RR" value={scannerCandidate.riskReward?.toFixed(2) ?? "--"} />
             <Metric label="Scan time" value={lastScanAt ? new Date(lastScanAt).toLocaleTimeString() : "--"} />
@@ -1642,7 +1935,7 @@ function OrderTicketCard({
               {error}
             </PaperToast>
           ) : null}
-          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError || (ticket.side === "BUY" && !checkCanPlaceBuyOrder().allowed)}>
+          <button data-testid="paper-place-order-button" type="button" className="button primary-button" onClick={() => setPreviewOpen(true)} disabled={isBusy || !!qtyError}>
             {isBusy ? "Working..." : "Place paper order"}
           </button>
         </div>
@@ -2115,6 +2408,9 @@ function AccountPanel({
         if (acct) {
           setAccount(acct);
           setStarting(acct.starting_balance ?? 1000000);
+          logPaperCapital("account-panel", "account_loaded", acct, {
+            resolved_available_cash: extractPaperAvailableCash(acct),
+          });
         }
         if (tx) setTransactions(tx);
       } catch (e) {
@@ -2188,9 +2484,9 @@ function AccountPanel({
         ) : (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="metric-card"><span>Starting Capital</span><strong>₹{(account?.starting_balance ?? starting).toLocaleString()}</strong></div>
-            <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0)).toFixed(2)}</strong></div>
-            <div className="metric-card"><span>Available Funds</span><strong>₹{(account?.available_cash ?? 0).toFixed(2)}</strong></div>
-            <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Current Total Capital</span><strong data-testid="account-balance">₹{(account?.equity ?? account?.total_capital ?? ((account?.starting_balance ?? 0) + (account?.realized_pnl ?? 0))).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Available Funds</span><strong>₹{(extractPaperAvailableCash(account) ?? 0).toFixed(2)}</strong></div>
+            <div className="metric-card"><span>Margin Used</span><strong>₹{(account?.total_invested ?? account?.invested_value ?? 0).toFixed(2)}</strong></div>
             <div className="metric-card"><span>Total Realized P&L</span><strong>₹{(account?.realized_pnl ?? 0).toFixed(2)}</strong></div>
             <div className="metric-card"><span>Total Unrealized P&L</span><strong>₹{(account?.unrealized_pnl ?? 0).toFixed(2)}</strong></div>
           </div>
@@ -2453,15 +2749,17 @@ function buildTicketFromCandidate(
   const plan = candidate.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing")
     ?? candidate.analysisItem?.recommendation.trade_plans[0];
   const entry = plan ? (plan.entry_low + plan.entry_high) / 2 : candidate.entryLow ?? currentPrice ?? current.limitPrice ?? null;
-  const stopLoss = plan?.stop_loss ?? candidate.stopLoss ?? null;
-  const target = plan?.target_1 ?? candidate.target1 ?? candidate.target2 ?? null;
+  const side: "BUY" | "SELL" = candidate.signal === "REJECT" ? current.side : "BUY";
+  const needsSwap = plan && side === "BUY" && plan.bias === "short";
+  const stopLoss = needsSwap && plan?.target_1 != null ? plan.target_1 : (plan?.stop_loss ?? candidate.stopLoss ?? null);
+  const target = needsSwap && plan?.stop_loss != null ? plan.stop_loss : (plan?.target_1 ?? candidate.target1 ?? candidate.target2 ?? null);
   const confidence = candidate.confidence ?? undefined;
   const scanText = lastScanAt ? `scan=${new Date(lastScanAt).toLocaleString()}` : "latest scan";
 
   return {
     ...current,
     symbol: candidate.symbol,
-    side: candidate.signal === "REJECT" ? current.side : "BUY",
+    side,
     type: "LIMIT",
     limitPrice: entry ? roundPrice(entry) : null,
     stopPrice: null,
@@ -2472,7 +2770,7 @@ function buildTicketFromCandidate(
     sourceConfidence: confidence ?? null,
     notes: appendTicketNote(
       current.notes,
-      `Auto-filled from ${scanText}: ${candidate.signal}, score ${candidate.score.toFixed(1)}, confidence ${confidence === undefined ? "n/a" : Math.round(confidence * 100) + "%"}.`,
+      `Auto-filled from ${scanText}: ${candidate.signal}, score ${candidate.score === null || candidate.score === undefined ? "N/A" : candidate.score.toFixed(1)}, confidence ${confidence === undefined || confidence === null ? "n/a" : Math.round(confidence * 100) + "%"}.`,
     ),
   };
 }

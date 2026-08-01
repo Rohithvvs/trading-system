@@ -94,7 +94,8 @@ async def test_incomplete_daily_cache_triggers_fallback(monkeypatch):
 
     fetch_calls: list[tuple] = []
 
-    def fake_fetch_fyers(*args, **kwargs):
+    async def fake_fetch_fyers(*args, **kwargs):
+        # Production path awaits _fetch_fyers_candles — mock must be async.
         fetch_calls.append((args, kwargs))
         out: list[OHLCVPoint] = []
         for i in range(260):

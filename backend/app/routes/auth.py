@@ -3,7 +3,14 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..schemas.auth import UserCreate, UserResponse, GoogleLoginRequest, LoginRequest
+from ..schemas.auth import (
+    UserCreate,
+    UserRegisterRequest,
+    UserResponse,
+    AuthSuccessResponse,
+    GoogleLoginRequest,
+    LoginRequest,
+)
 from ..services.auth_service import create_user, authenticate_user, google_auth, request_password_reset, confirm_password_reset
 from ..db.session import get_db
 
@@ -66,14 +73,45 @@ def _clear_auth_cookies(response: Response, request: Request) -> None:
     response.delete_cookie("refresh_token", path="/", secure=https, samesite=samesite)
 
 
-@router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def signup(user_in: UserCreate, request: Request, db: AsyncSession = Depends(get_db)):
+@router.post("/signup", response_model=AuthSuccessResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=AuthSuccessResponse, status_code=status.HTTP_201_CREATED)
+async def signup(user_in: UserRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Register a new user. Client-supplied `role` is not accepted by the request schema.
+
+    Issues a JWT with sub/role/exp (FR-006) and returns role metadata (FR-008 shape).
+    """
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
-    
-    user = await create_user(db, user_in, ip_address=ip_address, user_agent=user_agent)
-    
-    return user
+
+    from ..core.roles import UserRole, DEFAULT_ROLE
+
+    # Force trader at the boundary; service also hardcodes trader role.
+    create_payload = UserCreate(
+        email=user_in.email,
+        password=user_in.password,
+        full_name=user_in.full_name,
+        role=UserRole.TRADER.value,
+    )
+    user = await create_user(db, create_payload, ip_address=ip_address, user_agent=user_agent)
+
+    # Wire JWT session issuance into registration (same path as login).
+    from ..services.auth_service import create_user_session
+    access_token, refresh_token = await create_user_session(
+        db, str(user.id), user.role or DEFAULT_ROLE, ip_address, user_agent, remember_me=False
+    )
+
+    response = JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content={
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role or DEFAULT_ROLE,
+            "access_token": access_token,
+        },
+    )
+    _set_auth_cookies(response, request, access_token, refresh_token, remember_me=False)
+    return response
 
 @router.post("/login")
 async def login(request_data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
@@ -86,11 +124,18 @@ async def login(request_data: LoginRequest, request: Request, db: AsyncSession =
     # 2. Create Session
     from ..services.auth_service import create_user_session
     access_token, refresh_token = await create_user_session(
-        db, str(user.id), ip_address, user_agent, request_data.remember_me
+        db, str(user.id), user.role, ip_address, user_agent, request_data.remember_me
     )
     
-    # 4. Set HttpOnly cookies (SameSite=None; Secure on HTTPS for Vercel↔Render)
-    response = JSONResponse(content={"message": "Logged in successfully", "user": {"id": str(user.id), "email": user.email, "full_name": user.full_name}})
+    # 3. Return user metadata and token
+    response = JSONResponse(content={
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "access_token": access_token,
+        "message": "Logged in successfully"
+    })
     _set_auth_cookies(
         response,
         request,
@@ -102,19 +147,33 @@ async def login(request_data: LoginRequest, request: Request, db: AsyncSession =
 
 @router.post("/google")
 async def google_login(request_data: GoogleLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    import logging
+    logger = logging.getLogger("app.auth.google")
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
+    logger.info("GOOGLE_LOGIN_REQUEST | ip=%s | has_token=%s", ip_address, bool(request_data.id_token))
 
     from ..services.auth_service import create_user_session
     user = await google_auth(db, request_data.id_token, ip_address, user_agent)
 
     access_token, refresh_token = await create_user_session(
-        db, str(user.id), ip_address, user_agent, remember_me=False
+        db, str(user.id), user.role, ip_address, user_agent, remember_me=False
     )
 
+    logger.info("GOOGLE_LOGIN_SUCCESS | user_id=%s | email=%s | role=%s", user.id, user.email, user.role)
     response = JSONResponse(content={
         "message": "Logged in successfully",
-        "user": {"id": str(user.id), "email": user.email, "full_name": user.full_name}
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "access_token": access_token,
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+        },
     })
     _set_auth_cookies(response, request, access_token, refresh_token, remember_me=False)
     return response
@@ -149,13 +208,38 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
         # In a real app we'd verify the refresh token hasn't been revoked in DB
         
         from ..services.auth_service import create_user_session
+        from ..models.auth import User
+        from sqlalchemy import select
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
-        
+
+        # Preserve JWT role claim on refresh (load normalized role from DB).
+        from ..core.roles import DEFAULT_ROLE, normalize_role
+
+        role = DEFAULT_ROLE
+        try:
+            import uuid as _uuid
+            result = await db.execute(select(User).where(User.id == _uuid.UUID(str(user_id))))
+            user = result.scalar_one_or_none()
+            if not user or not user.is_active or user.deleted_at is not None:
+                # Soft-deleted / inactive must not mint new sessions (audit M-B).
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired refresh token",
+                )
+            if user.role:
+                role = normalize_role(user.role)
+        except HTTPException:
+            raise
+        except Exception:
+            role = DEFAULT_ROLE
+
         # We don't know "remember_me" state here, default to False (7 days)
         # Ideally we'd look up the existing session
-        new_access_token, new_refresh_token = await create_user_session(db, user_id, ip_address, user_agent, remember_me=False)
-        
+        new_access_token, new_refresh_token = await create_user_session(
+            db, str(user_id), role, ip_address, user_agent, remember_me=False
+        )
+
         response = JSONResponse(content={"message": "Token refreshed"})
         _set_auth_cookies(response, request, new_access_token, new_refresh_token, remember_me=False)
         return response
@@ -233,6 +317,7 @@ async def reset_password(request_data: ResetPasswordRequest, db: AsyncSession = 
 from ..core.deps import get_current_active_user
 from ..schemas.user_profile import UserProfileResponse, UserProfileUpdate, UserProfilePatch
 from ..services.user_profile_service import get_or_create_profile, profile_to_dict, update_profile
+from ..services import feature_permission_service
 
 @router.get('/me', response_model=UserResponse)
 async def get_me(current_user = Depends(get_current_active_user)):
@@ -267,6 +352,17 @@ async def patch_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """Partial profile update; preferences are deep-merged."""
+    # Sprint 5 M-5: mutating watchlist requires watchlist feature access
+    prefs = body.preferences if isinstance(body.preferences, dict) else None
+    if prefs is not None and "watchlist" in prefs:
+        allowed = await feature_permission_service.can_access_feature(
+            db, "watchlist", current_user.role
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Feature not available: watchlist",
+            )
     profile = await update_profile(db, current_user, body, partial=True)
     return profile_to_dict(profile, current_user)
 

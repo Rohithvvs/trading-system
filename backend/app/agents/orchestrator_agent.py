@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 import json
 import os
@@ -23,6 +24,7 @@ from ..schemas import (
     ScreenerStageSummary,
     ScreenerRequest,
     ScreenerResponse,
+    ShadowExecutionContext,
     StockAnalysisResult,
     TechnicalAnalysisResult,
 )
@@ -35,6 +37,14 @@ from .ranking_agent import RankingAgent
 from .recommendation_agent import RecommendationAgent
 from .technical_analysis_agent import TechnicalAnalysisAgent
 from .fundamental_analysis_agent import FundamentalAnalysisAgent
+
+# Spec §5: dedicated shadow observability stream (FEAT-011 Spec 1).
+shadow_logger = get_logger("app.shadow_executor")
+
+# Hardening (audit M4): bound shadow executor latency on the request path.
+# Spec 5 may move execution off-thread; until then never wait indefinitely.
+_SHADOW_EXECUTOR_TIMEOUT_SECONDS = 5.0
+_TRUSTED_OHLCV_SOURCES = {"FYERS_PRIMARY", "CANDLE_CACHE_DB"}
 
 
 class OrchestratorAgent:
@@ -62,89 +72,186 @@ class OrchestratorAgent:
         import asyncio
         
         modes = self._resolve_modes(request.mode)
-        
-        # Use pre-fetched candles when available (avoids duplicate OHLCV fetch from screener)
-        if prefetched_candles is not None:
-            candles_by_symbol_and_mode = prefetched_candles
-        else:
-            candles_by_symbol_and_mode = {}
-            
-            async def fetch_for_symbol(symbol: str):
-                import time
-                from ..services.market_data_service import MarketDataService
-                start = time.perf_counter()
-                candles_by_mode = {}
-                md_service = MarketDataService()
-                for mode in modes:
-                    resolution = self._resolution_for_mode(mode, request)
-                    if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
-                        try:
-                            df = await md_service.load_full_history(symbol, "1D")
-                            if df is not None and not df.empty and len(df) >= 220:
-                                points: list = []
-                                for ts, row in df.iterrows():
-                                    dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-                                    if getattr(dt, "tzinfo", None) is not None:
-                                        dt = dt.replace(tzinfo=None)
-                                    points.append(
-                                        OHLCVPoint(
-                                            timestamp=dt,
-                                            open=float(row["open"]),
-                                            high=float(row["high"]),
-                                            low=float(row["low"]),
-                                            close=float(row["close"]),
-                                            volume=safe_int(row["volume"], symbol=symbol, field="volume"),
-                                        )
+
+        # Seed from screener prefetched candles when available (avoids duplicate OHLCV fetch).
+        # IMPORTANT: prefetched dict may be a *partial* map (shortlist ∩ frames with ≥220 bars).
+        # Always fill missing request.symbols so analysis never KeyErrors.
+        #
+        # When Authoritative Candle Store is ON, do NOT use parallel screener arrays as the
+        # analysis source of truth. Warm L1 from normalized prefetch, then resolve every
+        # symbol through ACS.get_candles so scanner/analysis share one owner (US1 / FR-001).
+        acs_enabled = settings.is_authoritative_candle_store_enabled()
+        candles_by_symbol_and_mode: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = {}
+        if prefetched_candles and not acs_enabled:
+            candles_by_symbol_and_mode = dict(prefetched_candles)
+        elif prefetched_candles and acs_enabled:
+            try:
+                from ..services.authoritative_candle_store import authoritative_candle_store
+                from ..services.candle_validation_engine import validate_candle_series
+
+                for sym, mode_map in prefetched_candles.items():
+                    for mode, points in (mode_map or {}).items():
+                        if not points:
+                            continue
+                        # Preserve UTC awareness — never strip tz before L1 seed
+                        normalized = []
+                        for p in points:
+                            ts = p.timestamp
+                            if getattr(ts, "tzinfo", None) is None:
+                                from datetime import timezone as _tz
+
+                                ts = ts.replace(tzinfo=_tz.utc)
+                                p = p.model_copy(update={"timestamp": ts})
+                            normalized.append(p)
+                        validated = validate_candle_series(normalized)
+                        resolution = self._resolution_for_mode(mode, request)
+                        authoritative_candle_store.cache.set(sym, str(resolution), validated)
+            except Exception as warm_exc:
+                self.logger.debug(
+                    "ACS L1 warm from prefetch failed | error=%s",
+                    warm_exc,
+                )
+
+        prefetched_count = len(prefetched_candles or {}) if prefetched_candles else 0
+        missing_for_fetch = [s for s in request.symbols if s not in candles_by_symbol_and_mode]
+        self.logger.info(
+            "ANALYSIS_CANDLE_INPUT | requested=%s | prefetched=%s | missing_need_fetch=%s | acs=%s | missing_symbols=%s",
+            len(request.symbols),
+            prefetched_count,
+            len(missing_for_fetch),
+            acs_enabled,
+            ",".join(missing_for_fetch[:20]) + ("..." if len(missing_for_fetch) > 20 else ""),
+        )
+
+        async def fetch_for_symbol(symbol: str) -> dict[AnalysisMode, list[OHLCVPoint]]:
+            import time
+            from ..services.market_data_service import MarketDataService
+            start = time.perf_counter()
+            candles_by_mode: dict[AnalysisMode, list[OHLCVPoint]] = {}
+
+            # Authoritative path: single owner for all modes (C3).
+            if settings.is_authoritative_candle_store_enabled():
+                try:
+                    from ..services.authoritative_candle_store import authoritative_candle_store
+
+                    for mode in modes:
+                        resolution = self._resolution_for_mode(mode, request)
+                        candles_by_mode[mode] = await authoritative_candle_store.get_candles(
+                            symbol=symbol,
+                            resolution=str(resolution),
+                        )
+                except Exception as exc:
+                    self.logger.error(
+                        "ACS_OHLCV_FETCH_FAILED | symbol=%s | error=%s | marking empty",
+                        symbol,
+                        exc,
+                    )
+                    for mode in modes:
+                        candles_by_mode.setdefault(mode, [])
+                elapsed = time.perf_counter() - start
+                total_rows = sum(len(c) for c in candles_by_mode.values())
+                self.logger.info(
+                    "OHLCV_FETCH_DONE | symbol=%s | source=acs | rows=%s | elapsed_ms=%.0f",
+                    symbol,
+                    total_rows,
+                    elapsed * 1000,
+                )
+                return candles_by_mode
+
+            md_service = MarketDataService()
+            for mode in modes:
+                resolution = self._resolution_for_mode(mode, request)
+                if mode == AnalysisMode.swing and str(resolution).lower() in {"1d", "1D", "d", "day", "daily"}:
+                    try:
+                        df = await md_service.load_full_history(symbol, "1D")
+                        if df is not None and not df.empty and len(df) >= 220:
+                            points: list = []
+                            for ts, row in df.iterrows():
+                                dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                                if getattr(dt, "tzinfo", None) is not None:
+                                    dt = dt.replace(tzinfo=None)
+                                points.append(
+                                    OHLCVPoint(
+                                        timestamp=dt,
+                                        open=float(row["open"]),
+                                        high=float(row["high"]),
+                                        low=float(row["low"]),
+                                        close=float(row["close"]),
+                                        volume=safe_int(row["volume"], symbol=symbol, field="volume"),
                                     )
-                                candles_by_mode[mode] = points
-                                self.fyers_service._store_ohlcv_cache(
-                                    (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
-                                    request.timeframe.lookback_window,
-                                    points,
-                                    "CANDLE_CACHE_DB",
                                 )
-                                continue
-                        except Exception as exc:
-                            self.logger.warning(
-                                "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
-                                symbol,
-                                exc,
+                            candles_by_mode[mode] = points
+                            self.fyers_service._store_ohlcv_cache(
+                                (self.fyers_service._cache_symbol(symbol), mode.value, resolution.lower()),
+                                request.timeframe.lookback_window,
+                                points,
+                                "CANDLE_CACHE_DB",
                             )
+                            continue
+                    except Exception as exc:
+                        self.logger.warning(
+                            "DB OHLCV reuse failed, falling back to live fetch | symbol=%s | error=%s",
+                            symbol,
+                            exc,
+                        )
+                try:
                     candles_by_mode[mode] = await self.fyers_service.fetch_ohlcv(
                         symbol=symbol,
                         mode=mode,
                         resolution=resolution,
                         lookback_window=request.timeframe.lookback_window,
                     )
-                elapsed = time.perf_counter() - start
-                total_rows = sum(len(c) for c in candles_by_mode.values())
-                candles_by_symbol_and_mode[symbol] = candles_by_mode
-                
-            async def prefetch_all():
+                except Exception as exc:
+                    self.logger.error(
+                        "OHLCV_FETCH_FAILED | symbol=%s | mode=%s | error=%s | marking empty",
+                        symbol,
+                        mode.value,
+                        exc,
+                    )
+                    candles_by_mode[mode] = []
+            elapsed = time.perf_counter() - start
+            total_rows = sum(len(c) for c in candles_by_mode.values())
+            self.logger.info(
+                "OHLCV_FETCH_DONE | symbol=%s | rows=%s | elapsed_ms=%.0f",
+                symbol,
+                total_rows,
+                elapsed * 1000,
+            )
+            return candles_by_mode
+
+        if missing_for_fetch:
+            async def prefetch_missing():
                 sem = asyncio.Semaphore(20)
 
                 async def _bounded(symbol: str):
                     async with sem:
-                        await fetch_for_symbol(symbol)
+                        candles_by_symbol_and_mode[symbol] = await fetch_for_symbol(symbol)
 
-                await asyncio.gather(*(_bounded(symbol) for symbol in request.symbols))
-                
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-                
-            if loop and loop.is_running():
-                await prefetch_all()
-            else:
-                asyncio.run(prefetch_all())
-            
+                await asyncio.gather(*(_bounded(symbol) for symbol in missing_for_fetch))
+
+            await prefetch_missing()
+
+        downloaded = [
+            s for s in request.symbols
+            if any(candles_by_symbol_and_mode.get(s, {}).get(m) for m in modes)
+        ]
+        still_missing = [s for s in request.symbols if s not in downloaded]
+        self.logger.info(
+            "ANALYSIS_CANDLE_READY | downloaded=%s | data_unavailable=%s | unavailable_symbols=%s",
+            len(downloaded),
+            len(still_missing),
+            ",".join(still_missing[:20]) + ("..." if len(still_missing) > 20 else ""),
+        )
+
         # Build the bulk candles dictionary for the technical matrix
         candles_dict_by_mode = {mode: {} for mode in modes}
         for symbol, c_map in candles_by_symbol_and_mode.items():
+            if not isinstance(c_map, dict):
+                continue
             for mode in modes:
-                if c_map[mode]:
-                    candles_dict_by_mode[mode][symbol] = c_map[mode]
+                series = c_map.get(mode) or []
+                if series:
+                    candles_dict_by_mode[mode][symbol] = series
                     
         if progress_callback:
             progress_callback({"stage": "Calculating Technical Indicators...", "progress": 55, "heartbeat": True})
@@ -196,28 +303,40 @@ class OrchestratorAgent:
 
             async def _one(symbol: str):
                 async with agent_sem:
+                    candles_by_mode = candles_by_symbol_and_mode.get(symbol)
                     try:
-                        result = await self._analyze_symbol_post_bulk(
-                            symbol,
-                            request,
-                            candles_by_symbol_and_mode[symbol],
-                            bulk_technical_results,
-                            feat004_config=feat004_config,
-                            benchmark_ohlcv=benchmark_ohlcv,
-                            benchmark_failure_reason=benchmark_failure_reason,
-                            benchmark_symbol=benchmark_symbol,
-                            feat007_config=feat007_config,
-                            stock_id=stock_ids.get(symbol),
-                            market_regime=_market_regime,
-                        )
+                        if not candles_by_mode or not any(candles_by_mode.get(m) for m in modes):
+                            self.logger.warning(
+                                "DATA_UNAVAILABLE | symbol=%s | reason=no_ohlcv_after_prefetch_and_fetch | continuing",
+                                symbol,
+                            )
+                            result = self._unavailable_analysis_result(
+                                symbol, request, candles_by_mode or {}
+                            )
+                        else:
+                            result = await self._analyze_symbol_post_bulk(
+                                symbol,
+                                request,
+                                candles_by_mode,
+                                bulk_technical_results,
+                                feat004_config=feat004_config,
+                                benchmark_ohlcv=benchmark_ohlcv,
+                                benchmark_failure_reason=benchmark_failure_reason,
+                                benchmark_symbol=benchmark_symbol,
+                                feat007_config=feat007_config,
+                                stock_id=stock_ids.get(symbol),
+                                market_regime=_market_regime,
+                            )
                     except Exception as exc:
                         self.logger.error(
-                            "SYMBOL_ANALYSIS_FAILED | symbol=%s | error=%s | skipping",
+                            "SYMBOL_ANALYSIS_FAILED | symbol=%s | error=%s | marking DATA_UNAVAILABLE",
                             symbol,
                             exc,
                             exc_info=True,
                         )
-                        result = self._unavailable_analysis_result(symbol, request, candles_by_symbol_and_mode.get(symbol, {}))
+                        result = self._unavailable_analysis_result(
+                            symbol, request, candles_by_symbol_and_mode.get(symbol) or {}
+                        )
 
                     completed_count["n"] += 1
                     done = completed_count["n"]
@@ -234,9 +353,16 @@ class OrchestratorAgent:
                     return result
 
             return await asyncio.gather(*(_one(symbol) for symbol in request.symbols))
-            
+
         items = await run_remaining_agents()
-            
+        self.logger.info(
+            "ANALYSIS_OUTPUT | input_symbols=%s | analyzed_items=%s | buy=%s | watch=%s | reject_or_other=%s",
+            len(request.symbols),
+            len(items),
+            sum(1 for i in items if getattr(i.recommendation, "action", "").upper() == "BUY"),
+            sum(1 for i in items if getattr(i.recommendation, "action", "").upper() == "WATCH"),
+            sum(1 for i in items if getattr(i.recommendation, "action", "").upper() not in {"BUY", "WATCH"}),
+        )
 
         if progress_callback:
             progress_callback({"stage": "Applying Risk Management Filters...", "progress": 85, "heartbeat": True})
@@ -261,9 +387,9 @@ class OrchestratorAgent:
 
     async def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         if progress_callback:
-            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 10, "heartbeat": True})
+            progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 15, "heartbeat": True})
         self.logger.info(
-            "Starting screener flow | top_n=%s | mode=%s | lookback=%s | custom_symbol_count=%s",
+            "[SCAN] Starting screener flow | top_n=%s | mode=%s | lookback=%s | custom_symbol_count=%s",
             request.top_n,
             request.mode.value,
             request.timeframe.lookback_window,
@@ -291,9 +417,10 @@ class OrchestratorAgent:
 
         if progress_callback:
             progress_callback({"stage": "Loading Market Universe...", "progress": 20, "heartbeat": True})
+        self.logger.info("[SCAN] Loading universe...")
         universes = await self._prioritized_universes()
         self.logger.info(
-            "Universe scan plan | stages=%s | stage_list=%s",
+            "[SCAN] Universe loaded | stages=%s | stage_list=%s",
             len(universes),
             ",".join(name for name, _ in universes),
         )
@@ -379,12 +506,22 @@ class OrchestratorAgent:
         progress_callback=None,
     ) -> ScreenerResponse:
         if progress_callback:
-            progress_callback({"stage": "Fetching Historical OHLCV Data...", "progress": 40, "heartbeat": True})
+            progress_callback({"stage": "Downloading candles...", "progress": 35, "heartbeat": True})
+        self.logger.info(
+            "[SCAN] Downloading candles | stage=%s | symbols=%s",
+            stage_name,
+            len(source_universe),
+        )
         screener_results = await self.screener_service.screen_symbols_swing(
             source_universe,
             lookback_window=request.timeframe.lookback_window,
             stage_name=stage_name,
             progress_callback=progress_callback,
+        )
+        self.logger.info(
+            "[SCAN] Candle/screener stage complete | stage=%s | results=%s",
+            stage_name,
+            len(screener_results),
         )
         data_valid_symbols = [
             item.symbol
@@ -444,35 +581,106 @@ class OrchestratorAgent:
                 timeframe=request.timeframe,
             )
             self.logger.info("STEP 6/8 | Run full analysis only on top set | stage=%s | count=%s", stage_name, len(shortlisted_symbols))
-            # Reuse OHLCV data from screener phase (avoids duplicate FYERS fetch)
+            # Reuse OHLCV data from screener phase (avoids duplicate FYERS fetch).
+            # May be partial — run_full fills any shortlisted symbol still missing.
             prefetched_candles: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] = {}
-            screener_frames = getattr(self.screener_service, "last_fetched_frames", {})
-            if screener_frames:
-                from ..schemas import AnalysisMode as AM
-                for sym in shortlisted_symbols:
-                    df = screener_frames.get(sym)
-                    if df is not None and not df.empty:
-                        points = []
-                        for ts, row in df.iterrows():
-                            dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-                            if getattr(dt, "tzinfo", None) is not None:
-                                dt = dt.replace(tzinfo=None)
-                            points.append(OHLCVPoint(
-                                timestamp=dt,
-                                open=float(row["open"]),
-                                high=float(row["high"]),
-                                low=float(row["low"]),
-                                close=float(row["close"]),
-                                volume=safe_int(row["volume"], symbol=sym, field="volume"),
-                            ))
-                        if len(points) >= 220:
-                            prefetched_candles[sym] = {AM.swing: points}
+            screener_frames = getattr(self.screener_service, "last_fetched_frames", {}) or {}
+            # Build canonical→frame key index so RAIN-EQ finds RAIN / NSE:RAIN-EQ frames
+            frame_by_canonical: dict[str, str] = {}
+            for frame_key in screener_frames.keys():
+                frame_by_canonical[self._canonical_symbol(frame_key)] = frame_key
+
+            from ..schemas import AnalysisMode as AM
+            for sym in shortlisted_symbols:
+                df = screener_frames.get(sym)
+                if df is None:
+                    alt_key = frame_by_canonical.get(self._canonical_symbol(sym))
+                    if alt_key is not None:
+                        df = screener_frames.get(alt_key)
+                        if df is not None:
+                            self.logger.info(
+                                "PREFETCH_SYMBOL_KEY_MAP | shortlist=%s | frame_key=%s",
+                                sym,
+                                alt_key,
+                            )
+                if df is not None and not getattr(df, "empty", True):
+                    points = []
+                    for ts, row in df.iterrows():
+                        dt = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+                        if getattr(dt, "tzinfo", None) is not None:
+                            dt = dt.replace(tzinfo=None)
+                        points.append(OHLCVPoint(
+                            timestamp=dt,
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=safe_int(row["volume"], symbol=sym, field="volume"),
+                        ))
+                    if len(points) >= 220:
+                        # When ACS is enabled, keep timezone-aware UTC timestamps so L1
+                        # range checks do not mix naive/aware datetimes.
+                        if settings.is_authoritative_candle_store_enabled():
+                            from datetime import timezone as _tz
+
+                            utc_points = []
+                            for p in points:
+                                ts = p.timestamp
+                                if getattr(ts, "tzinfo", None) is None:
+                                    ts = ts.replace(tzinfo=_tz.utc)
+                                elif ts.tzinfo != _tz.utc:
+                                    ts = ts.astimezone(_tz.utc)
+                                utc_points.append(p.model_copy(update={"timestamp": ts}))
+                            points = utc_points
+                        prefetched_candles[sym] = {AM.swing: points}
+                        try:
+                            resolution = self._resolution_for_mode(AM.swing, analysis_request)
+                            self.fyers_service._store_ohlcv_cache(
+                                (
+                                    self.fyers_service._cache_symbol(sym),
+                                    AM.swing.value,
+                                    str(resolution).lower(),
+                                ),
+                                analysis_request.timeframe.lookback_window,
+                                points,
+                                "CANDLE_CACHE_DB",
+                            )
+                        except Exception as cache_exc:
+                            self.logger.debug(
+                                "prefetch source register failed | symbol=%s | error=%s",
+                                sym,
+                                cache_exc,
+                            )
+                        if settings.is_authoritative_candle_store_enabled():
+                            try:
+                                from ..services.authoritative_candle_store import authoritative_candle_store
+                                from ..services.candle_validation_engine import validate_candle_series
+
+                                authoritative_candle_store.cache.set(
+                                    sym, str(resolution), validate_candle_series(points)
+                                )
+                            except Exception:
+                                pass
+            missing_prefetch = [s for s in shortlisted_symbols if s not in prefetched_candles]
+            self.logger.info(
+                "PREFETCH_FROM_SCREENER | shortlisted=%s | prefetched=%s | missing=%s | missing_symbols=%s",
+                len(shortlisted_symbols),
+                len(prefetched_candles),
+                len(missing_prefetch),
+                ",".join(missing_prefetch) if missing_prefetch else "none",
+            )
             # Release frames from memory after extracting prefetched candles
-            screener_frames.clear()
-            self.screener_service.last_fetched_frames.clear()
-            shortlist_analysis = await self.run_full(analysis_request, progress_callback, prefetched_candles=prefetched_candles or None)
+            if hasattr(screener_frames, "clear"):
+                screener_frames.clear()
+            self.screener_service.last_fetched_frames = {}
+            shortlist_analysis = await self.run_full(
+                analysis_request,
+                progress_callback,
+                prefetched_candles=prefetched_candles,
+            )
             buy_items = [item for item in shortlist_analysis.items if item.recommendation.action == "BUY"]
             watch_items = [item for item in shortlist_analysis.items if item.recommendation.action == "WATCH"]
+            reject_items = [item for item in shortlist_analysis.items if item.recommendation.action == "REJECT"]
             buy_candidate_symbols = [item.symbol for item in buy_items]
             watch_candidate_symbols = [item.symbol for item in watch_items]
             self.logger.info(
@@ -480,12 +688,16 @@ class OrchestratorAgent:
                 stage_name,
                 len(buy_items),
                 len(watch_items),
-                len([item for item in shortlist_analysis.items if item.recommendation.action == 'REJECT']),
+                len(reject_items),
             )
-            analysis_items = buy_items + watch_items
+            # Keep REJECT results in the payload so the UI still receives the real
+            # composite score, confidence, trade plan, and equity curve.
+            # (Previously only BUY+WATCH were returned, so REJECT rows fell back to
+            # screener_score — often ~100 — with empty entry/SL/TP/confidence.)
+            analysis_items = buy_items + watch_items + reject_items
             analysis = FullAnalysisResponse(
                 items=analysis_items,
-                rankings=self.ranking_agent.run(analysis_items),
+                rankings=self.ranking_agent.run(buy_items + watch_items),
                 disclaimer=advisory_payload(),
                 generated_at=shortlist_analysis.generated_at,
             )
@@ -929,6 +1141,31 @@ class OrchestratorAgent:
         if feat007_config is None:
             feat007_config = self._build_feat007_config()
 
+        # Stage 2: when market_breadth is production, compute live soft contribution.
+        # Fail-open to 0.0 so scan path never aborts on breadth errors.
+        market_breadth_soft_score: float | None = None
+        try:
+            from ..governance.rule_manager import RuleManager
+            from ..services.market_breadth import calculate_market_breadth
+
+            if RuleManager().is_active_in_production("market_breadth"):
+                breadth_items = self._universe_breadth_items_from_bulk(bulk_technical_results)
+                breadth_telemetry = calculate_market_breadth(breadth_items)
+                market_breadth_soft_score = float(breadth_telemetry.soft_score_contribution)
+                if not breadth_telemetry.is_valid:
+                    shadow_logger.warning(
+                        "breadth_telemetry_unreliable | symbol=%s | soft=%s | action=use_soft_anyway",
+                        symbol,
+                        market_breadth_soft_score,
+                    )
+        except Exception as breadth_live_exc:
+            shadow_logger.warning(
+                "governance_fail_open | symbol=%s | rule=market_breadth | error=%s | action=soft_score_0",
+                symbol,
+                breadth_live_exc,
+            )
+            market_breadth_soft_score = 0.0
+
         recommendation = await asyncio.to_thread(
             self.recommendation_agent.run,
             symbol=symbol,
@@ -950,6 +1187,7 @@ class OrchestratorAgent:
             sector_roc20=sector_roc20,
             benchmark_roc20=benchmark_roc20,
             feat007_abstained_reason=feat007_abstained_reason,
+            market_breadth_soft_score=market_breadth_soft_score,
         )
         data_quality = self._data_quality_payload(candles_by_mode, request, symbol)
         recommendation = self._enforce_strict_buy_gate(
@@ -1023,8 +1261,88 @@ class OrchestratorAgent:
             backtest=best_backtest,
             recommendation=recommendation,
             sector_overlay=sector_overlay,
-            market_regime=market_regime
+            market_regime=market_regime,
+            symbol=symbol,
+            articles=articles
         )
+
+        # FEAT-011 Spec 1: Shadow Execution Context hook
+        # Gate: master toggle AND stage != OFF (ACTIVE is reserved but still isolated).
+        if settings.is_shadow_hook_enabled():
+            try:
+                import asyncio
+
+                executor = getattr(self, "shadow_executor", None)
+                # Avoid deep-copy overhead when no executor is registered (audit L2).
+                if executor is None:
+                    shadow_logger.warning(
+                        "Shadow executor is enabled but no ruleset executor is registered "
+                        "for ruleset %r | symbol=%s. Gracefully skipping.",
+                        settings.shadow_mode_ruleset,
+                        symbol,
+                    )
+                else:
+                    candles_list = self._primary_candle_set(candles_by_mode)
+
+                    # FR-007: deep-copy all mutable snapshot fields so experimental
+                    # logic cannot mutate production recommendation / market inputs.
+                    shadow_ctx = ShadowExecutionContext(
+                        symbol=symbol,
+                        candles=copy.deepcopy(candles_list),
+                        technical_results=copy.deepcopy(technical_results),
+                        sentiment_score=sentiment_score,
+                        fundamental_result=copy.deepcopy(fundamental_result),
+                        backtests=copy.deepcopy(backtests) if backtests else [],
+                        production_recommendation=copy.deepcopy(recommendation),
+                        production_challenger_recommendation=copy.deepcopy(
+                            challenger_recommendation
+                        ),
+                        scan_date=datetime.now(timezone.utc),
+                    )
+
+                    try:
+                        shadow_res = await asyncio.wait_for(
+                            executor.execute_shadow(shadow_ctx),
+                            timeout=_SHADOW_EXECUTOR_TIMEOUT_SECONDS,
+                        )
+                    except TimeoutError:
+                        # Hardening M4: timeout must not fail production path.
+                        shadow_logger.warning(
+                            "Shadow mode hook timed out after %.1fs | symbol=%s | ruleset=%s. "
+                            "Degrading gracefully.",
+                            _SHADOW_EXECUTOR_TIMEOUT_SECONDS,
+                            symbol,
+                            settings.shadow_mode_ruleset,
+                        )
+                    else:
+                        shadow_logger.info(
+                            "Shadow execution succeeded | symbol=%s | ruleset=%s",
+                            symbol,
+                            shadow_res.ruleset_name,
+                        )
+            except Exception as shadow_exc:
+                # Log full traceback for ops; never re-raise into production pipeline.
+                shadow_logger.warning(
+                    "Shadow mode hook failed with exception: %s | symbol=%s | ruleset=%s. "
+                    "Degrading gracefully.",
+                    shadow_exc,
+                    symbol,
+                    settings.shadow_mode_ruleset,
+                    exc_info=True,
+                )
+
+            # FEAT-018 / FEAT-016: independent candidate submissions (audit H1/H3/H4).
+            # Isolated from the experimental ruleset executor so a ruleset failure
+            # cannot skip shadow candidate telemetry. Submitted AFTER history persist
+            # so telemetry attaches to the current AnalysisHistory row.
+            self._submit_shadow_candidate_features(
+                symbol=symbol,
+                stock_id=stock_id,
+                articles=articles or [],
+                bulk_technical_results=bulk_technical_results,
+                sector_overlay=sector_overlay,
+            )
+
         self.logger.info(
             "Completed symbol analysis | symbol=%s | recommendation=%s | confidence=%s | score=%s | challenger=%s | market_regime=%s",
             symbol,
@@ -1066,8 +1384,24 @@ class OrchestratorAgent:
         recommendation: Any,
         sector_overlay: Any = None,
         market_regime: Any = None,
+        symbol: str = None,
+        articles: list[Any] = None,
     ) -> None:
         from ..db.session import AsyncSessionLocal
+        from ..services.taxonomy_classifier import determine_situation_tags
+
+        situation_tags = determine_situation_tags(
+            symbol=symbol,
+            recommendation=recommendation.action,
+            sentiment_score=sentiment_score,
+            articles=articles,
+            market_regime=market_regime
+        )
+
+        reason_codes_value = sector_overlay.downgrade_reason if sector_overlay else None
+        if reason_codes_value and len(reason_codes_value) > 450:
+            reason_codes_value = reason_codes_value[:447] + "..."
+
         async with AsyncSessionLocal() as db:
             analysis_entry = AnalysisHistory(
                 stock_id=stock_id,
@@ -1085,7 +1419,7 @@ class OrchestratorAgent:
                 sector_filter_triggered=sector_overlay.downgrade_triggered if sector_overlay else None,
                 original_signal=sector_overlay.original_action if sector_overlay else None,
                 challenger_signal=sector_overlay.challenger_action if sector_overlay else None,
-                reason_codes=sector_overlay.downgrade_reason if sector_overlay else None,
+                reason_codes=reason_codes_value,
                 # SR-004 Audit fields
                 market_state=market_regime.market_state if market_regime else None,
                 market_trend_state=market_regime.trend_state if market_regime else None,
@@ -1093,6 +1427,7 @@ class OrchestratorAgent:
                 market_volatility_state=market_regime.volatility_state if market_regime else None,
                 market_new_entry_allowed=market_regime.new_entry_allowed if market_regime else None,
                 market_risk_multiplier=market_regime.risk_multiplier if market_regime else None,
+                situation_tags=situation_tags,
             )
             db.add(analysis_entry)
 
@@ -1150,7 +1485,142 @@ class OrchestratorAgent:
         return request.timeframe.swing
 
     def _primary_candle_set(self, candles_by_mode: dict[AnalysisMode, list]) -> list:
-        return candles_by_mode.get(AnalysisMode.swing) or next(iter(candles_by_mode.values()))
+        if not candles_by_mode:
+            return []
+        return candles_by_mode.get(AnalysisMode.swing) or next(iter(candles_by_mode.values()), [])
+
+    @staticmethod
+    def _universe_breadth_items_from_bulk(
+        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]] | None,
+    ) -> list[dict[str, Any]]:
+        """Build universe-level (price, sma_200) rows from bulk technical results (FR-004).
+
+        Prefers swing-mode results when present; otherwise uses the first available mode.
+        """
+        if not bulk_technical_results:
+            return []
+
+        mode_map: dict[str, TechnicalAnalysisResult] | None = None
+        if AnalysisMode.swing in bulk_technical_results:
+            mode_map = bulk_technical_results[AnalysisMode.swing]
+        else:
+            mode_map = next(iter(bulk_technical_results.values()), None)
+
+        if not mode_map:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for sym, tech in mode_map.items():
+            inds = getattr(tech, "indicators", None) or {}
+            items.append(
+                {
+                    "symbol": sym,
+                    "current_price": inds.get("close") or inds.get("current_price"),
+                    "sma_200": inds.get("sma_200") or inds.get("sma200"),
+                }
+            )
+        return items
+
+    def _submit_shadow_candidate_features(
+        self,
+        *,
+        symbol: str,
+        stock_id: int | None,
+        articles: list[Any],
+        bulk_technical_results: dict[AnalysisMode, dict[str, TechnicalAnalysisResult]] | None,
+        sector_overlay: Any = None,
+    ) -> None:
+        """Submit FEAT-018 / FEAT-016 / FEAT-020 after AnalysisHistory persist.
+
+        Each feature is isolated in its own try/except so one failure cannot block
+        the other or the production path.
+        """
+        try:
+            from ..services.shadow_executor import (
+                ShadowThreadPool,
+                execute_shadow_market_breadth,
+                execute_shadow_sentiment_decay,
+                execute_shadow_sector_strength,
+            )
+        except Exception as import_exc:
+            shadow_logger.warning(
+                "Shadow candidate import failed | symbol=%s | error=%s",
+                symbol,
+                import_exc,
+            )
+            return
+
+        # FEAT-018: Sentiment Time-Decay — independent of news_dedup lifecycle (H1),
+        # post-persist so history exists (H3). Empty article lists are allowed.
+        try:
+            ShadowThreadPool.submit_task(
+                execute_shadow_sentiment_decay,
+                symbol,
+                list(articles or []),
+                None,
+                stock_id,
+            )
+        except Exception as sent_exc:
+            shadow_logger.warning(
+                "Shadow sentiment_decay submit failed | symbol=%s | error=%s",
+                symbol,
+                sent_exc,
+            )
+
+        # FEAT-016: Market Breadth — full bulk universe (C1), isolated from ruleset executor (H4).
+        try:
+            breadth_items = self._universe_breadth_items_from_bulk(bulk_technical_results)
+            ShadowThreadPool.submit_task(
+                execute_shadow_market_breadth,
+                symbol,
+                breadth_items,
+                None,
+                stock_id,
+            )
+        except Exception as breadth_exc:
+            shadow_logger.warning(
+                "Shadow market_breadth submit failed | symbol=%s | error=%s",
+                symbol,
+                breadth_exc,
+            )
+
+        # FEAT-020: Sector Strength — watch-only relative sector return calculation.
+        # Build real sector/benchmark inputs from bulk technicals + sector overlay ROC.
+        try:
+            from ..services.sector_strength import build_sector_strength_scan_inputs
+
+            universe_map: dict[str, TechnicalAnalysisResult] | None = None
+            if bulk_technical_results:
+                if AnalysisMode.swing in bulk_technical_results:
+                    universe_map = bulk_technical_results[AnalysisMode.swing]
+                else:
+                    universe_map = next(iter(bulk_technical_results.values()), None)
+
+            sectors, benchmark_symbol, benchmark_return_pct = build_sector_strength_scan_inputs(
+                universe_technical=universe_map,
+                sector_overlay=sector_overlay,
+            )
+            if benchmark_return_pct is None and not sectors:
+                shadow_logger.warning(
+                    "Shadow sector_strength missing benchmark/sector data | symbol=%s | "
+                    "persisting neutral empty telemetry",
+                    symbol,
+                )
+            ShadowThreadPool.submit_task(
+                execute_shadow_sector_strength,
+                symbol,
+                sectors or None,
+                benchmark_symbol,
+                benchmark_return_pct,
+                None,
+                stock_id,
+            )
+        except Exception as sector_exc:
+            shadow_logger.warning(
+                "Shadow sector_strength submit failed | symbol=%s | error=%s",
+                symbol,
+                sector_exc,
+            )
 
     def _default_data_source_label(self) -> str:
         if self.fyers_service._is_fyers_configured():
@@ -1194,19 +1664,37 @@ class OrchestratorAgent:
         symbol: str,
     ) -> dict[str, str | int | bool | float]:
         primary = self._primary_candle_set(candles_by_mode)
-        primary_mode = AnalysisMode.swing if AnalysisMode.swing in candles_by_mode else next(iter(candles_by_mode.keys()))
-        primary_source = self.fyers_service.get_ohlcv_source(
-            symbol,
-            primary_mode,
-            self._resolution_for_mode(primary_mode, request),
+        if AnalysisMode.swing in candles_by_mode:
+            primary_mode = AnalysisMode.swing
+        elif candles_by_mode:
+            primary_mode = next(iter(candles_by_mode.keys()))
+        else:
+            primary_mode = AnalysisMode.swing
+
+        primary_source = (
+            self.fyers_service.get_ohlcv_source(
+                symbol,
+                primary_mode,
+                self._resolution_for_mode(primary_mode, request),
+            )
+            if candles_by_mode
+            else "NONE"
         )
+        # Prefetched shortlist candles may not have registered a source key yet.
+        # When we have a full OHLC series, treat data as real (not mock).
+        if primary_source in {"unknown", "NONE"} and len(primary) >= 220:
+            primary_source = "CANDLE_CACHE_DB"
         latest_timestamp = primary[-1].timestamp.isoformat() if primary else "n/a"
+        # Explicitly untrusted / empty sources only — do NOT treat warm-cache or
+        # prefetched series as mock just because the label was missing.
+        _EXPLICIT_MOCK = {"MOCK_FALLBACK", "NO_DATA", "NONE"}
+        mock_warning = primary_source in _EXPLICIT_MOCK or len(primary) == 0
         return {
             "source": primary_source,
             "candles": len(primary),
             "candles_fetched": len(primary),
             "latest_timestamp": latest_timestamp,
-            "mock_warning": primary_source != "FYERS_PRIMARY",
+            "mock_warning": mock_warning,
             "minimum_swing_candles_met": len(primary) >= 220,
         }
 
@@ -1255,11 +1743,14 @@ class OrchestratorAgent:
             use_realistic_for_composite = settings.feat008_composite_uses_realistic
             skip_on_missing_next_bar = settings.feat008_skip_on_missing_next_bar
         for mode in self._resolve_modes(request.mode):
-            technical_results.append(
-                self.technical_agent.service.analyze(symbol, candles_by_mode.get(mode, []), mode)
-                if candles_by_mode.get(mode)
-                else self._empty_technical_result(mode)
-            )
+            # TechnicalAnalysisService only exposes analyze_bulk (no single-symbol analyze).
+            tech_res = None
+            if candles_by_mode.get(mode):
+                bulk = self.technical_agent.service.analyze_bulk(
+                    {symbol: candles_by_mode[mode]}, mode
+                )
+                tech_res = bulk.get(symbol)
+            technical_results.append(tech_res or self._empty_technical_result(mode))
             backtests.append(self.backtest_agent.run(
                 symbol, mode, candles_by_mode.get(mode, []),
                 execution_model=exec_model,
@@ -1338,92 +1829,118 @@ class OrchestratorAgent:
         candles_by_mode: dict[AnalysisMode, list],
         data_quality: dict[str, str | int | bool | float],
     ):
-        # If recommendation is not BUY, nothing to enforce
-        if recommendation.action != "BUY":
-            self.logger.debug("STRICT BUY GATE SKIP | symbol=%s | recommendation=%s", symbol, recommendation.action)
-            return recommendation
+        """Final recommendation gate — runs ONLY after full analysis pipeline.
 
+        All technical, AI, sector, backtest, and trade-plan work is already done
+        by the time this method is called. This gate does NOT re-run analysis.
+
+        Production signal policy (score-based only):
+          score >= 70 → BUY
+          55 <= score < 70 → WATCH
+          score < 55 → REJECT
+
+        Informational only (never override the score decision):
+          Risk:Reward, conviction, AI confidence threshold, trend strength,
+          market regime, breakout confirmation, feature flags, safety overrides.
+
+        Mandatory preconditions (any failure → REJECT, reason=Analysis Failed):
+          market data, valid price/OHLC, trade plan with entry/SL/target,
+          score calculated, confidence calculated, analysis completed.
+        """
+        from ..services.recommendation_service import (
+            ANALYSIS_FAILED_REASON,
+            analysis_preconditions_ok,
+            classify_signal_from_score,
+        )
+
+        composite_score = float(getattr(recommendation, "score", 0.0) or 0.0)
+        confidence = getattr(recommendation, "confidence", None)
         primary_plan = recommendation.trade_plans[0] if recommendation.trade_plans else None
-        best_technical = max(technical_results, key=lambda item: item.score)
-        best_backtest = max(backtests, key=lambda item: item.total_return)
+        best_technical = max(technical_results, key=lambda item: item.score) if technical_results else None
+        best_backtest = max(backtests, key=lambda item: item.total_return) if backtests else None
+        _ = best_backtest  # retained for diagnostics only
 
-        # Log a compact diagnostic snapshot for debugging why BUY may be blocked
         try:
             self.logger.info(
-                "STRICT BUY GATE EVALUATE | symbol=%s | rec_score=%.2f | rec_conf=%.2f | best_tech_score=%.2f | backtest_verdict=%s | backtest_return=%.2f | plan_rw=%s | data_source=%s | mock_warning=%s | min_candles_met=%s",
+                "SCORE SIGNAL POLICY | symbol=%s | score=%.2f | conf=%s | plans=%s | source=%s | mock_warning=%s | min_candles_met=%s | tech=%.2f | rr=%s",
                 symbol,
-                float(recommendation.score),
-                float(recommendation.confidence),
-                float(best_technical.score) if best_technical is not None else 0.0,
-                getattr(best_backtest, "verdict", "n/a"),
-                float(getattr(best_backtest, "total_return", 0.0)),
-                (primary_plan.risk_reward_ratio if primary_plan and getattr(primary_plan, "risk_reward_ratio", None) is not None else None),
+                composite_score,
+                confidence,
+                len(recommendation.trade_plans or []),
                 data_quality.get("source"),
                 data_quality.get("mock_warning"),
                 data_quality.get("minimum_swing_candles_met"),
+                float(best_technical.score) if best_technical is not None else 0.0,
+                (
+                    primary_plan.risk_reward_ratio
+                    if primary_plan is not None and getattr(primary_plan, "risk_reward_ratio", None) is not None
+                    else None
+                ),
             )
         except Exception:
-            # Don't let logging issues break flow
             pass
 
-        strong_live_data = (
-            not bool(data_quality.get("mock_warning"))
-            and bool(data_quality.get("minimum_swing_candles_met"))
-            and data_quality.get("source") == "FYERS_PRIMARY"
-        )
-        strong_execution = bool(
-            primary_plan is not None
-            and getattr(primary_plan, "risk_reward_ratio", None) is not None
-            and primary_plan.risk_reward_ratio >= 1.25
-        )
-        supportive_backtest = bool(
-            best_backtest is not None
-            and getattr(best_backtest, "verdict", None) in {"favorable", "mixed"}
-        )
-        strong_technical = bool(best_technical is not None and float(best_technical.score) >= 75)
+        # Analysis-completed check: technical results present for the symbol path
+        analysis_completed = bool(technical_results) and best_technical is not None
 
-        self.logger.debug(
-            "STRICT BUY GATE CHECK | symbol=%s | strong_live_data=%s | strong_technical=%s | strong_execution=%s | supportive_backtest=%s",
+        ok, reason = analysis_preconditions_ok(
+            score=composite_score,
+            confidence=confidence,
+            trade_plans=recommendation.trade_plans,
+            data_quality=data_quality,
+        )
+        if not analysis_completed:
+            ok = False
+            reason = ANALYSIS_FAILED_REASON
+
+        if not ok:
+            updated_risks = list(recommendation.reasoning.risk_factors)
+            if ANALYSIS_FAILED_REASON not in updated_risks:
+                updated_risks.append(ANALYSIS_FAILED_REASON)
+            self.logger.info(
+                "SCORE SIGNAL REJECT | symbol=%s | reason=%s | prior_score=%.2f | source=%s | plans=%s",
+                symbol,
+                reason or ANALYSIS_FAILED_REASON,
+                composite_score,
+                data_quality.get("source"),
+                len(recommendation.trade_plans or []),
+            )
+            # True analysis failure: never invent a high score. Clear score /
+            # confidence / trade plans so the UI shows N/A rather than Score=100
+            # or leftover fields from a partial path.
+            return recommendation.model_copy(
+                update={
+                    "action": "REJECT",
+                    "score": 0.0,
+                    "confidence": 0.0,
+                    "trade_plans": [],
+                    "reasoning": recommendation.reasoning.model_copy(update={"risk_factors": updated_risks}),
+                    "summary": (
+                        f"{recommendation.summary} Signal=REJECT ({ANALYSIS_FAILED_REASON}). "
+                        "Score/Entry/SL/Target are unavailable because analysis did not complete."
+                    ),
+                }
+            )
+
+        # Pure score classification — no R:R / tech / regime overrides.
+        score_action = classify_signal_from_score(composite_score)
+        if recommendation.action != score_action:
+            self.logger.info(
+                "SCORE SIGNAL RECLASSIFY | symbol=%s | from=%s | to=%s | score=%.2f",
+                symbol,
+                recommendation.action,
+                score_action,
+                composite_score,
+            )
+            return recommendation.model_copy(update={"action": score_action})
+
+        self.logger.info(
+            "SCORE SIGNAL PASS | symbol=%s | action=%s | score=%.2f",
             symbol,
-            strong_live_data,
-            strong_technical,
-            strong_execution,
-            supportive_backtest,
+            score_action,
+            composite_score,
         )
-
-        # Only allow BUY when all strict confirmations are present
-        if strong_live_data and strong_technical and strong_execution:
-            self.logger.info("STRICT BUY GATE PASS | symbol=%s | BUY allowed", symbol)
-            return recommendation
-
-        # Downgrade to WATCH and log reasons
-        updated_risks = list(recommendation.reasoning.risk_factors)
-        updated_risks.append(
-            "Strict BUY gate blocked this setup because live-data quality, backtest strength, or risk-reward confirmation was not strong enough."
-        )
-        try:
-            self.logger.info(
-                "STRICT BUY GATE DOWNGRADE | symbol=%s | downgraded_to=WATCH | rec_score=%.2f | rec_conf=%.2f | best_tech_score=%.2f | plan_rw=%s | data_source=%s | mock_warning=%s | min_candles_met=%s | backtest_verdict=%s",
-                symbol,
-                float(recommendation.score),
-                float(recommendation.confidence),
-                float(best_technical.score) if best_technical is not None else 0.0,
-                (primary_plan.risk_reward_ratio if primary_plan and getattr(primary_plan, "risk_reward_ratio", None) is not None else None),
-                data_quality.get("source"),
-                data_quality.get("mock_warning"),
-                data_quality.get("minimum_swing_candles_met"),
-                getattr(best_backtest, "verdict", "n/a"),
-            )
-        except Exception:
-            pass
-
-        return recommendation.model_copy(
-            update={
-                "action": "WATCH",
-                "reasoning": recommendation.reasoning.model_copy(update={"risk_factors": updated_risks}),
-                "summary": f"{recommendation.summary} BUY was downgraded to WATCH by the strict confirmation gate.",
-            }
-        )
+        return recommendation
 
     def _trade_readiness(self, recommendation, technical_results: list, data_quality: dict[str, str | int | bool | float]) -> str:
         best_technical = max(technical_results, key=lambda item: item.score)

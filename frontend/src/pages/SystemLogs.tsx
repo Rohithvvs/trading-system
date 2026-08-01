@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE_URL, apiUrl } from "../config";
+import { FeatureGuard } from "../components/FeatureGuard";
 
 type SystemLog = {
   id?: number;
@@ -206,8 +207,10 @@ export function SystemLogs() {
         </div>
         <div className="logs-actions">
           <span className={`logs-connection ${status}`}>{status}</span>
-          <a className="button ghost-button" href={`${exportUrl}&format=csv`}>Export CSV</a>
-          <a className="button ghost-button" href={`${exportUrl}&format=json`}>Export JSON</a>
+          <FeatureGuard feature="export_data" loadingFallback={null}>
+            <a className="button ghost-button" href={`${exportUrl}&format=csv`} data-testid="logs-export-csv">Export CSV</a>
+            <a className="button ghost-button" href={`${exportUrl}&format=json`} data-testid="logs-export-json">Export JSON</a>
+          </FeatureGuard>
           <button type="button" className="button danger-button" onClick={() => setClearOpen(true)}>Clear Logs</button>
         </div>
       </section>

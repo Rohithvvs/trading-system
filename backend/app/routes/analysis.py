@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 import asyncio
 import json
@@ -6,7 +6,9 @@ import time
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents import RouterAgent
+from ..core.deps import require_feature
 from ..db import get_db
+from ..models.auth import User
 from ..db.scan_store import load_latest_scan, save_latest_scan
 from ..schemas import (
     AnalysisRequest,
@@ -89,9 +91,12 @@ def rankings(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> Ra
 
 
 @router.post("/screener/full")
-async def screener_full(payload: ScreenerRequest):
+async def screener_full(
+    payload: ScreenerRequest,
+    _: User = Depends(require_feature("advanced_scanner")),
+):
     logger.info(
-        "API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
+        "[SCAN] API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
         payload.mode.value,
         payload.top_n,
         payload.timeframe.lookback_window,
@@ -99,49 +104,92 @@ async def screener_full(payload: ScreenerRequest):
         len(payload.symbols),
     )
 
-    q = asyncio.Queue()
+    q: asyncio.Queue = asyncio.Queue(maxsize=200)
+
+    # Seed the queue immediately so the SSE stream has something to send as soon
+    # as the client connects — never leave the UI at "Connecting data feed..."
+    # with no server events while the lock/DB is still starting.
+    await q.put(
+        {
+            "stage": "Connecting data feed...",
+            "progress": 1,
+            "heartbeat": True,
+        }
+    )
 
     from ..services.scan_execution_service import ScanExecutionService
     from ..services.lock_service import LockAcquisitionError
 
     try:
         await ScanExecutionService.execute_scan(payload, progress_queue=q, trigger_source="ui")
-    except LockAcquisitionError:
+        logger.info("[SCAN] Worker started; opening SSE stream")
+    except LockAcquisitionError as lock_exc:
+        logger.warning("[SCAN] Lock denied | reason=%s", lock_exc)
         return JSONResponse(
             status_code=200,
-            content={"status": "scan_in_progress"},
+            content={
+                "status": "scan_in_progress",
+                "message": str(lock_exc) or "Scan is already in progress.",
+            },
+        )
+    except Exception as start_exc:
+        logger.exception("[SCAN] Failed to start scan worker: %s", start_exc)
+        await q.put(
+            {
+                "status": "error",
+                "message": f"Failed to start scanner: {start_exc}",
+            }
         )
 
     async def event_stream():
         """SSE generator with server-side heartbeat to prevent proxy timeouts.
 
-        Yields keepalive comments every 5 seconds when no progress data is
-        available, ensuring the connection is never considered idle by
-        Reverse proxies (Render, Vercel, nginx, Cloudflare).
+        Yields structured progress events (not only comment keepalives) so the
+        frontend can leave "Connecting data feed..." and show real stages.
         """
         import time as _time
+
         last_yield_time = _time.monotonic()
         HEARTBEAT_INTERVAL = 5.0
+        idle_ticks = 0
 
         while True:
             try:
-                # Wait for queue data with a short timeout to allow heartbeat
                 msg = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_INTERVAL)
-                # Got real data — yield it
+                idle_ticks = 0
                 if "status" in msg and msg["status"] in ("complete", "error"):
-                    # Add elapsed time for diagnostics
                     if "elapsed_sec" not in msg:
                         msg["elapsed_sec"] = round(_time.monotonic() - last_yield_time, 1)
                     yield f"event: result\ndata: {json.dumps(msg)}\n\n"
                     break
                 else:
-                    # Ensure progress events have a heartbeat timestamp
                     if "heartbeat" not in msg:
                         msg["heartbeat"] = True
+                    if not msg.get("stage"):
+                        msg["stage"] = "Scanning..."
                     yield f"event: progress\ndata: {json.dumps(msg)}\n\n"
                     last_yield_time = _time.monotonic()
             except asyncio.TimeoutError:
-                # No data for HEARTBEAT_INTERVAL seconds — send keepalive
+                idle_ticks += 1
+                # Prefer a real progress event over a silent SSE comment so the
+                # UI updates instead of freezing at Connecting data feed...
+                wait_msg = {
+                    "stage": (
+                        "Waiting for broker response..."
+                        if idle_ticks >= 6
+                        else "Connecting data feed..."
+                    ),
+                    "progress": min(5 + idle_ticks, 12),
+                    "heartbeat": True,
+                    "idle_ticks": idle_ticks,
+                }
+                if idle_ticks >= 6:
+                    logger.warning(
+                        "[SCAN] SSE idle %ss — still waiting for worker progress",
+                        idle_ticks * HEARTBEAT_INTERVAL,
+                    )
+                yield f"event: progress\ndata: {json.dumps(wait_msg)}\n\n"
+                # Comment keepalive for proxies that ignore event frames
                 yield f": heartbeat {_time.time():.0f}\n\n"
                 last_yield_time = _time.monotonic()
 
@@ -429,20 +477,94 @@ def _build_backtest_extras(backtests: list) -> dict:
         return {}
 
 
+CACHE_KEY_ANALYSIS_SCAN_LATEST = "analysis:scan:latest:v1"
+ENDPOINT_ANALYSIS_SCAN_LATEST = "/analysis/scan/latest"
+
+
 @router.get("/scan/latest")
-async def get_latest_scan():
-    print("ENTERED get_latest_scan", flush=True)
-    data = await load_latest_scan()
-    print("LOADED data in get_latest_scan", flush=True)
-    logger = logging.getLogger("scan.db")
-    if data is None:
-        logger.info("API /scan/latest | available=False | DB is empty")
-    else:
+async def get_latest_scan(
+    request: Request,
+    force: bool = Query(default=False, description="Force refresh cache"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_feature("advanced_scanner")),
+):
+    from ..services.scanner_cache_service import scanner_cache_service, wants_force_refresh
+    from ..services.latest_scan_service import LatestScanService
+    from ..config.settings import settings
+    from ..observability.metrics import (
+        record_scanner_cache_force_refresh,
+        record_scanner_cache_hit,
+        record_scanner_cache_miss,
+        record_unified_latest_fallback,
+    )
+
+    force_refresh = wants_force_refresh(force, request.headers.get("cache-control"))
+    cache_enabled = settings.is_scanner_latest_cache_enabled()
+    scan_logger = logging.getLogger("scan.db")
+
+    # Record force once at the route boundary (covers unified + legacy; no double-count).
+    if force_refresh and cache_enabled:
+        record_scanner_cache_force_refresh(ENDPOINT_ANALYSIS_SCAN_LATEST)
+
+    if settings.is_scanner_unified_latest_enabled():
+        try:
+            service = LatestScanService(db)
+            payload, cache_status = await service.get_latest_scan(
+                format_type="analysis",
+                force=force_refresh,
+                cache_enabled=cache_enabled,
+            )
+            return Response(
+                content=payload,
+                media_type="application/json",
+                headers={"X-Cache-Status": cache_status},
+            )
+        except Exception as exc:
+            record_unified_latest_fallback(ENDPOINT_ANALYSIS_SCAN_LATEST)
+            logger.error(
+                "Unified GET /analysis/scan/latest failed, falling back to legacy path | err=%s",
+                exc,
+                exc_info=True,
+            )
+
+    async def produce_json() -> str:
+        data = await load_latest_scan()
+        if data is None:
+            scan_logger.info("API /scan/latest | available=False | DB is empty")
+            empty_payload = json.dumps({"available": False})
+            if cache_enabled:
+                await scanner_cache_service.set_latest_scan(
+                    CACHE_KEY_ANALYSIS_SCAN_LATEST, empty_payload, ttl_seconds=10
+                )
+            return empty_payload
+
         items = data.get("items", [])
-        logger.info("API /scan/latest | available=True | stocks=%s", len(items))
-    if data is None:
-        return {"available": False}
-    return {"available": True, **data}
+        scan_logger.info("API /scan/latest | available=True | stocks=%s", len(items))
+        serialized_payload = json.dumps({"available": True, **data})
+        if cache_enabled:
+            await scanner_cache_service.set_latest_scan(
+                CACHE_KEY_ANALYSIS_SCAN_LATEST, serialized_payload
+            )
+        return serialized_payload
+
+    payload, cache_status = await scanner_cache_service.resolve_latest_scan(
+        CACHE_KEY_ANALYSIS_SCAN_LATEST,
+        produce_json,
+        force=force_refresh,
+        cache_enabled=cache_enabled,
+    )
+
+    if cache_status == "HIT":
+        record_scanner_cache_hit(ENDPOINT_ANALYSIS_SCAN_LATEST)
+    elif cache_status in ("MISS", "FALLBACK"):
+        record_scanner_cache_miss(ENDPOINT_ANALYSIS_SCAN_LATEST)
+
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"X-Cache-Status": cache_status},
+    )
+
 
 @router.get("/symbol/{symbol}/light")
 async def symbol_detail_light(symbol: str, db: AsyncSession = Depends(get_db)):
@@ -546,24 +668,65 @@ async def get_today_candidates(db: AsyncSession = Depends(get_db)):
     from ..models.analysis import ScannedCandidate
     from sqlalchemy import select
     from datetime import datetime, timezone
-    
+    from ..config.settings import settings
+
     today = datetime.now(timezone.utc).date()
-    start_of_today = datetime.combine(today, datetime.min.time())
-    
+    start_of_today = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+    # M2: when minimal writes skip scanned_candidates, derive today's list from canonical.
+    use_canonical = False
+    try:
+        use_canonical = bool(settings.is_scan_result_minimal_writes())
+    except Exception:
+        use_canonical = False
+
+    if use_canonical:
+        from ..models.market_data import LatestScanResult
+
+        res = await db.scalars(
+            select(LatestScanResult)
+            .where(
+                LatestScanResult.scanned_at >= start_of_today,
+                LatestScanResult.signal_type.in_(("BUY", "WATCH")),
+            )
+            .order_by(LatestScanResult.score.desc())
+        )
+        rows = res.all()
+        return JSONResponse(
+            content=[
+                {
+                    "id": r.id,
+                    "symbol": r.symbol,
+                    "scanned_at": r.scanned_at.isoformat() if r.scanned_at else None,
+                    "screener_name": "canonical",
+                    "technical_score": float(r.score or 0.0),
+                    "technical_signal": r.signal_type,
+                    "screener_score": float(r.score or 0.0),
+                    "matched": True,
+                }
+                for r in rows
+            ]
+        )
+
     res = await db.scalars(
         select(ScannedCandidate)
         .where(ScannedCandidate.scanned_at >= start_of_today)
         .order_by(ScannedCandidate.screener_score.desc())
     )
     candidates = res.all()
-    
-    return JSONResponse(content=[{
-        "id": c.id,
-        "symbol": c.symbol,
-        "scanned_at": c.scanned_at.isoformat(),
-        "screener_name": c.screener_name,
-        "technical_score": c.technical_score,
-        "technical_signal": c.technical_signal,
-        "screener_score": c.screener_score,
-        "matched": c.matched
-    } for c in candidates])
+
+    return JSONResponse(
+        content=[
+            {
+                "id": c.id,
+                "symbol": c.symbol,
+                "scanned_at": c.scanned_at.isoformat(),
+                "screener_name": c.screener_name,
+                "technical_score": c.technical_score,
+                "technical_signal": c.technical_signal,
+                "screener_score": c.screener_score,
+                "matched": c.matched,
+            }
+            for c in candidates
+        ]
+    )

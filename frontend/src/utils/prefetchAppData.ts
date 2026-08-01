@@ -8,7 +8,6 @@ import {
   fetchAnalytics,
   fetchApiHealth,
   fetchMarketOverview,
-  fetchMarketStatus,
   fetchPaperAccountSummary,
   fetchPaperTradingDashboard,
   fetchAlerts,
@@ -32,9 +31,6 @@ export function prefetchAppData(): void {
     void Promise.all([
       cachedFetch(CACHE_KEYS.authMe, () => authMe(), { swr: true }).catch(() => null),
       cachedFetch(CACHE_KEYS.fyersToken, () => getTokenStatus(), { swr: true }).catch(() => null),
-      cachedFetch(CACHE_KEYS.marketStatus, () => fetchMarketStatus(), { swr: true, ttlMs: 5 * 60 * 1000 }).catch(
-        () => null,
-      ),
     ]);
   };
 

@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShadowOutputsSchema",
+  "type": "object",
+  "properties": {
+    "news_dedup": {
+      "type": "object",
+      "properties": {
+        "original_news_count": { "type": "integer" },
+        "kept_news_count": { "type": "integer" },
+        "removed_news_count": { "type": "integer" },
+        "executed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "sentiment_decay": {
+      "type": "object",
+      "required": [
+        "aggregate_raw_score",
+        "aggregate_decayed_score",
+        "article_count",
+        "decayed_article_count",
+        "zeroed_article_count",
+        "articles",
+        "executed_at"
+      ],
+      "properties": {
+        "aggregate_raw_score": { "type": "number" },
+        "aggregate_decayed_score": { "type": "number" },
+        "article_count": { "type": "integer" },
+        "decayed_article_count": { "type": "integer" },
+        "zeroed_article_count": { "type": "integer" },
+        "articles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "article_id",
+              "title",
+              "age_hours",
+              "raw_sentiment",
+              "decay_multiplier",
+              "decayed_sentiment"
+            ],
+            "properties": {
+              "article_id": { "type": "string" },
+              "title": { "type": "string" },
+              "published_at": { "type": ["string", "null"] },
+              "age_hours": { "type": "number" },
+              "raw_sentiment": { "type": "number" },
+              "decay_multiplier": { "type": "number" },
+              "decayed_sentiment": { "type": "number" }
+            }
+          }
+        },
+        "executed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "market_breadth": {
+      "type": "object",
+      "required": [
+        "universe_size",
+        "valid_stock_count",
+        "above_200ma_count",
+        "breadth_percentage",
+        "regime_label",
+        "soft_score_contribution",
+        "is_valid",
+        "executed_at"
+      ],
+      "properties": {
+        "universe_size": { "type": "integer" },
+        "valid_stock_count": { "type": "integer" },
+        "above_200ma_count": { "type": "integer" },
+        "breadth_percentage": { "type": "number" },
+        "regime_label": {
+          "type": "string",
+          "enum": ["strong", "favorable", "neutral", "weak", "very_weak", "unreliable"]
+        },
+        "soft_score_contribution": { "type": "number" },
+        "is_valid": { "type": "boolean" },
+        "executed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "additionalProperties": true
+}

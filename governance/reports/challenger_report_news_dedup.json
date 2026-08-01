@@ -1,0 +1,17 @@
+{
+  "rule_id": "news_dedup",
+  "generated_at": "2026-07-21T11:44:47.607812+00:00",
+  "window_start": "2026-07-07T11:44:47.607812+00:00",
+  "window_end": "2026-07-21T11:44:47.607812+00:00",
+  "total_recommendations_analyzed": 1,
+  "total_articles_processed": 10,
+  "total_articles_deduplicated": 2,
+  "deduplication_rate": 0.2,
+  "average_sentiment_score": 0.5,
+  "total_signals_evaluated": 1,
+  "false_positive_count": 0,
+  "false_positive_rate": 0.0,
+  "baseline_false_positive_rate": 0.15,
+  "baseline_sentiment_score": 0.65,
+  "status": "PASS"
+}

@@ -1,5 +1,4 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import { isMarketOpenForDisplay } from "../utils/tradingHours";
 
 function formatScanTime(isoString: string | null | undefined): string | null {
   if (!isoString) return null;
@@ -24,6 +23,68 @@ function formatDuration(seconds: number | null): string | null {
   return `${s}s`;
 }
 
+/** Display-only NSE cash session (IST). Does not gate trading. */
+function getNseMarketSession(now = new Date()): { open: boolean; label: string } {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+
+    const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+    const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+    const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+    const mins = hour * 60 + minute;
+
+    // Sat / Sun closed
+    if (weekday === "Sat" || weekday === "Sun") {
+      return { open: false, label: "Closed" };
+    }
+
+    // Regular session 09:15 – 15:30 IST
+    const open = mins >= 9 * 60 + 15 && mins < 15 * 60 + 30;
+    return { open, label: open ? "Open" : "Closed" };
+  } catch {
+    return { open: false, label: "—" };
+  }
+}
+
+type MarketStatusCardProps = {
+  compact?: boolean;
+};
+
+export const MarketStatusCard = memo(function MarketStatusCard({ compact }: MarketStatusCardProps) {
+  const [session, setSession] = useState(() => getNseMarketSession());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setSession(getNseMarketSession()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return (
+    <article
+      className={`status-card${compact ? " status-card--compact" : ""}`}
+      data-status={session.open ? "open" : "closed"}
+      aria-label="Market status"
+    >
+      <span className="status-card__label">Market</span>
+      <span className="status-card__value">
+        <span
+          className={`status-card__dot status-card__dot--${session.open ? "open" : "closed"}`}
+          aria-hidden
+        />
+        {session.label}
+      </span>
+      {!compact ? (
+        <span className="status-card__subtitle">NSE · 09:15–15:30 IST</span>
+      ) : null}
+    </article>
+  );
+});
+
 type LastScanCardProps = {
   lastScanAt: string | null | undefined;
   isLoading: boolean;
@@ -31,34 +92,6 @@ type LastScanCardProps = {
   durationSec: number | null;
   compact?: boolean;
 };
-
-export const MarketStatusCard = memo(function MarketStatusCard({ compact }: { compact?: boolean }) {
-  const [marketStatus, setMarketStatus] = useState(() => isMarketOpenForDisplay());
-
-  useEffect(() => {
-    const check = () => setMarketStatus(isMarketOpenForDisplay());
-    check();
-    const id = setInterval(check, 60_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const isOpen = marketStatus === "Open";
-
-  return (
-    <article
-      className={`status-card${compact ? " status-card--compact" : ""}`}
-      data-status={isOpen ? "open" : "closed"}
-      aria-label={`Market is ${isOpen ? "open" : "closed"}`}
-      aria-live="polite"
-    >
-      <span className="status-card__label">Market</span>
-      <span className="status-card__value">
-        <span className={`status-card__dot${compact ? " status-card__dot--compact" : ""} status-card__dot--${isOpen ? "open" : "closed"}`} aria-hidden />
-        {isOpen ? "Open" : "Closed"}
-      </span>
-    </article>
-  );
-});
 
 export const LastScanCard = memo(function LastScanCard({
   lastScanAt,
@@ -78,7 +111,11 @@ export const LastScanCard = memo(function LastScanCard({
   }, [duration, scannedSymbols]);
 
   return (
-    <article className={`status-card${compact ? " status-card--compact" : ""}`} aria-label="Last scan completed" aria-live="polite">
+    <article
+      className={`status-card${compact ? " status-card--compact" : ""}`}
+      aria-label="Last scan completed"
+      aria-live="polite"
+    >
       <span className="status-card__label">Last Scan Completed</span>
       <span className="status-card__value">
         {isLoading ? "Scanning…" : formattedTime ?? "No scan completed"}
@@ -95,6 +132,8 @@ export type StatusCardsProps = {
   durationSec: number | null;
   compact?: boolean;
   className?: string;
+  /** Show Market open/closed card (default true for desk header). */
+  showMarket?: boolean;
 };
 
 export const StatusCards = memo(function StatusCards({
@@ -104,10 +143,14 @@ export const StatusCards = memo(function StatusCards({
   durationSec,
   compact,
   className = "",
+  showMarket = true,
 }: StatusCardsProps) {
   return (
-    <section className={`status-cards-row${compact ? " status-cards-row--compact" : ""} ${className}`} aria-label="Scanner status">
-      <MarketStatusCard compact={compact} />
+    <section
+      className={`status-cards-row${compact ? " status-cards-row--compact" : ""} ${className}`.trim()}
+      aria-label="Scanner status"
+    >
+      {showMarket ? <MarketStatusCard compact={compact} /> : null}
       <LastScanCard
         lastScanAt={lastScanAt}
         isLoading={isLoading}

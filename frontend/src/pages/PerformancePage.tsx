@@ -57,7 +57,9 @@ export function PerformancePage() {
   const trades = dashboard?.trades?.length ?? 0;
 
   const goPaper = useCallback(() => navigate("/paper"), [navigate]);
-  const goBuy = useCallback(() => navigate("/paper?side=BUY"), [navigate]);
+  const goBuy = useCallback(() => {
+    navigate("/paper-order?side=BUY", { state: { side: "BUY", returnTo: "/performance" } });
+  }, [navigate]);
   const goScanner = useCallback(() => navigate("/scanner"), [navigate]);
 
   const showEmpty = !dashboard && !analytics && !loadingDash && !loadingAnalytics;

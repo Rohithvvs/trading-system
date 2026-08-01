@@ -43,6 +43,11 @@ def test_concurrent_writes_isolation():
     session2 = SessionLocal()
     
     try:
+        # Deterministic cleanup (avoids flake from leftover rows / isolation snapshots)
+        session1.query(FyersToken).filter_by(access_token="concurrent_1").delete()
+        session1.commit()
+        session2.rollback()
+
         # Session 1 adds a record but does NOT commit yet
         t1 = FyersToken(access_token="concurrent_1", status="active")
         session1.add(t1)
@@ -55,15 +60,20 @@ def test_concurrent_writes_isolation():
         # Now Session 1 commits
         session1.commit()
         
-        # Session 2 should now see it
+        # End session2 snapshot so it can observe the committed row (isolation-safe)
+        session2.rollback()
         verify2_after = session2.query(FyersToken).filter_by(access_token="concurrent_1").first()
         assert verify2_after is not None
         assert verify2_after.access_token == "concurrent_1"
         
     finally:
         # Clean up
-        session1.query(FyersToken).filter_by(access_token="concurrent_1").delete()
-        session1.commit()
+        try:
+            session1.rollback()
+            session1.query(FyersToken).filter_by(access_token="concurrent_1").delete()
+            session1.commit()
+        except Exception:
+            session1.rollback()
         session1.close()
         session2.close()
 

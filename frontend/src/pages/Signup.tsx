@@ -6,6 +6,7 @@ import { PasswordInput } from '../components/PasswordInput';
 import { PasswordStrength } from '../components/PasswordStrength';
 import { authSignup, checkBackendHealth, toUserFacingApiMessage } from '../api';
 import { useBackendHealth } from '../hooks/useBackendHealth';
+import { useAuth } from '../hooks/useAuth';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOADING_MESSAGES = [
@@ -30,6 +31,7 @@ function validateConfirmPassword(password: string, confirmPassword: string): str
 export const Signup: React.FC = () => {
   const navigate = useNavigate();
   const backend = useBackendHealth();
+  const { login } = useAuth();
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -132,12 +134,19 @@ export const Signup: React.FC = () => {
         setServerError(health.message || 'Cannot connect to server.');
         return;
       }
-      await authSignup({
+      // Register issues a session (cookies + role metadata). Hydrate auth and enter app.
+      const data = await authSignup({
         email: formData.email,
         full_name: formData.fullName,
         password: formData.password,
       });
-      navigate('/login', { state: { signupSuccess: true } });
+      if (data?.user?.id) {
+        login(data.user);
+        navigate('/scanner', { replace: true });
+      } else {
+        // Fallback if session payload is incomplete.
+        navigate('/login', { state: { signupSuccess: true } });
+      }
     } catch (err: unknown) {
       setServerError(toUserFacingApiMessage(err, 'Signup failed. Please try again.'));
     } finally {

@@ -21,6 +21,9 @@ from .analysis import (
     FundamentalAnalysisResult,
     SectorOverlayResult,
     MarketRegimeResult,
+    ShadowExecutionContext,
+    ShadowExecutionResult,
+    ShadowComparisonLog,
 )
 from .health import HealthResponse
 from .paper_trading import (
@@ -77,4 +80,7 @@ __all__ = [
     "FundamentalAnalysisResult",
     "SectorOverlayResult",
     "MarketRegimeResult",
+    "ShadowExecutionContext",
+    "ShadowExecutionResult",
+    "ShadowComparisonLog",
 ]

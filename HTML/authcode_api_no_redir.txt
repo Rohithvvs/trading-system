@@ -1,0 +1,1 @@
+{"s": "error", "code": 500, "message": "Invalid Request, please provide valid method"}

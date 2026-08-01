@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -31,6 +32,53 @@ from .experiment import (
 from .experiment_log import ExperimentLog
 from .audit import AuditTrailManager
 from ..observability.schema import ExperimentStatus, ExperimentFilterParams
+
+# Privileged taxonomy/backfill commands require Administrator credentials (FR-004 / M7)
+_TAXONOMY_ADMIN_COMMANDS = frozenset(
+    {
+        "backfill",
+        "backfill-pause",
+        "taxonomy-report",
+        "taxonomy-query",
+    }
+)
+
+
+def _require_taxonomy_admin(args: argparse.Namespace) -> None:
+    """M7: Gate taxonomy admin commands when API_KEY / GOVERNANCE_ADMIN_TOKEN is set.
+
+    Phase 0: if no server-side admin secret is configured, allow with a stderr notice
+    (host-trusted ops). When configured, require matching --admin-token or
+    GOVERNANCE_CLI_TOKEN environment variable.
+    """
+    if getattr(args, "command", None) not in _TAXONOMY_ADMIN_COMMANDS:
+        return
+
+    expected = (
+        os.getenv("GOVERNANCE_ADMIN_TOKEN", "").strip()
+        or os.getenv("API_KEY", "").strip()
+    )
+    if not expected:
+        print(
+            "[WARN] Taxonomy admin command running without API_KEY/GOVERNANCE_ADMIN_TOKEN "
+            "(Phase 0 open host access).",
+            file=sys.stderr,
+        )
+        return
+
+    provided = (
+        getattr(args, "admin_token", None)
+        or os.getenv("GOVERNANCE_CLI_TOKEN", "")
+        or ""
+    ).strip()
+    if provided != expected:
+        print(
+            "ERROR: Administrator credentials required for this command. "
+            "Pass --admin-token <token> or set GOVERNANCE_CLI_TOKEN to match "
+            "API_KEY / GOVERNANCE_ADMIN_TOKEN.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -91,6 +139,91 @@ def _parse_args(args: list[str] | None = None) -> argparse.Namespace:
     export_p.add_argument("--since", help="ISO start date")
     export_p.add_argument("--until", help="ISO end date")
     export_p.add_argument("--output", help="Output file path")
+
+    # report
+    report_p = sub.add_parser("report", help="Generate validation report")
+    report_p.add_argument("--rule", required=True, help="Rule ID (e.g. news_dedup)")
+    report_p.add_argument("--output-dir", help="Override output directory")
+
+    # promote
+    promote_p = sub.add_parser("promote", help="Promote a rule to production")
+    promote_p.add_argument("--rule", required=True, help="Rule ID (e.g. news_dedup)")
+    promote_p.add_argument("--checklist-approved", action="store_true", help="Confirm completion of FEAT-010 review checklist")
+    promote_p.add_argument(
+        "--attribution-report-approved",
+        action="store_true",
+        help="SC-001: confirm A/B attribution report + interaction check approved (required for sentiment_decay/market_breadth)",
+    )
+    promote_p.add_argument("--reason", default="", help="Justification/notes")
+
+    # kill
+    kill_p = sub.add_parser("kill", help="Disable a rule")
+    kill_p.add_argument("--rule", required=True, help="Rule ID (e.g. news_dedup)")
+    kill_p.add_argument("--reason", required=True, help="Reason for emergency rollback")
+
+    # backfill
+    backfill_p = sub.add_parser("backfill", help="Run historical situation taxonomy backfill")
+    backfill_p.add_argument("--job-id", required=True, help="Unique identifier for the backfill job")
+    backfill_p.add_argument("--batch-size", type=int, default=100, help="Number of records to process per batch")
+    backfill_p.add_argument("--delay", type=float, default=0.5, help="Throttle delay in seconds between batches")
+    backfill_p.add_argument("--resume", action="store_true", help="Resume a previously paused backfill job")
+    backfill_p.add_argument(
+        "--admin-token",
+        default=None,
+        help="Administrator token (or set GOVERNANCE_CLI_TOKEN); required when API_KEY is set",
+    )
+
+    # backfill-pause (M3)
+    pause_bf_p = sub.add_parser(
+        "backfill-pause",
+        help="Pause a running historical situation taxonomy backfill job",
+    )
+    pause_bf_p.add_argument("--job-id", required=True, help="Backfill job id to pause")
+    pause_bf_p.add_argument("--admin-token", default=None, help="Administrator token")
+
+    # taxonomy-report
+    report_tax_p = sub.add_parser("taxonomy-report", help="Generate situation tag distribution report")
+    report_tax_p.add_argument("--output-dir", help="Override output directory for the report markdown")
+    report_tax_p.add_argument("--admin-token", default=None, help="Administrator token")
+
+    # taxonomy-query (M6 / FR-007)
+    query_p = sub.add_parser(
+        "taxonomy-query",
+        help="Query recommendations by situation tags, action, and date range",
+    )
+    query_p.add_argument(
+        "--tags",
+        required=True,
+        help="Comma-separated situation tags (all must match)",
+    )
+    query_p.add_argument(
+        "--recommendation",
+        default=None,
+        help="Filter by action (BUY, SELL, WATCH, ...)",
+    )
+    query_p.add_argument(
+        "--start",
+        default=None,
+        help="Inclusive start datetime ISO-8601 (created_at)",
+    )
+    query_p.add_argument(
+        "--end",
+        default=None,
+        help="Inclusive end datetime ISO-8601 (created_at)",
+    )
+    query_p.add_argument("--limit", type=int, default=50, help="Max rows to return")
+    query_p.add_argument("--admin-token", default=None, help="Administrator token")
+
+    # governance-report (FEAT-026)
+    gov_report_p = sub.add_parser(
+        "governance-report",
+        help="Generate Production Rule Governance report (FEAT-026)",
+    )
+    gov_report_p.add_argument(
+        "--rules",
+        default=None,
+        help="Comma-separated rule IDs to evaluate (default: news_dedup,sentiment_decay,market_breadth)",
+    )
 
     return parser.parse_args(args)
 
@@ -327,6 +460,253 @@ async def _run_command(args: argparse.Namespace) -> None:
                                     ]
                                     print(",".join(row))
 
+            elif args.command == "report":
+                from ..services.validation_report import ValidationReportGenerator
+                from ..config import settings
+                if args.rule in ("shadow_attribution", "attribution", "sentiment_decay", "market_breadth"):
+                    from pathlib import Path
+                    import json
+                    from ..services.attribution_validation_service import AttributionValidationService
+                    from ..services.attribution_data_loader import (
+                        load_shadow_histories,
+                        records_from_histories,
+                    )
+
+                    print(f"Generating 4-Way A/B Attribution & Interaction Report for '{args.rule}'...")
+                    histories = await load_shadow_histories(db, days=30)
+                    records, decay_deltas, breadth_contribs = records_from_histories(histories)
+
+                    report = AttributionValidationService.evaluate_ablation(records, days=30)
+                    interaction = AttributionValidationService.analyze_interaction(
+                        decay_deltas, breadth_contribs
+                    )
+
+                    print(f"[OK] Report Status: {report.status}")
+                    print(f"[OK] Evaluated Samples: {report.total_samples}")
+                    print(f"[OK] Baseline Win Rate: {report.baseline_metrics.win_rate * 100:.1f}%")
+                    print(f"[OK] Combined Win Rate: {report.combined_metrics.win_rate * 100:.1f}%")
+                    print(f"[OK] Correlation (Pearson r): {interaction.pearson_correlation:.4f}")
+                    print(f"[OK] Redundancy Classification: {interaction.redundancy_classification}")
+                    print(f"[OK] Sentiment Decay Recommendation: {interaction.decay_promotion_recommendation}")
+                    print(f"[OK] Market Breadth Recommendation: {interaction.breadth_promotion_recommendation}")
+                    print(f"[OK] Rationale: {interaction.rationale}")
+
+                    reports_dir = Path(settings.governance_reports_dir)
+                    if not reports_dir.is_absolute():
+                        from ..config.settings import ROOT_DIR
+                        reports_dir = ROOT_DIR / reports_dir
+                    reports_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = reports_dir / "attribution_interaction_report.json"
+                    out_path.write_text(
+                        json.dumps(
+                            {
+                                "attribution": report.model_dump(mode="json"),
+                                "interaction": interaction.model_dump(mode="json"),
+                            },
+                            indent=2,
+                            default=str,
+                        ),
+                        encoding="utf-8",
+                    )
+                    print(f"[OK] Saved structured report: {out_path}")
+
+                else:
+                    from pathlib import Path
+                    generator = ValidationReportGenerator(db)
+                    print(f"Generating Challenger Validation Report for '{args.rule}'...")
+                    report = await generator.generate_report(args.rule)
+                    print(f"[OK] Analysis completed for '{args.rule}' ({report['window_start'][:10]} to {report['window_end'][:10]}).")
+                    print(f"[OK] Operational status: {report['status']}")
+                    print(f"[OK] Deduplication Rate: {float(report['deduplication_rate'])*100:.2f}% (Range: 5% - 40%)")
+                    print(f"[OK] False-Positive Rate: {float(report['false_positive_rate'])*100:.2f}% (Baseline: {float(report['baseline_false_positive_rate'])*100:.2f}%)")
+                    if report.get("data_incomplete") and report.get("incomplete_data_warning"):
+                        print(f"[WARN] {report['incomplete_data_warning']}")
+                        if report.get("available_data_span_days") is not None:
+                            print(
+                                f"[WARN] Available shadow data span: "
+                                f"{report['available_data_span_days']} days (required: 14)."
+                            )
+
+                    reports_dir = Path(settings.governance_reports_dir)
+                    if not reports_dir.is_absolute():
+                        from ..config.settings import ROOT_DIR
+                        reports_dir = ROOT_DIR / reports_dir
+                    print(f"[OK] Saved structured report: {reports_dir / 'challenger_report_news_dedup.json'}")
+                    print(f"[OK] Saved human-readable summary: {reports_dir / 'challenger_report_news_dedup.md'}")
+
+            elif args.command == "promote":
+                from .rule_manager import RuleManager
+                mgr = RuleManager()
+                try:
+                    # SC-001: Sprint-8 rules require --attribution-report-approved
+                    await mgr.promote_rule(
+                        rule_id=args.rule,
+                        checklist_approved=args.checklist_approved,
+                        reason=args.reason,
+                        attribution_report_approved=(
+                            True
+                            if args.rule not in ("sentiment_decay", "market_breadth")
+                            else bool(getattr(args, "attribution_report_approved", False))
+                        ),
+                    )
+                    print(f"[OK] Rule '{args.rule}' successfully promoted to PRODUCTION.")
+                    print("[OK] State transition logged to audit log.")
+                except ValueError as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+                except RuntimeError as e:
+                    print(f"ERROR: Failed to persist promotion: {e}", file=sys.stderr)
+                    sys.exit(1)
+
+            elif args.command == "kill":
+                from .rule_manager import RuleManager
+                mgr = RuleManager()
+                try:
+                    await mgr.kill_rule(
+                        rule_id=args.rule,
+                        reason=args.reason,
+                    )
+                    print(f"[OK] Rule '{args.rule}' successfully DISABLED.")
+                    print("[OK] Emergency rollback logged to audit trail.")
+                except ValueError as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+                except RuntimeError as e:
+                    print(f"ERROR: Failed to persist kill-switch: {e}", file=sys.stderr)
+                    sys.exit(1)
+
+            elif args.command == "backfill":
+                from ..services.backfill_service import BackfillService
+                service = BackfillService()
+                print(f"Starting historical situation taxonomy backfill job '{args.job_id}'...")
+                try:
+                    processed = await service.run_backfill(
+                        job_id=args.job_id,
+                        batch_size=args.batch_size,
+                        delay_seconds=args.delay,
+                        resume=args.resume
+                    )
+                except RuntimeError as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+                except Exception as e:
+                    print(f"ERROR: Backfill failed: {e}", file=sys.stderr)
+                    sys.exit(1)
+                progress = await service.get_job_progress(args.job_id)
+                if progress is None:
+                    print(
+                        f"[WARN] Backfill finished processing {processed} records this run, "
+                        f"but no progress row was found for job '{args.job_id}'.",
+                        file=sys.stderr,
+                    )
+                elif progress.status == "COMPLETED":
+                    print(
+                        f"[OK] Historical backfill complete. "
+                        f"status={progress.status} this_run={processed} "
+                        f"processed_count={progress.processed_count}/{progress.total_count} "
+                        f"last_processed_id={progress.last_processed_id}"
+                    )
+                else:
+                    print(
+                        f"[WARN] Historical backfill ended with status={progress.status}. "
+                        f"this_run={processed} processed_count={progress.processed_count}/"
+                        f"{progress.total_count} last_processed_id={progress.last_processed_id}. "
+                        f"Re-run with --resume to continue.",
+                        file=sys.stderr,
+                    )
+
+            elif args.command == "backfill-pause":
+                from ..services.backfill_service import BackfillService
+                service = BackfillService()
+                try:
+                    progress = await service.pause_backfill(args.job_id)
+                except RuntimeError as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+                print(
+                    f"[OK] Backfill job '{args.job_id}' status={progress.status} "
+                    f"last_processed_id={progress.last_processed_id} "
+                    f"processed_count={progress.processed_count}/{progress.total_count}"
+                )
+
+            elif args.command == "taxonomy-report":
+                from ..services.backfill_service import BackfillService
+                service = BackfillService()
+                output_path = await service.write_distribution_report(args.output_dir)
+                print(f"[OK] Situation tag distribution report generated at {output_path}")
+
+            elif args.command == "taxonomy-query":
+                from ..services.analytics_service import AnalyticsService
+
+                tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+                if not tags:
+                    print("ERROR: --tags must include at least one tag", file=sys.stderr)
+                    sys.exit(1)
+
+                start_date = None
+                end_date = None
+                if args.start:
+                    try:
+                        start_date = datetime.fromisoformat(args.start.replace("Z", "+00:00"))
+                    except ValueError as e:
+                        print(f"ERROR: Invalid --start datetime: {e}", file=sys.stderr)
+                        sys.exit(1)
+                if args.end:
+                    try:
+                        end_date = datetime.fromisoformat(args.end.replace("Z", "+00:00"))
+                    except ValueError as e:
+                        print(f"ERROR: Invalid --end datetime: {e}", file=sys.stderr)
+                        sys.exit(1)
+
+                analytics = AnalyticsService()
+                rows = await analytics.query_by_situation_tags(
+                    db,
+                    tags=tags,
+                    recommendation=args.recommendation,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=args.limit,
+                )
+                print(
+                    f"Matched {len(rows)} recommendation(s) "
+                    f"(tags={tags}, recommendation={args.recommendation}, "
+                    f"start={args.start}, end={args.end}, limit={args.limit})"
+                )
+                for rec in rows:
+                    symbol = rec.stock.symbol if getattr(rec, "stock", None) else rec.stock_id
+                    print(
+                        f"  id={rec.id} symbol={symbol} action={rec.recommendation} "
+                        f"tags={rec.situation_tags} created_at={rec.created_at}"
+                    )
+
+            elif args.command in ("governance-report", "governance_report"):
+                from .rule_governance import (
+                    evaluate_all_promoted_rules,
+                    persist_governance_report,
+                )
+                rules_filter = None
+                if getattr(args, "rules", None):
+                    rules_filter = [r.strip() for r in args.rules.split(",") if r.strip()]
+                print("Generating Production Rule Governance Report (FEAT-026)...")
+                response = await evaluate_all_promoted_rules(db, rule_ids=rules_filter)
+                print(f"[OK] Evaluated {response.promoted_rules_count} rule(s) at {response.evaluated_at[:19]}.")
+                try:
+                    report_path = persist_governance_report(response)
+                    print(f"[OK] Report saved: {report_path}")
+                except Exception as persist_exc:
+                    # Hardening: console report still useful if disk write fails.
+                    print(f"[WARN] Report persist failed: {persist_exc}", file=sys.stderr)
+                print("=" * 86)
+                print(f"{'RULE ID':<20} | {'HEALTH STATUS':<18} | {'30D FP RATE':<12} | {'BASELINE':<10} | {'SAMPLES':<8}")
+                print("-" * 86)
+                for r in response.rules:
+                    fp_str = f"{r.false_positive_rate_30d * 100:.1f}%" if r.false_positive_rate_30d is not None else "N/A"
+                    base_str = f"{r.baseline_false_positive_rate * 100:.1f}%"
+                    print(f"{r.rule_id:<20} | {r.health_status:<18} | {fp_str:<12} | {base_str:<10} | {r.sample_count_30d:<8}")
+                    print(f"  Reason: {r.status_reason}")
+                print("=" * 86)
+
+
         except SingleActiveConstraintError as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
@@ -346,6 +726,7 @@ def experiment_cli() -> None:
     if not args.command:
         print("Error: No command specified", file=sys.stderr)
         sys.exit(1)
+    _require_taxonomy_admin(args)
     asyncio.run(_run_command(args))
 
 

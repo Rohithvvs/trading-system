@@ -1,23 +1,53 @@
-import sqlite3
-import datetime
+"""CLI runner for Sprint 4 automated Fyers token generation + DB persistence.
 
-db_path = "backend/trading_system.db"
-token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIl0sImF0X2hhc2giOiJnQUFBQUFCcUdzNXI2TUhGN3JGTU0zMVpRMDl6bk5HX0IwUV9vVGZFX21VMFozNUtVOGpiWFRxa1lTaFd1ZGtRWVpqOGJ0TFVLT280S3VpU3dLdlF2TEEycFlZcWlNb3FTRWZQOERneW1YM0c4Y2Y0bmtUNXA1UT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiJlMWYxMTgxMjVlNjgzMDRlYzhkZDI4MDcxM2UyNjk4Y2EwZmE1YmQ5OWMyNjUwN2RjZDA1OTAyMyIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiWUowODcxOCIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzgwMTg3NDAwLCJpYXQiOjE3ODAxNDE2NzUsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc4MDE0MTY3NSwic3ViIjoiYWNjZXNzX3Rva2VuIn0.CrnUoNRe5EfKH-TzXTaXU3vdZUxh2fA8xWVERUrBUcM"
+Uses application settings / AsyncSessionLocal (no hardcoded credentials or DB URLs).
+Exit codes: 0 success, 1 failure (after Failed status is recorded when possible).
 
-now = datetime.datetime.utcnow().isoformat()
-try:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    # The table might not have an id column or constraint, so let's just clear and insert.
-    cursor.execute("DELETE FROM fyers_auth")
-    cursor.execute("""
-    INSERT INTO fyers_auth (access_token, is_active, created_at, updated_at)
-    VALUES (?, 1, ?, ?)
-    """, (token, now, now))
-    conn.commit()
-    print("Token updated successfully.")
-except Exception as e:
-    print("Error:", e)
-finally:
-    if 'conn' in locals():
-        conn.close()
+===========================================================================
+BREAKING CHANGE vs pre-Sprint-4 script
+===========================================================================
+The previous root ``update_token.py`` wrote a hardcoded JWT into a local
+SQLite ``fyers_auth`` table. That path is **retired** and is not supported.
+
+Correct usage (dev and prod)::
+
+    # Ensure DATABASE_URL + FYERS_* env vars are set (via .env / host secrets)
+    python update_token.py
+
+Optional timeouts (env)::
+
+    FYERS_TOKEN_JOB_TIMEOUT_SEC=180
+    FYERS_TOKEN_DB_WRITE_TIMEOUT_SEC=30
+
+Hardening:
+  - Session context always closed before process exit code is applied.
+  - Stderr carries exception class + message only (no token material).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+
+from backend.app.db.session import AsyncSessionLocal
+from backend.app.services.token_service import generate_and_persist_fyers_token
+
+
+async def main() -> int:
+    """Run one generation+persist job. Returns process exit code (0/1)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await generate_and_persist_fyers_token(db)
+        # Session disposed before stdout (resource cleanup guaranteed).
+        preview = result.get("token_preview") or "unknown"
+        # Never print full token; preview is already masked by the service.
+        print("Token updated successfully. Masked token:", preview)
+        return 0
+    except Exception as e:
+        # Keep operator-facing stderr short; full detail is in app.token logs.
+        sys.stderr.write(f"Error: {e.__class__.__name__} - {str(e)}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))

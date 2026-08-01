@@ -93,6 +93,27 @@ class SectorRelativeStrengthService:
             if df.empty:
                 fyers = fyers_symbol(canonical, is_index=True)
                 df = await md_service.load_full_history(fyers, "1D")
+                if df.empty:
+                    try:
+                        from .fyers_service import FyersService
+                        from ..schemas import AnalysisMode
+                        fs = FyersService()
+                        points = await fs.fetch_ohlcv(fyers, AnalysisMode.swing, "1D", 250)
+                        if points:
+                            data = [
+                                {
+                                    "timestamp": p.timestamp,
+                                    "open": p.open,
+                                    "high": p.high,
+                                    "low": p.low,
+                                    "close": p.close,
+                                    "volume": p.volume,
+                                }
+                                for p in points
+                            ]
+                            df = pd.DataFrame(data).set_index("timestamp")
+                    except Exception as exc:
+                        logger.warning("Live fallback fetch for sector index %s failed: %s", sym, exc)
             return df
 
         try:

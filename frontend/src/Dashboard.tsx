@@ -7,12 +7,12 @@ import { CandidateTable } from "./components/CandidateTable";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { FilterBar } from "./components/FilterBar";
 import { PaperTradingPage } from "./components/PaperTradingPage";
-import { isMarketOpenForDisplay, checkCanPlaceBuyOrder } from "./utils/tradingHours";
 import { StockDetailPanel } from "./components/StockDetailPanel";
 import { SummaryRow } from "./components/SummaryRow";
 import { WorkstationPage } from "./components/WorkstationPage";
 import { ScannerProgress } from "./components/ScannerProgress";
 import LiveDataBadge from "./components/LiveDataBadge";
+import { FeatureGuard } from "./components/FeatureGuard";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -197,7 +197,6 @@ export default function Dashboard() {
     void fetchUniverses().then(setUniverses).catch((err) => console.warn("Failed to load universes", err));
   }, []);
 
-  const marketStatus = useMemo(() => getMarketStatus(), []);
   const analysisItems = screenerResult?.analysis?.items ?? [];
   const shortlistRows = useMemo(
     () => buildCandidateRows(screenerResult),
@@ -215,7 +214,12 @@ export default function Dashboard() {
         if (filters.signal === 'REJECT') return sig === 'reject' || sig === 'bearish' || sig === 'sell';
         return true;
       })
-      .filter((row) => row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1])
+      .filter((row) => {
+        if (row.score === null || row.score === undefined) {
+          return filters.signal === "REJECT" || filters.signal === "ALL";
+        }
+        return row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1];
+      })
       .filter((row) => (filters.onlyHighConfidence ? (row.confidence ?? 0) >= 0.7 : true))
       .filter((row) => (searchTerm ? row.symbol.includes(searchTerm) : true))
       .sort((left, right) => compareRows(left, right, filters.sortBy));
@@ -384,16 +388,8 @@ export default function Dashboard() {
     setDetailViewOpen(false);
   }
 
-  function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null) {
-    const sig = (row as any).signal || (row as any).recommendation;
-    if (sig === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        import("./utils/tradingHours").then(({ showMarketClosedAlert }) => showMarketClosedAlert(check));
-        return;
-      }
-    }
-    const prefill = buildPaperTradingPrefill(row);
+  function sendRowToPaperTrading(row: CandidateRow, suggestedEntry?: number | null, side?: "BUY" | "SELL") {
+    const prefill = buildPaperTradingPrefill(row, side);
     setPaperTradingPrefill({
       ...prefill,
       suggested_entry: suggestedEntry ?? prefill.suggested_entry,
@@ -424,7 +420,6 @@ export default function Dashboard() {
         <DashboardHeader
           isLoading={isLoading}
           lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
-          marketStatus={marketStatus}
           search={filters.search}
           onSearchChange={(value) => setFilters((current) => ({ ...current, search: value }))}
           onRunScanner={handleRunScanner}
@@ -459,9 +454,9 @@ export default function Dashboard() {
             <StockDetailPanel
               row={selectedRow}
               onBack={() => setDetailViewOpen(false)}
-              onSendToPaperTrading={(row, suggestedEntry) => {
-                sendRowToPaperTrading(row, suggestedEntry);
-              }}
+                onSendToPaperTrading={(row, suggestedEntry, side) =>
+                  sendRowToPaperTrading(row, suggestedEntry, side)
+                }
             />
           </main>
         ) : (
@@ -483,7 +478,9 @@ export default function Dashboard() {
                 <input placeholder="Momentum pullback scan" value={savedScanName} onChange={(event) => setSavedScanName(event.target.value)} />
               </label>
               <button type="button" className="button ghost-button" onClick={() => void handleSaveCurrentScan()}>Save Scan</button>
-              <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
+              <FeatureGuard feature="export_data" loadingFallback={null}>
+                <button type="button" className="button ghost-button" onClick={handleExportCsv} disabled={!screenerResult}>Export CSV</button>
+              </FeatureGuard>
             </section>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
@@ -543,7 +540,7 @@ export default function Dashboard() {
                     setSelectedSymbol(symbol);
                     setDetailViewOpen(true);
                   }}
-                  onBuy={(row) => sendRowToPaperTrading(row)}
+                  onBuy={(row) => sendRowToPaperTrading(row, undefined, "BUY")}
                   liveTicks={liveTicks}
                 />
               )
@@ -591,13 +588,22 @@ export default function Dashboard() {
   );
 }
 
-function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillRequest {
+function buildPaperTradingPrefill(row: CandidateRow, side?: "BUY" | "SELL"): RecommendationPrefillRequest {
   const plan = row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ?? row.analysisItem?.recommendation.trade_plans[0];
+  let suggested_stop: number | null = plan?.stop_loss ?? row.stopLoss ?? null;
+  let suggested_targets: number[] = [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number");
+  if (plan && side) {
+    const needsSwap = (side === "BUY" && plan.bias === "short") || (side === "SELL" && plan.bias === "long");
+    if (needsSwap && plan.target_1 != null && plan.stop_loss != null) {
+      suggested_stop = plan.target_1;
+      suggested_targets = [plan.stop_loss, plan.target_2].filter((value): value is number => typeof value === "number");
+    }
+  }
   return {
     symbol: row.symbol,
     suggested_entry: plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow,
-    suggested_stop: plan?.stop_loss ?? row.stopLoss ?? null,
-    suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
+    suggested_stop,
+    suggested_targets,
     recommendation_meta: {
       signal: row.signal,
       score: row.score,
@@ -639,18 +645,34 @@ function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateR
       signal = "WATCH";
     }
 
+    const rec = analysis?.recommendation;
+    const riskFactors = rec?.reasoning?.risk_factors ?? [];
+    const hasPlans = Boolean(plan) || Boolean(rec?.trade_plans?.length);
+    const analysisFailed =
+      !analysis ||
+      riskFactors.some((r) => typeof r === "string" && r.toLowerCase().includes("analysis failed")) ||
+      (Boolean(rec) && rec!.score === 0 && !hasPlans);
+
+    // Never use screener_score as recommendation score (can be 100 with empty trade plan).
+    const compositeScore = analysisFailed
+      ? null
+      : typeof rec?.score === "number"
+        ? rec.score
+        : null;
+
     return {
       rank: ranking?.rank ?? null,
       symbol,
       signal,
-      score: analysis?.recommendation.score ?? match?.screener_score ?? 0,
-      confidence: analysis?.recommendation.confidence ?? null,
+      score: compositeScore,
+      confidence: analysisFailed ? null : rec?.confidence ?? null,
       entryLow: plan?.entry_low ?? null,
       entryHigh: plan?.entry_high ?? null,
       stopLoss: plan?.stop_loss ?? null,
       target1: plan?.target_1 ?? null,
       target2: plan?.target_2 ?? null,
       riskReward: plan?.risk_reward_ratio ?? null,
+      analysisFailed: Boolean(analysisFailed),
       trend: formatTrend(technical, match),
       momentum: formatMomentum(technical, match),
       volume: formatVolume(technical, match),
@@ -783,16 +805,4 @@ function formatVolume(
   return match.conditions.volume_above_previous_day ? "expanding" : "adequate";
 }
 
-function getMarketStatus() {
-  try {
-    return isMarketOpenForDisplay();
-  } catch {
-    const now = new Date();
-    const day = now.getDay();
-    const minutes = now.getHours() * 60 + now.getMinutes();
-    const open = 9 * 60 + 15;
-    const close = 15 * 60 + 30;
-    if (day === 0 || day === 6) return "Closed";
-    return minutes >= open && minutes <= close ? "Open" : "Closed";
-  }
-}
+

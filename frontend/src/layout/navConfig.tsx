@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { FeatureKey } from "../types/featurePermissions";
 
 export type NavItem = {
   id: string;
@@ -8,6 +9,7 @@ export type NavItem = {
   match?: string;
   icon: ReactNode;
   testId: string;
+  featureKey?: FeatureKey | string;
 };
 
 const icon = (d: string) => (
@@ -32,15 +34,8 @@ export const RETAIL_NAV: NavItem[] = [
     path: "/scanner",
     match: "/scanner",
     testId: "nav-scanner",
+    featureKey: "advanced_scanner",
     icon: icon("M11 5a7 7 0 1 0 4.5 12.3L21 21 M11 8v3h3"),
-  },
-  {
-    id: "watchlist",
-    label: "Watchlist",
-    path: "/watchlist",
-    match: "/watchlist",
-    testId: "nav-watchlist",
-    icon: icon("M12 3l2.4 6.6H21l-5.4 4 2 6.4L12 16.2 6.4 20l2-6.4L3 9.6h6.6z"),
   },
   {
     id: "paper",
@@ -56,6 +51,7 @@ export const RETAIL_NAV: NavItem[] = [
     path: "/performance",
     match: "/performance",
     testId: "nav-performance",
+    featureKey: "portfolio_analytics",
     icon: icon("M4 19V5 M8 19v-8 M12 19v-5 M16 19V9 M20 19v-3"),
   },
   {
@@ -68,14 +64,24 @@ export const RETAIL_NAV: NavItem[] = [
   },
 ];
 
-/** Engineering / ops — only when developer mode is on */
+/** Admin / ops — only when user.role === "admin" (Sprint 4) + feature access (Sprint 5) */
 export const ADMIN_NAV: NavItem[] = [
+  {
+    id: "admin-panel",
+    label: "Admin",
+    path: "/admin",
+    match: "/admin",
+    testId: "nav-admin-panel",
+    featureKey: "admin_panel",
+    icon: icon("M12 1l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 8h7z"),
+  },
   {
     id: "admin-command",
     label: "Central Command",
     path: "/admin/command",
     match: "/admin/command",
     testId: "nav-central-command",
+    featureKey: "central_command",
     icon: icon("M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"),
   },
   {
@@ -84,6 +90,7 @@ export const ADMIN_NAV: NavItem[] = [
     path: "/admin/logs",
     match: "/admin/logs",
     testId: "nav-system-logs",
+    featureKey: "system_logs",
     icon: icon("M4 6h16 M4 12h16 M4 18h10"),
   },
   {
@@ -99,5 +106,9 @@ export const ADMIN_NAV: NavItem[] = [
 export function isNavActive(pathname: string, item: NavItem): boolean {
   const m = item.match ?? item.path;
   if (m === "/") return pathname === "/";
+  // Exact match for /admin so /admin/logs does not highlight Admin panel
+  if (item.id === "admin-panel") {
+    return pathname === "/admin" || pathname.startsWith("/admin?");
+  }
   return pathname === m || pathname.startsWith(`${m}/`);
 }

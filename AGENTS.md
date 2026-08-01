@@ -1,4 +1,4 @@
-# AGENTS.md — Governance Command Routing
+﻿# AGENTS.md — Governance Command Routing
 
 This file defines the command routing configuration for the `/specify` agent
 governance workflow. It maps agent commands to their handler modules.
@@ -14,6 +14,14 @@ governance workflow. It maps agent commands to their handler modules.
 | `experiment.list`    | `app.governance.experiment_cli:experiment_cli list`        |
 | `experiment.show`    | `app.governance.experiment_cli:experiment_cli show`        |
 | `experiment.metric`  | `app.governance.experiment_cli:experiment_cli metric`      |
+| `experiment.report`  | `app.governance.experiment_cli:experiment_cli report`      |
+| `experiment.promote` | `app.governance.experiment_cli:experiment_cli promote`     |
+| `experiment.kill`    | `app.governance.experiment_cli:experiment_cli kill`        |
+| `experiment.backfill`| `app.governance.experiment_cli:experiment_cli backfill`    |
+| `experiment.backfill_pause` | `app.governance.experiment_cli:experiment_cli backfill-pause` |
+| `experiment.taxonomy_report` | `app.governance.experiment_cli:experiment_cli taxonomy-report` |
+| `experiment.taxonomy_query` | `app.governance.experiment_cli:experiment_cli taxonomy-query` |
+| `experiment.governance-report` | `app.governance.experiment_cli:experiment_cli governance-report` |
 | `audit.export`       | `app.governance.experiment_cli:experiment_cli audit export`|
 
 ## Usage

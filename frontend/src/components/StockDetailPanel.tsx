@@ -28,7 +28,7 @@ import { ResearchDashboard } from "./ResearchDashboard";
 type StockDetailPanelProps = {
   row: CandidateRow | null;
   onBack?: () => void;
-  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null) => void;
+  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null, side?: "BUY" | "SELL") => void;
 };
 
 const TABS: { id: DetailTab; label: string }[] = [
@@ -135,7 +135,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
           <p className="detail-summary">{row.recommendationSummary}</p>
         </div>
         <div className="detail-header-metrics">
-          <MetricTile label="Score" value={row.score.toFixed(1)} help="Weighted final score after full analysis." />
+          <MetricTile label="Score" value={row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)} help="Weighted final score after full analysis." />
           <MetricTile
             label="Confidence"
             value={row.confidence === null ? "--" : `${Math.round(row.confidence * 100)}%`}
@@ -156,7 +156,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
           <button
             type="button"
             className="ds-btn ds-btn--buy"
-            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined, "BUY")}
             aria-label="Place buy trade"
           >
             BUY
@@ -164,7 +164,7 @@ export function StockDetailPanel({ row, onBack, onSendToPaperTrading }: StockDet
           <button
             type="button"
             className="ds-btn ds-btn--sell"
-            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined)}
+            onClick={() => onSendToPaperTrading(row, currentPrice ?? undefined, "SELL")}
             aria-label="Place sell trade"
           >
             SELL / Trade
@@ -243,7 +243,7 @@ function OverviewTab({
   symbolDetail?: SymbolDetail | null;
   currentPrice?: number | null;
   loadingDetail?: boolean;
-  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null) => void;
+  onSendToPaperTrading?: (row: CandidateRow, suggestedEntry?: number | null, side?: "BUY" | "SELL") => void;
 }) {
   return (
     <div className="detail-grid">
@@ -283,7 +283,7 @@ function OverviewTab({
       <section className="subpanel">
         <h3>Ranking context</h3>
         <div className="score-breakdown">
-          <MetricTile label="Final score" value={row.score.toFixed(1)} help="Combined recommendation score." />
+          <MetricTile label="Final score" value={row.score === null || row.score === undefined ? "N/A" : row.score.toFixed(1)} help="Combined recommendation score." />
           <MetricTile label="Technical" value={row.screenerMatch?.technical_score.toFixed(1) ?? "--"} help="Technical engine strength before recommendation." />
           <MetricTile label="Scanner" value={row.screenerMatch?.screener_score.toFixed(1) ?? "--"} help="Weighted screener score used for shortlisting." />
           <MetricTile
@@ -324,7 +324,7 @@ function OverviewTab({
             <button
               type="button"
               className="ds-btn ds-btn--buy"
-              onClick={() => onSendToPaperTrading?.(row, currentPrice ?? undefined)}
+              onClick={() => onSendToPaperTrading?.(row, currentPrice ?? undefined, "BUY")}
               disabled={loadingDetail || !onSendToPaperTrading}
             >
               {loadingDetail ? "Loading…" : "BUY"}

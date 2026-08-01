@@ -10,6 +10,7 @@ import {
 
 import { InfoTooltip } from "./InfoTooltip";
 import { RESEARCH_TOOLTIPS } from "../constants/researchTooltips";
+import { FeatureGuard } from "./FeatureGuard";
 
 export type ResearchPayload = Record<string, any>;
 
@@ -551,15 +552,17 @@ export function ResearchDashboard({ research, symbol, loading, error }: Props) {
           <p className="muted-copy">{research.disclaimer}</p>
         </div>
         <div className="research-export-actions">
-          <button type="button" className="button ghost-button" onClick={() => handleExport("json")}>
-            Export JSON
-          </button>
-          <button type="button" className="button ghost-button" onClick={() => handleExport("csv")}>
-            Export CSV
-          </button>
-          <button type="button" className="button ghost-button" onClick={handlePdfHint}>
-            PDF / Print
-          </button>
+          <FeatureGuard feature="export_data" loadingFallback={null}>
+            <button type="button" className="button ghost-button" onClick={() => handleExport("json")}>
+              Export JSON
+            </button>
+            <button type="button" className="button ghost-button" onClick={() => handleExport("csv")}>
+              Export CSV
+            </button>
+            <button type="button" className="button ghost-button" onClick={handlePdfHint}>
+              PDF / Print
+            </button>
+          </FeatureGuard>
         </div>
       </div>
 

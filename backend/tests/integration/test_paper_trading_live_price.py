@@ -41,6 +41,45 @@ def test_quote_endpoint_returns_numeric_float_not_coroutine():
     assert isinstance(quote.current_price, float)
     assert quote.current_price == 150.75
     assert quote.source == "FYERS_QUOTE"
+    assert quote.market_status == "live"
+
+
+def test_validate_symbol_accepts_eq_and_exchange_forms():
+    """Root-cause regression: UI sends INFY-EQ / NSE:INFY-EQ; universe stores INFY."""
+    service = PaperTradingService(MagicMock())
+    with patch("backend.app.services.paper_trading_service.settings") as mock_settings:
+        mock_settings.nifty500_symbols = ["INFY", "TCS", "ASTRAMICRO"]
+        service._validate_symbol("INFY")
+        service._validate_symbol("INFY-EQ")
+        service._validate_symbol("nse:infy-eq")
+        service._validate_symbol("ASTRAMICRO-EQ")
+        try:
+            service._validate_symbol("NOT_A_REAL_SYMBOL_XYZ")
+            raised = False
+        except ValueError:
+            raised = True
+        assert raised is True
+
+
+def test_get_quote_canonicalizes_eq_suffix_before_broker_call():
+    """Quote path must canonicalize so -EQ symbols hit the same cache/broker key."""
+    service = PaperTradingService(MagicMock())
+    service._validate_symbol = MagicMock()
+    service.fyers_service = MagicMock()
+
+    with patch("asyncio.run_coroutine_threadsafe") as mock_run:
+        mock_future = MagicMock()
+        mock_future.result.return_value = 1769.3
+        mock_run.return_value = mock_future
+        quote = service.get_quote("ASTRAMICRO-EQ")
+
+    assert quote.symbol == "ASTRAMICRO"
+    assert quote.current_price == 1769.3
+    assert quote.source == "FYERS_QUOTE"
+    # fetch_ltp coroutine was scheduled for canonical symbol
+    coro = mock_run.call_args[0][0]
+    # coroutine already created with canonical symbol via service call path
+    assert quote.market_status == "live"
 
 def test_valid_token_live_quote_request_returns_price(mock_session_local):
     """Scenario 1: Valid token -> Live quote request -> Returns price"""

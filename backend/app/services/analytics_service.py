@@ -130,3 +130,117 @@ class AnalyticsService:
                     log_entry.realized_return_20d = round(alpha, 2)
 
         self.logger.info("Strategy Drift Tracker DB operations complete.")
+
+
+    async def query_by_situation_tags(
+        self,
+        db: AsyncSession,
+        tags: list[str],
+        recommendation: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        limit: int = 100
+    ) -> list[AnalysisHistory]:
+        """Query historical recommendations filtered by situation tags (all tags must match).
+
+        Optional filters (FR-007): recommendation action and created_at date range.
+        """
+        from sqlalchemy.orm import selectinload
+        stmt = select(AnalysisHistory).options(selectinload(AnalysisHistory.stock))
+        
+        dialect_name = db.bind.dialect.name if db.bind else "postgresql"
+        conditions = []
+        if recommendation:
+            conditions.append(AnalysisHistory.recommendation == recommendation)
+        if start_date is not None:
+            conditions.append(AnalysisHistory.created_at >= start_date)
+        if end_date is not None:
+            conditions.append(AnalysisHistory.created_at <= end_date)
+            
+        if dialect_name == "postgresql":
+            if tags:
+                conditions.append(AnalysisHistory.situation_tags.contains(tags))
+            stmt = stmt.where(*conditions).order_by(AnalysisHistory.created_at.desc()).limit(limit)
+            return list((await db.scalars(stmt)).all())
+
+        # SQLite stores ChoiceArray as JSON text. Use quoted-token LIKE to avoid
+        # substring false matches (e.g. TAG matching TAG_EXTRA), then exact-filter.
+        if tags:
+            for tag in tags:
+                # JSON dumps list elements as "TAG"; quoted match is tag-boundary safe.
+                conditions.append(AnalysisHistory.situation_tags.like(f'%"{tag}"%'))
+
+        stmt = stmt.where(*conditions).order_by(AnalysisHistory.created_at.desc()).limit(limit * 5 if tags else limit)
+        candidates = list((await db.scalars(stmt)).all())
+        if not tags:
+            return candidates[:limit]
+
+        required = set(tags)
+        exact = [
+            row for row in candidates
+            if required.issubset(set(row.situation_tags or []))
+        ]
+        return exact[:limit]
+
+    async def query_shadow_candidates_by_situation_tags(
+        self,
+        db: AsyncSession,
+        tags: list[str],
+        recommendation: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        limit: int = 100,
+        require_shadow_keys: bool = True,
+    ) -> list[dict]:
+        """Correlate situation tags with shadow candidate telemetry (FR-011 / SC-005).
+
+        Returns dict rows ready for A/B attribution:
+        ``{history_id, symbol, recommendation, situation_tags, sentiment_decay,
+        market_breadth, news_dedup, created_at}``.
+
+        When ``require_shadow_keys`` is True, only rows that contain both
+        ``sentiment_decay`` and ``market_breadth`` under ``shadow_outputs`` are kept.
+        """
+        rows = await self.query_by_situation_tags(
+            db,
+            tags=tags,
+            recommendation=recommendation,
+            start_date=start_date,
+            end_date=end_date,
+            # Over-fetch when filtering for complete shadow payloads.
+            limit=limit * 5 if require_shadow_keys else limit,
+        )
+
+        results: list[dict] = []
+        for row in rows:
+            outputs = row.shadow_outputs if isinstance(row.shadow_outputs, dict) else {}
+            sentiment = outputs.get("sentiment_decay")
+            breadth = outputs.get("market_breadth")
+            if require_shadow_keys and (sentiment is None or breadth is None):
+                continue
+
+            symbol = None
+            try:
+                symbol = row.stock.symbol if getattr(row, "stock", None) is not None else None
+            except Exception:
+                symbol = None
+
+            results.append(
+                {
+                    "history_id": row.id,
+                    "symbol": symbol,
+                    "recommendation": row.recommendation,
+                    "situation_tags": list(row.situation_tags or []),
+                    "sentiment_decay": sentiment,
+                    "market_breadth": breadth,
+                    "news_dedup": outputs.get("news_dedup"),
+                    "created_at": row.created_at,
+                    "technical_score": row.technical_score,
+                    "sentiment_score": row.sentiment_score,
+                }
+            )
+            if len(results) >= limit:
+                break
+
+        return results
+

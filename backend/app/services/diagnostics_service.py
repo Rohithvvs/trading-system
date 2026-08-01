@@ -30,6 +30,34 @@ class ShadowRunDiagnostics:
         self.last_successful_scan_time = None
         self.last_successful_scan_id = None
         self.last_failed_scan_time = None
+        # Automatic token → scanner bootstrap (infrastructure status)
+        self.token_scanner_bootstrap: Dict[str, Any] = {
+            "status": None,
+            "message": None,
+            "detail": {},
+            "at": None,
+            "history": [],
+        }
+
+    def record_token_scanner_bootstrap(self, data: Dict[str, Any]) -> None:
+        """Record latest automatic token→scanner workflow status for infra/ops views."""
+        history = list(self.token_scanner_bootstrap.get("history") or [])
+        history.append(
+            {
+                "status": data.get("status"),
+                "message": data.get("message"),
+                "at": data.get("at"),
+            }
+        )
+        if len(history) > 30:
+            history = history[-30:]
+        self.token_scanner_bootstrap = {
+            "status": data.get("status"),
+            "message": data.get("message"),
+            "detail": data.get("detail") or {},
+            "at": data.get("at"),
+            "history": history,
+        }
 
     def set_scanner_running(self):
         self.last_scan_status = "RUNNING"
@@ -157,7 +185,14 @@ class ShadowRunDiagnostics:
                 "last_successful_scan_time": self.last_successful_scan_time,
                 "last_successful_scan_id": self.last_successful_scan_id,
                 "last_failed_scan_time": self.last_failed_scan_time
-            }
+            },
+            "token_scanner_bootstrap": {
+                "status": self.token_scanner_bootstrap.get("status"),
+                "message": self.token_scanner_bootstrap.get("message"),
+                "detail": self.token_scanner_bootstrap.get("detail") or {},
+                "at": self.token_scanner_bootstrap.get("at"),
+                "history": list(self.token_scanner_bootstrap.get("history") or [])[-10:],
+            },
         }
 
 diagnostics = ShadowRunDiagnostics()

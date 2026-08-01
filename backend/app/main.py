@@ -8,9 +8,34 @@ _backend_dir = str(Path(__file__).resolve().parent.parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from datetime import datetime, timezone
+# Ensure repo root is on sys.path so root modules like `fyers_token.py` import
+# correctly when uvicorn is started with cwd=backend (start_backend.ps1).
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+# Load repo-root .env into os.environ before any route reads secrets
+# (e.g. SCHEDULER_SECRET via os.environ.get). Pydantic settings alone does not
+# populate os.environ for non-Settings keys.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_repo_root / ".env", override=False)
+except Exception:
+    pass
+
 from time import perf_counter
 from contextlib import asynccontextmanager
+
+from .utils.datetime_utils import (
+    age_minutes,
+    ensure_utc,
+    ist_now,
+    minutes_between,
+    parse_utc,
+    to_iso_utc,
+    utc_now,
+)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +71,8 @@ from .services.fyers_service import FyersService
 from .services.market_engine_service import market_engine
 from .db.locks import acquire_singleton_lease
 from .core.task_supervisor import TaskSupervisor
-# token_service refresh automation removed — manual access-token workflow only
+# Daily access-token automation: see token_scanner_bootstrap_service
+# (startup: ensure today's token → auto Market Scanner once/day).
 import asyncio
 from .schemas import AnalysisMode
 from .observability.scan_diagnostics import (
@@ -74,11 +100,10 @@ _job_starts = {}
 def _scheduler_listener(event):
     from .services.diagnostics_service import diagnostics
     import time
-    import datetime
-    
+
     scheduled_time = getattr(event, "scheduled_run_time", None)
     scheduled_time_str = scheduled_time.isoformat() if scheduled_time else "unknown"
-    actual_time_str = datetime.datetime.now(timezone.utc).isoformat()
+    actual_time_str = utc_now().isoformat()
     
     if event.code == EVENT_JOB_SUBMITTED:
         _job_starts[event.job_id] = time.perf_counter()
@@ -231,6 +256,36 @@ async def job_retention_cleanup():
     except Exception:
         logger.exception("Retention cleanup failed")
 
+
+async def job_weekly_rule_governance_report():
+    """FEAT-026: weekly on-schedule governance evaluation for promoted rules."""
+    try:
+        from .db.session import AsyncSessionLocal
+        from .governance.rule_governance import (
+            evaluate_all_promoted_rules,
+            persist_governance_report,
+        )
+
+        async with AsyncSessionLocal() as db:
+            response = await evaluate_all_promoted_rules(db)
+        try:
+            path = persist_governance_report(response)
+            logger.info(
+                "WEEKLY_RULE_GOVERNANCE_OK | rules=%s | path=%s | evaluated_at=%s",
+                response.promoted_rules_count,
+                path,
+                response.evaluated_at,
+            )
+        except Exception:
+            # Evaluation succeeded; persistence failure must not mark job as total failure only.
+            logger.exception(
+                "WEEKLY_RULE_GOVERNANCE_PERSIST_FAILED | rules=%s | evaluated_at=%s",
+                response.promoted_rules_count,
+                response.evaluated_at,
+            )
+    except Exception:
+        logger.exception("WEEKLY_RULE_GOVERNANCE_FAILED")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .config import settings
@@ -240,6 +295,13 @@ async def lifespan(app: FastAPI):
     session_module.main_event_loop = asyncio.get_running_loop()
     
     logger.info("APP_START | Application is starting")
+    try:
+        # Make DB target visible immediately — avoids confusion when multiple Neon projects exist.
+        db_target = settings.database_url.split("@")[-1] if "@" in settings.database_url else "(local/unknown)"
+        # Never log credentials; host/db path only.
+        logger.info("DATABASE_TARGET | %s", db_target.split("?")[0])
+    except Exception:
+        pass
     try:
         from .core.server_state import read_shutdown_time
         last_shutdown = read_shutdown_time()
@@ -282,6 +344,11 @@ async def lifespan(app: FastAPI):
         yield
         # Shutdown for test env: no scheduler running
         try:
+            from .core.redis import close_redis_client
+            await close_redis_client()
+        except Exception:
+            logger.exception("Failed to close Redis client on test shutdown")
+        try:
             from .core.server_state import write_shutdown_time
             write_shutdown_time()
             print("[server_state] Shutdown time saved.")
@@ -289,7 +356,29 @@ async def lifespan(app: FastAPI):
             logger.exception("Failed to write shutdown time on shutdown")
         return
 
-    worker_lease = await acquire_singleton_lease("trading-system:singleton-workers")
+    try:
+        worker_lease = await acquire_singleton_lease("trading-system:singleton-workers")
+    except Exception as db_exc:
+        # Common local-dev failure: Neon free-tier data transfer / compute quota.
+        msg = str(db_exc)
+        logger.error("DATABASE_STARTUP_FAILURE | error_type=%s | error=%s", type(db_exc).__name__, msg[:300])
+        if "data transfer quota" in msg.lower() or "exceeded" in msg.lower() and "quota" in msg.lower():
+            logger.error(
+                "DATABASE_QUOTA_EXCEEDED | Neon (or your cloud Postgres) rejected the connection because "
+                "the project data-transfer quota is exhausted. The API cannot start until DATABASE_URL "
+                "points at a reachable database. Fix options: (1) upgrade/reset Neon quota, "
+                "(2) create a new Neon project and update DATABASE_URL in the repo root .env, "
+                "(3) install local PostgreSQL and set DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
+            )
+        elif "connect" in msg.lower() or "refused" in msg.lower() or "timeout" in msg.lower():
+            logger.error(
+                "DATABASE_UNREACHABLE | Could not connect using DATABASE_URL. "
+                "Check that Postgres is running and DATABASE_URL in the repo root .env is correct."
+            )
+        raise RuntimeError(
+            f"Database unavailable during startup ({type(db_exc).__name__}). "
+            "See DATABASE_* log lines above for fix steps."
+        ) from db_exc
     app.state.singleton_worker_lease = worker_lease
     app.state.task_supervisor = TaskSupervisor()
     
@@ -299,8 +388,57 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to verify partitions: {e}")
 
+    # JWT secret hardening (production/staging fail-closed).
+    try:
+        from .config import settings as _settings_for_jwt
+        from .core.security import assert_jwt_secrets_safe_for_env
+
+        assert_jwt_secrets_safe_for_env(_settings_for_jwt.app_env)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.warning("JWT secret safety check skipped: %s", e)
+
+    from .config import settings as _startup_settings
+
+    def _is_prod_like() -> bool:
+        return str(_startup_settings.app_env).strip().lower() in {"production", "prod", "staging"}
+
     if not worker_lease.acquired:
         logger.warning("Another instance owns singleton workers; API-only mode enabled for this pod.")
+        # Still ensure schema + default admin on API-only pods after migration gate.
+        try:
+            from .db.session import check_alembic_head
+            from .services.admin_bootstrap_service import ensure_default_admin_safe
+            from .services.feature_permission_service import (
+                assert_feature_permissions_table_ready,
+                ensure_default_feature_permissions,
+            )
+
+            check_alembic_head()
+            async with AsyncSessionLocal() as admin_db_session:
+                await ensure_default_admin_safe(admin_db_session, fail_closed=_is_prod_like())
+            # Sprint 3: table readiness (M-5) + idempotent catalog seed (H-1: commit on dedicated session)
+            try:
+                async with AsyncSessionLocal() as fp_db:
+                    await assert_feature_permissions_table_ready(
+                        fp_db, fail_closed=_is_prod_like()
+                    )
+                    inserted = await ensure_default_feature_permissions(
+                        fp_db, commit=True
+                    )
+                    if inserted:
+                        logger.info("FEATURE_PERMISSIONS_SEEDED | inserted=%s", inserted)
+            except Exception as fp_exc:
+                if _is_prod_like():
+                    logger.critical("FEATURE_PERMISSIONS_SEED | fatal: %s", fp_exc)
+                    raise
+                logger.warning("FEATURE_PERMISSIONS_SEED | skipped/failed: %s", fp_exc)
+        except Exception as e:
+            if _is_prod_like():
+                logger.critical("API-only pod migration/admin bootstrap failed fatally: %s", e)
+                raise
+            logger.warning("API-only pod migration/admin bootstrap check failed: %s", e)
         yield
         return
     try:
@@ -308,10 +446,47 @@ async def lifespan(app: FastAPI):
         from .config import settings
         from .db.session import check_alembic_head
         
-        # Enforce Alembic Migration Gate
+        # Enforce Alembic Migration Gate BEFORE admin bootstrap (H-4).
         logger.info("STARTUP PROGRESS: Validating database schema lineage...")
         check_alembic_head()
         logger.info("STARTUP PROGRESS: Database schema is up-to-date.")
+
+        # Default admin seed only after schema is current (FR-011..014).
+        try:
+            from .services.admin_bootstrap_service import ensure_default_admin_safe
+
+            async with AsyncSessionLocal() as admin_db_session:
+                await ensure_default_admin_safe(admin_db_session, fail_closed=_is_prod_like())
+        except Exception as e:
+            if _is_prod_like():
+                logger.critical("Default admin bootstrap failed fatally: %s", e)
+                raise
+            logger.warning("Default admin bootstrap check failed: %s", e)
+
+        # Sprint 3: feature permission table readiness + catalog seed (after schema gate).
+        try:
+            from .services.feature_permission_service import (
+                assert_feature_permissions_table_ready,
+                ensure_default_feature_permissions,
+            )
+
+            async with AsyncSessionLocal() as fp_db:
+                await assert_feature_permissions_table_ready(
+                    fp_db, fail_closed=_is_prod_like()
+                )
+                inserted = await ensure_default_feature_permissions(
+                    fp_db, commit=True
+                )
+                if inserted:
+                    logger.info("FEATURE_PERMISSIONS_SEEDED | inserted=%s", inserted)
+                else:
+                    logger.info("FEATURE_PERMISSIONS_SEED | catalog already present")
+        except Exception as e:
+            if _is_prod_like():
+                logger.critical("FEATURE_PERMISSIONS_SEED | fatal: %s", e)
+                raise
+            # Non-prod: list/update paths also ensure seeds; log for ops visibility.
+            logger.warning("FEATURE_PERMISSIONS_SEED | failed: %s", e)
 
         # Drop any async connections that may hold prepared plans from before DDL
         try:
@@ -488,57 +663,53 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
+    # JOB 8: Weekly Production Rule Governance report (FEAT-026 / FR-001)
+    scheduler.add_job(
+        job_weekly_rule_governance_report,
+        CronTrigger(day_of_week="sun", hour=18, minute=0, timezone="Asia/Kolkata"),
+        id="weekly_rule_governance_report",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Clear in-memory FYERS quarantine on every app start
     from .services.fyers_service import QUARANTINED_SYMBOLS
     QUARANTINED_SYMBOLS.clear()
     logger.info("FYERS in-memory symbol quarantine cleared on startup")
 
-    # FYERS refresh automation removed. Manual access-token workflow only.
+    # Scheduler + automatic daily Access Token → Market Scanner bootstrap.
+    # Token generation uses existing fyers_token retry policy; scanner starts only
+    # after a confirmed valid token is saved and cached (once per IST day).
     if not settings.quarantine_mode:
         scheduler.start()
         logger.info("SCHEDULER_STARTED | timezone=%s | jobs_registered=%d", str(scheduler.timezone), len(scheduler.get_jobs()))
     else:
         logger.info("QUARANTINE MODE: Scheduler execution bypassed.")
 
-    # Log DB path
+    # Log DB path + schedule automatic token→scanner workflow
     try:
         from .db.session import engine
-        from .services.token_service import get_current_access_token
 
         config_logger.info("DATABASE URL: %s", engine.url)
-
-        # Verify token is present
-        try:
-            async with AsyncSessionLocal() as db:
-                from .services.token_service import get_fyers_token_row
-                token = await get_current_access_token(db)
-                token_row = await get_fyers_token_row(db)
-                token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
-                token_age_min = 0.0
-                if token_row and token_row.access_token_saved_at:
-                    token_age_min = (datetime.now(token_row.access_token_saved_at.tzinfo) - token_row.access_token_saved_at).total_seconds() / 60.0
-                logger.info(
-                    "STARTUP_TOKEN_VERIFICATION | token_found=%s | saved_at=%s | age_minutes=%.1f",
-                    bool(token), token_saved_at, token_age_min,
-                )
-                if token:
-                    logger.info("STARTUP: FYERS access token loaded from DB successfully")
-                    # Lightweight FYERS validation
-                    try:
-                        fyers_svc = FyersService()
-                        await asyncio.wait_for(
-                            asyncio.to_thread(fyers_svc.validate_token_sync, token),
-                            timeout=10.0,
-                        )
-                        logger.info("TOKEN_VALIDATION_SUCCESS | saved_at=%s | age_minutes=%.1f", token_saved_at, token_age_min)
-                    except Exception as val_exc:
-                        logger.error("TOKEN_VALIDATION_FAILED | saved_at=%s | age_minutes=%.1f | error=%s", token_saved_at, token_age_min, val_exc)
-                else:
-                    logger.warning("STARTUP: No FYERS access token found in DB. Please add via UI.")
-        except Exception:
-            logger.exception("Failed to read FYERS access token from DB on startup")
     except Exception:
         logger.exception("Failed to log database engine/url on startup")
+
+    if not settings.quarantine_mode:
+        try:
+            from .services.token_scanner_bootstrap_service import schedule_startup_bootstrap
+
+            schedule_startup_bootstrap(app.state)
+            logger.info(
+                "STARTUP: Automatic token→scanner bootstrap scheduled "
+                "(generate/validate/save if needed, then scanner once/day)"
+            )
+        except Exception:
+            logger.exception(
+                "Failed to schedule automatic token→scanner bootstrap on startup"
+            )
+    else:
+        logger.info("QUARANTINE MODE: Automatic token→scanner bootstrap bypassed.")
 
     # Start the backend-driven market engine. The service boundary is intentionally
     # separate so the same loop can later be hosted in a dedicated worker process.
@@ -618,7 +789,7 @@ async def lifespan(app: FastAPI):
                                 alert.condition == "<=" and ltp <= alert.target_price
                             )
                             if triggered:
-                                alert.last_triggered_at = datetime.now(timezone.utc)
+                                alert.last_triggered_at = utc_now()
                                 alert.last_message = f"{alert.symbol} {alert.condition} {alert.target_price} hit at {round(ltp, 2)}"
                         await db.commit()
                     except Exception:
@@ -687,6 +858,11 @@ async def lifespan(app: FastAPI):
         await worker_lease.release()
     except Exception:
         logger.exception("Failed to release singleton worker lease")
+    try:
+        from .core.redis import close_redis_client
+        await close_redis_client()
+    except Exception:
+        logger.exception("Failed to close Redis client on shutdown")
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -713,6 +889,49 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=600,
 )
+# Correlation ID propagation (X-Correlation-ID request/response header).
+from .middleware import CorrelationIdMiddleware  # noqa: E402
+
+app.add_middleware(CorrelationIdMiddleware)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Catch unhandled exceptions, mask secrets in logs, and return a safe 500 body.
+    Does not override FastAPI/Starlette HTTPException handlers (more specific).
+    """
+    from fastapi import HTTPException as FastAPIHTTPException
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    from fastapi.exceptions import RequestValidationError
+
+    if isinstance(exc, (FastAPIHTTPException, StarletteHTTPException, RequestValidationError)):
+        raise exc
+
+    from .services.logger_service import logger_service
+
+    cid = getattr(request.state, "correlationId", None) or request.headers.get("X-Correlation-ID")
+    endpoint = f"{request.method} {request.url.path}"
+    try:
+        logger_service.log_error(
+            module="global_exception_handler",
+            message=str(exc),
+            exc=exc,
+            endpoint=endpoint,
+            correlationId=cid,
+        )
+        await logger_service.flush_now()
+        # Prevent middleware safety-net from double-logging the same exception (L-1).
+        request.state.exception_logged = True
+    except Exception:
+        logger.exception("Failed to persist global exception log")
+
+    headers = {"X-Correlation-ID": cid} if cid else None
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected system error occurred. This has been logged for our engineers."},
+        headers=headers,
+    )
 
 
 @app.get("/scanner/health")
@@ -741,6 +960,8 @@ async def log_http_requests(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception as exc:
+        # BaseHTTPMiddleware may re-surface route exceptions even after the app
+        # exception handler runs — convert to a safe 500 here as a safety net.
         elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
         request_logger.exception(
             "HTTP request failed | method=%s | path=%s | elapsed_ms=%s",
@@ -748,20 +969,29 @@ async def log_http_requests(request: Request, call_next):
             request.url.path,
             elapsed_ms,
         )
-        
-        # Log to DB and return 500 gracefully
-        tb = traceback.format_exc()
-        print(f"EXCEPTION CAUGHT IN MIDDLEWARE:\n{tb}")
-        await log_to_db(
-            level="ERROR",
-            module="http_middleware_exception",
-            message=str(exc),
-            endpoint=request.url.path,
-            tb=tb
-        )
+        cid = getattr(request.state, "correlationId", None) or request.headers.get("X-Correlation-ID")
+        # Skip DB log if global_exception_handler already persisted this failure.
+        if not getattr(request.state, "exception_logged", False):
+            from .services.logger_service import logger_service
+
+            endpoint = f"{request.method} {request.url.path}"
+            try:
+                logger_service.log_error(
+                    module="global_exception_handler",
+                    message=str(exc),
+                    exc=exc,
+                    endpoint=endpoint,
+                    correlationId=cid,
+                )
+                await logger_service.flush_now()
+                request.state.exception_logged = True
+            except Exception:
+                logger.exception("Failed to persist middleware exception log")
+        headers = {"X-Correlation-ID": cid} if cid else None
         return JSONResponse(
             status_code=500,
-            content={"detail": "An unexpected system error occurred. This has been logged for our engineers."}
+            content={"detail": "An unexpected system error occurred. This has been logged for our engineers."},
+            headers=headers,
         )
 
     elapsed_ms = round((perf_counter() - started_at) * 1000, 1)
@@ -858,18 +1088,24 @@ async def automated_screening_job():
     import asyncio
     
     scan_ctx = begin_scan(trigger_source="scheduler", universe="NIFTY500", symbol_count=len(settings.nifty500_symbols))
-    from .db.session import AsyncSessionLocal, SessionLocal
+    from .db.session import AsyncSessionLocal, SessionLocal, is_db_connection_error, dispose_async_pool
     from .models.analysis import ScannedCandidate
     try:
+        from .services import token_service
+        from .services.fyers_service import FyersService, FyersAuthInvalidError, FyersAuthExpiredError, FyersAPIError
+
+        request = ScreenerRequest(mode=AnalysisMode.swing)
+        token = None
+        val_latency_ms = 0
+        token_saved_at: str | None = None
+        token_age: float = 0.0
+
+        # ------------------------------------------------------------------
+        # Phase A — preflight only. Postgres sets idle_in_transaction_session_timeout
+        # to 30s on connect; holding one session open across the multi-minute
+        # screener run is what produced "connection is closed" on persist.
+        # ------------------------------------------------------------------
         async with AsyncSessionLocal() as db:
-            agent = OrchestratorAgent(db)
-            request = ScreenerRequest(
-                mode=AnalysisMode.swing
-            )
-            
-            from .services import token_service
-            from .services.fyers_service import FyersService, FyersAuthInvalidError, FyersAuthExpiredError, FyersAPIError
-            
             token = await token_service.get_current_access_token(db)
             if not token:
                 logger.error("Scan aborted: No cached token available in memory or DB.")
@@ -892,59 +1128,16 @@ async def automated_screening_job():
                 except Exception as ne:
                     pass
                 return
-            
-            try:
-                logger.info("Validating FYERS token before scheduled scan...")
-                fyers_service = FyersService()
-                val_start_t = perf_counter()
-                await asyncio.wait_for(
-                    asyncio.to_thread(fyers_service.validate_token_sync, token),
-                    timeout=15.0
-                )
-                val_latency_ms = int((perf_counter() - val_start_t) * 1000)
-            except asyncio.TimeoutError:
-                logger.error("Scan aborted: FYERS API timeout during token validation.")
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS Validation Timeout")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
-                return
-            except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
-                logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS Token Expired")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
-                token_service._clear_token_cache()
-                from .services.paper_trading_service import PaperTradingService
-                PaperTradingService(db).add_notification(
-                    account_id=1,
-                    message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
-                    level="error",
-                    event_type="TOKEN_EXPIRED",
-                    entity_type="system",
-                    dedupe_key="TOKEN_EXPIRED_ALERT",
-                    commit=True
-                )
-                logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
-                return
-            except FyersAPIError as e:
-                logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
-                from .services.diagnostics_service import diagnostics
-                diagnostics.set_scanner_failed("FYERS API Error")
-                scan_ctx.token_loaded = False
-                scan_ctx.token_source = "none"
-                end_scan(scan_ctx)
-                return
-            
-            logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
-            # Token forensics
+
             try:
                 token_row = await token_service.get_fyers_token_row(db)
-                token_saved_at = token_row.access_token_saved_at.isoformat() if token_row and token_row.access_token_saved_at else "N/A"
-                token_age = (datetime.now(timezone.utc) - token_row.access_token_saved_at).total_seconds() / 60.0 if token_row and token_row.access_token_saved_at else 0.0
+                if token_row and token_row.access_token_saved_at:
+                    saved_utc = ensure_utc(token_row.access_token_saved_at)
+                    token_saved_at = to_iso_utc(saved_utc)
+                    token_age = age_minutes(saved_utc)
+                else:
+                    token_saved_at = "N/A"
+                    token_age = 0.0
                 log_token_status(
                     scan_ctx,
                     token_exists=bool(token),
@@ -955,157 +1148,202 @@ async def automated_screening_job():
                 )
             except Exception:
                 logger.exception("Failed to log token status for scan")
-                
-            # Emit full SCAN_ENVIRONMENT block
+
             try:
                 from .observability.scan_diagnostics import _PROCESS_START_TIME
                 from .db.session import engine
                 from .services.latest_scan_service import LatestScanService
                 from .services.candle_store import get_all_cached_symbols
-                import datetime
-                
-                startup_dt = datetime.datetime.fromisoformat(_PROCESS_START_TIME)
-                if startup_dt.tzinfo is None:
-                    startup_dt = startup_dt.replace(tzinfo=datetime.timezone.utc)
-                app_uptime = (datetime.datetime.now(datetime.timezone.utc) - startup_dt).total_seconds() / 60.0
-                
-                # Use centralized service for accurate market status (weekends + holidays)
-                try:
-                    from .services.trading_hours_service import trading_hours
-                    mkt = trading_hours.get_market_status()
-                    market_open = mkt["is_open"]
-                    market_session = mkt["status"].lower().replace("_", "-")
-                except Exception:
-                    mkt = None
-                    market_open = False
-                    market_session = "unknown"
 
-                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
-                if mkt is None:
-                    market_open = ist_now.weekday() < 5 and (9 <= ist_now.hour <= 15) and not (ist_now.hour == 9 and ist_now.minute < 15) and not (ist_now.hour == 15 and ist_now.minute > 30)
-                    if ist_now.weekday() >= 5:
-                        market_session = "closed"
-                    elif ist_now.hour < 9 or (ist_now.hour == 9 and ist_now.minute < 15):
-                        market_session = "pre_open"
-                    elif ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute > 30):
-                        market_session = "post_close"
-                    else:
-                        market_session = "open"
-                
+                startup_dt = parse_utc(_PROCESS_START_TIME)
+                app_uptime = age_minutes(startup_dt) if startup_dt is not None else 0.0
+                exchange_now = ist_now()
                 pool = engine.pool
-                
                 last_scan = await LatestScanService(db).get_latest_completed_scan()
                 if last_scan:
                     last_scan_ts = last_scan.get("scan_timestamp")
-                    last_scan_dt = datetime.datetime.fromisoformat(last_scan_ts)
-                    if last_scan_dt.tzinfo is None:
-                        last_scan_dt = last_scan_dt.replace(tzinfo=datetime.timezone.utc)
-                    minutes_since = (datetime.datetime.now(timezone.utc) - last_scan_dt.replace(tzinfo=None)).total_seconds() / 60.0
+                    last_scan_dt = parse_utc(last_scan_ts)
+                    if last_scan_dt is not None:
+                        minutes_since = minutes_between(utc_now(), last_scan_dt)
+                    else:
+                        minutes_since = 0.0
                     last_scan_res = "SUCCESS" if last_scan.get("valid_symbols", 0) > 0 else "NO_DATA"
                 else:
                     last_scan_ts = None
                     minutes_since = 0.0
                     last_scan_res = "NONE"
-                    
                 cache_entries = len(get_all_cached_symbols())
-                
                 log_scan_environment(
                     ctx=scan_ctx,
                     token_loaded=bool(token),
                     token_source="memory" if token_service.has_cached_token() else "database",
-                    token_saved_at=token_saved_at if 'token_row' in locals() and token_row else None,
-                    token_age_minutes=token_age if 'token_age' in locals() else 0.0,
+                    token_saved_at=token_saved_at,
+                    token_age_minutes=token_age,
                     token_hash=hash_token_prefix(token),
                     app_uptime_minutes=app_uptime,
-                    market_open=market_open,
-                    market_session=market_session,
-                    exchange_time=ist_now.strftime("%H:%M:%S"),
-                    weekday=ist_now.strftime("%A"),
+                    exchange_time=exchange_now.strftime("%H:%M:%S"),
+                    weekday=exchange_now.strftime("%A"),
                     db_connected=True,
                     pool_size=pool.size(),
                     checked_out=pool.checkedout(),
                     overflow=pool.overflow(),
-                    fyers_validation_result="success",
-                    fyers_validation_latency_ms=val_latency_ms if 'val_latency_ms' in locals() else 0,
+                    fyers_validation_result="pending",
+                    fyers_validation_latency_ms=0,
                     last_scan_timestamp=last_scan_ts,
                     last_scan_result=last_scan_res,
                     last_scan_source="db",
                     minutes_since_last_scan=minutes_since,
                     cache_enabled=True,
                     cache_entries=cache_entries,
-                    cache_health="ok" if cache_entries > 0 else "empty"
+                    cache_health="ok" if cache_entries > 0 else "empty",
                 )
             except Exception:
                 logger.exception("Failed to emit SCAN_ENVIRONMENT block")
-            import datetime, os
+
+            # Drop any open transaction before the long external I/O below.
             try:
-                import psutil
-            except ImportError:
-                psutil = None
-            start_t_iso = datetime.datetime.now(timezone.utc).isoformat()
-            
-            # Record scanner memory before run
+                await db.rollback()
+            except Exception:
+                pass
+
+        # Token validation does not need a DB session (avoids idle-in-transaction).
+        try:
+            logger.info("Validating FYERS token before scheduled scan...")
+            fyers_service = FyersService()
+            val_start_t = perf_counter()
+            await asyncio.wait_for(
+                asyncio.to_thread(fyers_service.validate_token_sync, token),
+                timeout=15.0
+            )
+            val_latency_ms = int((perf_counter() - val_start_t) * 1000)
+        except asyncio.TimeoutError:
+            logger.error("Scan aborted: FYERS API timeout during token validation.")
             from .services.diagnostics_service import diagnostics
-            mem_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
-            
-            diagnostics.set_scanner_running()
-            start_t = perf_counter()
-            response = await agent.run_screener(request)
-            duration_ms = int((perf_counter() - start_t) * 1000)
-            
-            # Record scanner memory after run
-            mem_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
-            diagnostics.set_scanner_memory(mem_before, mem_after)
-            
-            # Record scanner execution log
-            diagnostics.record_scanner_run({
-                "scan_id": response.screener_name or f"scan-{start_t_iso}",
-                "start_time": start_t_iso,
-                "end_time": datetime.datetime.now(timezone.utc).isoformat(),
-                "duration_ms": duration_ms,
-                "requested_symbols": response.scanned_symbols,
-                "valid_symbols": len(response.data_valid_symbols),
-                "buy_count": len(response.buy_candidate_symbols),
-                "watch_count": len(response.watch_candidate_symbols),
-                "rejected_count": response.scanned_symbols - len(response.matched_symbols),
-                "exception_count": response.duplicate_symbols_skipped
-            })
-            # Update scan context counters from response
-            scan_ctx.valid = len(response.data_valid_symbols)
-            scan_ctx.eligible = len(response.eligible_symbols)
-            scan_ctx.matched = len(response.matched_symbols)
-            scan_ctx.buy = len(response.buy_candidate_symbols)
-            scan_ctx.watch = len(response.watch_candidate_symbols)
-            scan_ctx.reject = response.scanned_symbols - len(response.matched_symbols)
-            scan_ctx.symbols_processed = response.scanned_symbols
-            
+            diagnostics.set_scanner_failed("FYERS Validation Timeout")
+            scan_ctx.token_loaded = False
+            scan_ctx.token_source = "none"
+            end_scan(scan_ctx)
+            return
+        except (FyersAuthInvalidError, FyersAuthExpiredError) as e:
+            logger.error("Scan aborted: TOKEN_EXPIRED or invalid. %s", e)
+            from .services.diagnostics_service import diagnostics
+            diagnostics.set_scanner_failed("FYERS Token Expired")
+            scan_ctx.token_loaded = False
+            scan_ctx.token_source = "none"
+            end_scan(scan_ctx)
+            token_service._clear_token_cache()
             try:
-                # Still add to ScannedCandidate if it's used elsewhere
-                for item in response.matches:
-                    candidate = ScannedCandidate(
-                        symbol=item.symbol,
-                        screener_name=response.screener_name,
-                        technical_score=item.technical_score,
-                        technical_signal=item.technical_signal,
-                        screener_score=item.screener_score,
-                        matched=item.matched
+                async with AsyncSessionLocal() as db:
+                    from .services.paper_trading_service import PaperTradingService
+                    PaperTradingService(db).add_notification(
+                        account_id=1,
+                        message="Scheduled scan aborted: FYERS token expired. Please re-authenticate.",
+                        level="error",
+                        event_type="TOKEN_EXPIRED",
+                        entity_type="system",
+                        dedupe_key="TOKEN_EXPIRED_ALERT",
+                        commit=True
                     )
-                    db.add(candidate)
-                    
-                # New logic for PHASE S1: Persist full scan snapshot
-                from .services.latest_scan_service import LatestScanService
-                scan_service = LatestScanService(db)
-                await scan_service.persist_successful_scan(response, duration_ms)
-                
-                await db.commit()
+            except Exception:
+                pass
+            logger.info("TOKEN_EXPIRED_NOTIFICATION_CREATED")
+            return
+        except FyersAPIError as e:
+            logger.error("Scan aborted: FYERS API Error during token validation. %s", e)
+            from .services.diagnostics_service import diagnostics
+            diagnostics.set_scanner_failed("FYERS API Error")
+            scan_ctx.token_loaded = False
+            scan_ctx.token_source = "none"
+            end_scan(scan_ctx)
+            return
+
+        # ------------------------------------------------------------------
+        # Phase B — long screener run with NO open DB session/transaction.
+        # OrchestratorAgent does not use the injected db handle.
+        # ------------------------------------------------------------------
+        logger.info("AUTOMATED SCREENING triggering scan via OrchestratorAgent")
+        import os
+        try:
+            import psutil
+        except ImportError:
+            psutil = None
+        start_t_iso = utc_now().isoformat()
+
+        from .services.diagnostics_service import diagnostics
+        mem_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
+
+        diagnostics.set_scanner_running()
+        agent = OrchestratorAgent(None)
+        start_t = perf_counter()
+        response = await agent.run_screener(request)
+        duration_ms = int((perf_counter() - start_t) * 1000)
+
+        mem_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024) if psutil else 0.0
+        diagnostics.set_scanner_memory(mem_before, mem_after)
+
+        diagnostics.record_scanner_run({
+            "scan_id": response.screener_name or f"scan-{start_t_iso}",
+            "start_time": start_t_iso,
+            "end_time": utc_now().isoformat(),
+            "duration_ms": duration_ms,
+            "requested_symbols": response.scanned_symbols,
+            "valid_symbols": len(response.data_valid_symbols),
+            "buy_count": len(response.buy_candidate_symbols),
+            "watch_count": len(response.watch_candidate_symbols),
+            "rejected_count": response.scanned_symbols - len(response.matched_symbols),
+            "exception_count": response.duplicate_symbols_skipped,
+        })
+        scan_ctx.valid = len(response.data_valid_symbols)
+        scan_ctx.eligible = len(response.eligible_symbols)
+        scan_ctx.matched = len(response.matched_symbols)
+        scan_ctx.buy = len(response.buy_candidate_symbols)
+        scan_ctx.watch = len(response.watch_candidate_symbols)
+        scan_ctx.reject = response.scanned_symbols - len(response.matched_symbols)
+        scan_ctx.symbols_processed = response.scanned_symbols
+
+        # ------------------------------------------------------------------
+        # Phase C — fresh session for canonical/history writes (+ one retry).
+        # ------------------------------------------------------------------
+        from .config.settings import settings as _scan_settings
+        from .services.latest_scan_service import LatestScanService
+
+        _minimal = False
+        try:
+            _minimal = bool(_scan_settings.is_scan_result_minimal_writes())
+        except Exception:
+            _minimal = False
+
+        for attempt in range(2):
+            try:
+                async with AsyncSessionLocal() as db:
+                    if not _minimal:
+                        for item in response.matches:
+                            candidate = ScannedCandidate(
+                                symbol=item.symbol,
+                                screener_name=response.screener_name,
+                                technical_score=item.technical_score,
+                                technical_signal=item.technical_signal,
+                                screener_score=item.screener_score,
+                                matched=item.matched
+                            )
+                            db.add(candidate)
+                    else:
+                        logger.info(
+                            "SCAN_RESULT_MINIMAL_WRITES=ON | skipping scanned_candidates writes"
+                        )
+
+                    scan_service = LatestScanService(db)
+                    await scan_service.persist_successful_scan(
+                        response, duration_ms, minimal_writes=_minimal
+                    )
+                    await db.commit()
+
                 logger.info("Saved scan candidates and latest scan snapshot to database.")
-                
                 diagnostics.set_scanner_success(response.screener_name or f"scan-{start_t_iso}")
-                # Emit scan diagnostic summary
                 token_status = "valid" if token else "missing"
                 cache_status = "ok" if scan_ctx.cache_hits > 0 else "empty"
                 fyers_status = "ok" if scan_ctx.fyers_failures == 0 else f"failures={scan_ctx.fyers_failures}"
-                persistence_status = "ok"  # we just persisted successfully
+                persistence_status = "ok"
                 overall = "healthy" if scan_ctx.valid > 0 else "degraded"
                 log_incident_summary(scan_ctx, token_status, cache_status, fyers_status, persistence_status, overall)
                 end_scan(scan_ctx)
@@ -1116,9 +1354,23 @@ async def automated_screening_job():
                     endpoint="automated_screening_job"
                 )
                 logger.info("AUTOMATED SCREENING job complete")
+                break
             except Exception as db_e:
-                logger.error("Failed to save scan candidates to DB: %s", db_e)
-                await db.rollback()
+                if attempt == 0 and is_db_connection_error(db_e):
+                    logger.warning(
+                        "Scheduled scan persist hit dead DB connection; disposing pool and retrying once | error=%s",
+                        db_e,
+                    )
+                    try:
+                        await dispose_async_pool(reason="scheduled_scan_persist_connection_closed")
+                    except Exception:
+                        pass
+                    continue
+                logger.error(
+                    "Failed to save scan candidates to DB%s: %s",
+                    " after retry" if attempt > 0 else "",
+                    db_e,
+                )
                 diagnostics.set_scanner_failed(str(db_e))
                 end_scan(scan_ctx)
                 logger_service.log_error(
@@ -1128,6 +1380,7 @@ async def automated_screening_job():
                     endpoint="automated_screening_job",
                     exc=db_e
                 )
+                break
     except Exception as e:
         logger_service.log_error(
             message=f"Scheduled job failed: {str(e)}",

@@ -13,6 +13,7 @@ import pytest
 from app.governance.router import get_route, list_routes
 
 
+# Must stay in sync with AGENTS.md and app.governance.router._COMMAND_ROUTES.
 REQUIRED_COMMANDS = [
     "experiment.start",
     "experiment.pause",
@@ -21,6 +22,14 @@ REQUIRED_COMMANDS = [
     "experiment.list",
     "experiment.show",
     "experiment.metric",
+    "experiment.report",
+    "experiment.promote",
+    "experiment.kill",
+    "experiment.backfill",
+    "experiment.backfill_pause",
+    "experiment.taxonomy_report",
+    "experiment.taxonomy_query",
+    "experiment.governance-report",
     "audit.export",
 ]
 
@@ -31,6 +40,14 @@ def test_get_route_known_command():
         route = get_route(cmd)
         assert route is not None, f"Missing route for command: {cmd}"
         assert "experiment_cli" in route or "audit" in route
+
+
+def test_get_route_governance_report_maps_to_cli():
+    """R1: FEAT-026 governance-report is routable via runtime command table."""
+    route = get_route("experiment.governance-report")
+    assert route is not None
+    assert "governance-report" in route
+    assert "experiment_cli" in route
 
 
 def test_get_route_unknown_command_returns_none():
@@ -45,6 +62,13 @@ def test_list_routes_returns_all():
     assert len(routes) >= len(REQUIRED_COMMANDS)
     for cmd in REQUIRED_COMMANDS:
         assert cmd in routes
+
+
+def test_list_routes_matches_required_set_exactly():
+    """R2: runtime route table matches REQUIRED_COMMANDS (no silent drift)."""
+    routes = list_routes()
+    assert set(routes.keys()) == set(REQUIRED_COMMANDS)
+    assert len(routes) == len(REQUIRED_COMMANDS)
 
 
 def test_list_routes_is_immutable_copy():
@@ -71,5 +95,7 @@ async def test_get_routes_endpoint_returns_count():
         data = resp.json()
         assert "routes" in data
         assert data["count"] == len(REQUIRED_COMMANDS)
+        assert data["count"] == len(data["routes"])
         for cmd in REQUIRED_COMMANDS:
             assert cmd in data["routes"]
+        assert "experiment.governance-report" in data["routes"]

@@ -1,0 +1,158 @@
+# Daily Fyers access-token refresh via GitHub Actions.
+#
+# Why: free cron-job.org caps HTTP timeout at 30s (too short for Render cold starts).
+# This workflow can wait up to several minutes.
+#
+# Required GitHub repo secrets:
+#   SCHEDULER_SECRET  - same value as Render env SCHEDULER_SECRET
+# Optional secrets:
+#   FYERS_TOKEN_API_BASE_URL - default https://trading-system-2-rl0x.onrender.com
+#
+# Endpoints:
+#   Wake:   GET  {base}/health  (fallback /docs)
+#   Refresh: POST {base}/api/token/generate
+#            (after Sprint 5 deploy: POST {base}/internal/refresh-fyers-token)
+#
+name: Fyers Token Refresh
+
+on:
+  schedule:
+    # 08:00 Asia/Kolkata = 02:30 UTC (IST is UTC+5:30, no DST)
+    # Weekdays only (Mon-Fri)
+    - cron: "30 2 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      use_internal_endpoint:
+        description: "Use POST /internal/refresh-fyers-token (after Sprint 5 deploy)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  refresh-fyers-token:
+    name: Generate and persist Fyers access token
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Resolve API base URL
+        id: cfg
+        shell: bash
+        run: |
+          BASE="${{ secrets.FYERS_TOKEN_API_BASE_URL }}"
+          if [ -z "$BASE" ]; then
+            BASE="https://trading-system-2-rl0x.onrender.com"
+          fi
+          # strip trailing slash
+          BASE="${BASE%/}"
+          echo "base_url=$BASE" >> "$GITHUB_OUTPUT"
+
+          USE_INTERNAL="${{ github.event.inputs.use_internal_endpoint }}"
+          if [ "$USE_INTERNAL" = "true" ]; then
+            PATH_REFRESH="/internal/refresh-fyers-token"
+          else
+            # Production-safe default until Sprint 5 internal route is deployed
+            PATH_REFRESH="/api/token/generate"
+          fi
+          echo "refresh_path=$PATH_REFRESH" >> "$GITHUB_OUTPUT"
+          echo "Using base=$BASE path=$PATH_REFRESH"
+
+      - name: Require SCHEDULER_SECRET
+        shell: bash
+        env:
+          SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+        run: |
+          if [ -z "$SCHEDULER_SECRET" ]; then
+            echo "::error::Missing GitHub secret SCHEDULER_SECRET (must match Render SCHEDULER_SECRET)"
+            exit 1
+          fi
+
+      - name: Wake Render service (cold start)
+        shell: bash
+        run: |
+          set +e
+          BASE="${{ steps.cfg.outputs.base_url }}"
+          echo "Waking $BASE ..."
+          # Long connect/max time to survive free-tier spin-up
+          for path in /health /docs /api/token/status; do
+            echo "GET $BASE$path"
+            code=$(curl -sS -o /tmp/wake_body.txt -w "%{http_code}" \
+              --connect-timeout 30 \
+              --max-time 180 \
+              -H "Accept: application/json" \
+              "$BASE$path" || echo "000")
+            echo "wake_status=$code path=$path"
+            if [ "$code" = "200" ] || [ "$code" = "401" ] || [ "$code" = "403" ]; then
+              echo "Service reachable via $path (HTTP $code)"
+              exit 0
+            fi
+          done
+          echo "::warning::Wake probes did not return a success-like status; continuing to token refresh anyway"
+          exit 0
+
+      - name: Refresh Fyers access token
+        shell: bash
+        env:
+          SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.cfg.outputs.base_url }}"
+          PATH_REFRESH="${{ steps.cfg.outputs.refresh_path }}"
+          URL="${BASE}${PATH_REFRESH}"
+
+          echo "POST $URL"
+          # Capture body + status; allow up to 3 minutes for generate+persist
+          HTTP_CODE=$(curl -sS -o /tmp/token_refresh_body.json -w "%{http_code}" \
+            --connect-timeout 30 \
+            --max-time 180 \
+            -X POST \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "X-Scheduler-Secret: ${SCHEDULER_SECRET}" \
+            "$URL")
+
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response body:"
+          cat /tmp/token_refresh_body.json || true
+          echo
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Token refresh failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          # Soft check for success markers used by either endpoint
+          if grep -Eqi '"status"[[:space:]]*:[[:space:]]*"(success|Success)"' /tmp/token_refresh_body.json \
+            || grep -Eqi 'generated|saved successfully|stored' /tmp/token_refresh_body.json; then
+            echo "Token refresh succeeded"
+          else
+            echo "::warning::HTTP 200 but response did not match known success shape; inspect body above"
+          fi
+
+      - name: Verify token status
+        if: success()
+        shell: bash
+        run: |
+          set +e
+          BASE="${{ steps.cfg.outputs.base_url }}"
+          code=$(curl -sS -o /tmp/token_status.json -w "%{http_code}" \
+            --connect-timeout 20 \
+            --max-time 60 \
+            -H "Accept: application/json" \
+            "$BASE/api/token/status" || echo "000")
+          echo "status_http=$code"
+          cat /tmp/token_status.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::warning::Could not fetch /api/token/status (HTTP $code)"
+            exit 0
+          fi
+          if grep -Eqi '"access_token_active"[[:space:]]*:[[:space:]]*true' /tmp/token_status.json \
+            || grep -Eqi '"status"[[:space:]]*:[[:space:]]*"Success"' /tmp/token_status.json; then
+            echo "Token status looks active"
+          else
+            echo "::warning::Token status response does not clearly show active/Success"
+          fi

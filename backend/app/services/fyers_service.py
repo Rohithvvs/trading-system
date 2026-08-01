@@ -581,9 +581,16 @@ class FyersService:
         resolution: str,
         lookback_window: int,
         allow_mock: bool = False,
+        bypass_authoritative_store: bool = False,
     ) -> list[OHLCVPoint]:
+        from ..config.settings import settings
+        if settings.is_authoritative_candle_store_enabled() and not bypass_authoritative_store:
+            from .authoritative_candle_store import authoritative_candle_store
+            return await authoritative_candle_store.get_candles(symbol, resolution)
+
         points = 40 if mode == AnalysisMode.intraday else max(lookback_window, 260)
         cache_key = (self._cache_symbol(symbol), mode.value, resolution.lower())
+
         
         import asyncio
         if cache_key not in FyersService._ohlcv_thread_locks:
@@ -958,25 +965,29 @@ class FyersService:
             return []
 
         two_years_ago = (today - timedelta(days=730)).isoformat()
-        db_rows = await load_candles(clean_symbol, two_years_ago)
-        if not db_rows or len(db_rows) < points:
+        # load_candles always returns a pandas DataFrame (never list/None).
+        # DataFrame truthiness is ambiguous — use .empty / len only.
+        db_df = await load_candles(clean_symbol, two_years_ago)
+        db_empty = db_df is None or getattr(db_df, "empty", True)
+        db_len = 0 if db_empty else int(len(db_df))
+        if db_empty or db_len < points:
             fallback = self._fetch_yfinance_candles(symbol, lookback_window, points)
             if fallback:
                 return fallback
-            if not db_rows:
+            if db_empty:
                 self._blacklist_symbol(symbol)
                 return []
         self.logger.info(
             "OHLCV SOURCE = POSTGRES_DB | symbol=%s | resolution=%s | candles=%s | db_count=%s | last_date=%s",
             symbol,
             resolution,
-            len(db_rows),
+            db_len,
             db_count,
             last_date,
         )
 
         parsed: list[OHLCVPoint] = []
-        for row in db_rows:
+        for _, row in db_df.iterrows():
             parsed.append(
                 OHLCVPoint(
                     timestamp=self._parse_timestamp(row["date"]),
@@ -1069,7 +1080,7 @@ class FyersService:
                 log_cache_lookup(scan_ctx, symbol=symbol, hit=False, available_candles=0, required_candles=points)
 
             # Fetch from FYERS using existing logic (this may also populate the app-level ohlcv store)
-            fetched = self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
+            fetched = await self._fetch_fyers_candles(symbol, resolution, lookback_window, points)
 
             if fetched:
                 self._ohlcv_source_cache[cache_key] = "FYERS_PRIMARY"

@@ -80,7 +80,7 @@ Router: `routes/analysis.py`, prefix `/analysis`.
 | POST | `/analysis/rankings` | Rankings only | `AnalysisRequest` | `RankingsResponse` | no | `RouterAgent.rankings` | indirect | none direct |
 | POST | `/analysis/screener/full` | Streaming screener run (SSE) | `ScreenerRequest` | `StreamingResponse` (text/event-stream) | no | `ScanExecutionService.execute_scan` (+`LockAcquisitionError`) | upsert HistoricalCandle; insert ScannedCandidate + ScanSnapshot + ScanSnapshotRecord | SSE progress frames; 409 if scan already running |
 | GET | `/analysis/symbol/{symbol}/detail` | Per-symbol full detail | (path) | `JSONResponse` (dict) | no | `RouterAgent.full_analysis`; `MarketInfoService.get_company_profile`; `FyersService.fetch_quote_profile`; `ResearchService.build`; helpers (`_calculate_52_week_range`, `_build_technical_extras`, `_build_backtest_extras`) | DB read (candles) + AnalysisHistory write | external Fyers/MarketInfo calls |
-| GET | `/analysis/scan/latest` | Latest scan payload | none | `dict` | no | `db.scan_store.load_latest_scan` | DB read (`market_data.scan_results` JSONB) | logs availability |
+| GET | `/analysis/scan/latest` | Latest scan payload (ScreenerResponse + `available`) | none | `dict` | no | `LatestScanService.get_latest_scan("analysis")` → `scan_store.load_latest_scan` (when `SCANNER_UNIFIED_LATEST_ENABLED=true`); else direct `load_latest_scan` | DB read (`market_data.scan_results` JSONB) | Redis `analysis:scan:latest:v1`; unified fallback metric |
 | GET | `/analysis/symbol/{symbol}/light` | Light symbol detail | (path) | `JSONResponse` (dict) | no | `RouterAgent.full_analysis`; `FyersService.fetch_quote`; `MarketInfoService.get_company_profile` | DB read | Fyers API call |
 | POST | `/analysis/symbol/batch-light` | Batch light details | inline `{"symbols":[...]}` (max 20) | `JSONResponse` (dict) | no | `FyersService.fetch_quote`; `MarketInfoService.get_company_profile` | none | external Fyers API calls |
 | GET | `/analysis/candidates/today` | Today's scan candidates | none | `JSONResponse` (list) | no | raw `select(ScannedCandidate)` | DB read | none |
@@ -172,7 +172,7 @@ Router: `routes/scanner.py`, prefix `/scanner`.
 
 | Method | Route | Purpose | Request model | Response model | Auth | Service(s) called | DB | Side effects |
 |--------|-------|---------|----------------|-----------------|------|-------------------|----|--------------|
-| GET | `/scanner/latest` | Latest completed scan | none | `dict` | no | `LatestScanService.get_latest_completed_scan`; `diagnostics.record_dashboard_snapshot`; `scan_diagnostics.log_dashboard_request` | read | in-memory diagnostics update |
+| GET | `/scanner/latest` | Latest completed scan | none | `dict` | no | `LatestScanService.get_latest_scan` (when `SCANNER_UNIFIED_LATEST_ENABLED=true`); fallback `LatestScanService.get_latest_completed_scan`; `diagnostics.record_dashboard_snapshot`; `scan_diagnostics.log_dashboard_request` | read | in-memory diagnostics update; Redis cache lookup |
 
 ---
 

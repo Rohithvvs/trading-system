@@ -35,7 +35,6 @@ export const TOOLTIPS = {
     OPEN_POSITIONS: "Number of stocks currently held in the portfolio.",
     DAILY_PNL: "Today's profit/loss from closed trades (resets at market open).",
     TOTAL_PNL: "Cumulative P&L: Realized + Unrealized.",
-    MARKET_STATUS: "Current NSE status: PRE-OPEN 🟡, OPEN 🟢, or CLOSED 🔴.",
     SQUARE_OFF_ALL: "Close all open positions at current market price immediately.",
     ORDER_TYPE: "LIMIT = buy at specific price. MARKET = buy at current price instantly.",
     PRODUCT_TYPE: "CNC = Cash and Carry (delivery). MIS = Intraday (must square-off same day).",

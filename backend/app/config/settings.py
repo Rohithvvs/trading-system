@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 from functools import cached_property
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
+
+_logger = logging.getLogger("app.config")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
+# Prefer repo-root .env; also accept backend/.env for local overrides.
+_ENV_FILES = (
+    str(ROOT_DIR / ".env"),
+    str(ROOT_DIR / "backend" / ".env"),
+)
 
 
 def normalize_postgres_ssl_query(raw_value: str) -> str:
@@ -56,14 +66,56 @@ def normalize_database_url(raw_value: str) -> str:
 
 class Settings(BaseSettings):
     app_name: str = "Trading System"
-    app_env: str = "development"
-    google_client_id: str = ""
+    app_env: str = Field(default="development", alias="APP_ENV")
+    # Must match the frontend VITE_GOOGLE_CLIENT_ID (GIS Web client).
+    google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
     quarantine_mode: bool = False
-    app_host: str = "127.0.0.1"
-    app_port: int = 8000
+    app_host: str = Field(default="0.0.0.0", alias="HOST")   # ← critical change
+    app_port: int = Field(default=8000, alias="PORT")
     frontend_url: str = Field(default="http://localhost:5173", alias="FRONTEND_URL")
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trading_system"
     redis_url: str = "redis://localhost:6379/0"
+    # Evaluated live via is_scanner_latest_cache_enabled() — mutating this attribute
+    # takes effect on the next request without code redeploy (audit H5).
+    scanner_latest_cache_enabled: bool = Field(default=False, alias="SCANNER_LATEST_CACHE_ENABLED")
+    scanner_latest_cache_ttl_seconds: int = Field(
+        default=300, ge=10, alias="SCANNER_LATEST_CACHE_TTL_SECONDS"
+    )
+    redis_cache_read_timeout_ms: int = Field(
+        default=50, ge=5, alias="REDIS_CACHE_READ_TIMEOUT_MS"
+    )
+    redis_cache_write_timeout_ms: int = Field(
+        default=100, ge=10, alias="REDIS_CACHE_WRITE_TIMEOUT_MS"
+    )
+
+    def is_scanner_latest_cache_enabled(self) -> bool:
+        """Live feature-flag read for scanner latest-cache (zero-redeploy rollback).
+
+        Priority on every call:
+        1. ``os.environ["SCANNER_LATEST_CACHE_ENABLED"]`` when set (non-empty) — allows
+           ops to flip the process environment without a code redeploy/restart when
+           their runtime can inject env (and keeps attribute in sync).
+        2. ``settings.scanner_latest_cache_enabled`` attribute — mutable in-process
+           for tests and admin toggles when env is unset.
+        """
+        raw = os.environ.get("SCANNER_LATEST_CACHE_ENABLED")
+        if raw is not None and str(raw).strip() != "":
+            enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            # Keep attribute aligned so logs/diagnostics match live behavior.
+            object.__setattr__(self, "scanner_latest_cache_enabled", enabled)
+            return enabled
+        return bool(self.scanner_latest_cache_enabled)
+
+    scanner_unified_latest_enabled: bool = Field(default=False, alias="SCANNER_UNIFIED_LATEST_ENABLED")
+
+    def is_scanner_unified_latest_enabled(self) -> bool:
+        """Live feature-flag read for unified latest-scan endpoints (zero-redeploy rollback)."""
+        raw = os.environ.get("SCANNER_UNIFIED_LATEST_ENABLED")
+        if raw is not None and str(raw).strip() != "":
+            enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            object.__setattr__(self, "scanner_unified_latest_enabled", enabled)
+            return enabled
+        return bool(self.scanner_unified_latest_enabled)
     cors_origins_raw: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000", alias="CORS_ORIGINS")
     
     fyers_app_id: str = ""
@@ -99,11 +151,15 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", alias="GROQ_API_KEY")
     llm_model: str = "LLAMA_3_70B"
     admin_email: str = Field(default="", alias="ADMIN_EMAIL")
+    # Canonical names: SMTP_*. Common MAIL_* aliases are accepted via model_validator
+    # (empty SMTP_* must not block MAIL_SERVER / MAIL_USERNAME / etc.).
     smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
     smtp_user: str = Field(default="", alias="SMTP_USER")
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="", alias="SMTP_FROM")
+    smtp_from_name: str = Field(default="TradeX", alias="SMTP_FROM_NAME")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
     advisory_disclaimer: str = "Advisory only. This system does not place live trades and is not financial advice."
 
     # FEAT-008 realistic trade execution control plane
@@ -153,22 +209,192 @@ class Settings(BaseSettings):
     feat008_composite_uses_realistic: bool = True
     feat008_skip_on_missing_next_bar: bool = True
 
+    # Convention (config-contract Specs): use Field(...) for defaults/constraints; env names
+    # are UPPER_SNAKE via alias (same pattern as FEAT-008). Values are NON-BINDING until a
+    # later spec wires consumers — do not treat flags as proof of runtime behavior.
+    #
     # FEAT-024A Spec 1 (004-execution-costs-config): configuration contract only.
-    # These fields are loaded from env (COSTS_ENABLED, SLIPPAGE_BPS, COMMISSION_FIXED,
-    # COMMISSION_PERCENT) but are NON-BINDING until later FEAT-024A specs wire consumers.
-    # Do not treat costs_enabled=True as evidence that costs are applied at runtime.
+    # Loaded from env but NON-BINDING until later FEAT-024A specs wire consumers.
     # Separate from FEAT-008 / backtest_service cost profiles (slippage_rate, brokerage_rate).
-    costs_enabled: bool = True
-    slippage_bps: float = 5.0
-    commission_fixed: float = 0.50
-    commission_percent: float = 0.001
+    costs_enabled: bool = Field(default=True, alias="COSTS_ENABLED")
+    slippage_bps: float = Field(default=5.0, alias="SLIPPAGE_BPS")
+    commission_fixed: float = Field(default=0.50, alias="COMMISSION_FIXED")
+    commission_percent: float = Field(default=0.001, alias="COMMISSION_PERCENT")
+
+    # FEAT-024B Spec 1 (005-portfolio-config): configuration contract only.
+    # Loaded from env (PORTFOLIO_*) but NON-BINDING until later FEAT-024B specs wire consumers.
+    # Do not treat portfolio_simulation_enabled=True as evidence that multi-asset portfolio
+    # simulation, sizing, or cash accounting runs.
+    # Dual source of truth (intentional Spec 1): BacktestService hardcoded equity 100000.0
+    # and run(position_sizing_pct=...) remain authoritative for single-asset backtests.
+    portfolio_simulation_enabled: bool = Field(default=False, alias="PORTFOLIO_SIMULATION_ENABLED")
+    portfolio_max_concurrent_positions: int = Field(default=5, ge=1, alias="PORTFOLIO_MAX_CONCURRENT_POSITIONS")
+    portfolio_max_position_pct: float = Field(default=20.0, gt=0.0, le=100.0, alias="PORTFOLIO_MAX_POSITION_PCT")
+    portfolio_minimum_trade_value: float = Field(default=1000.0, ge=0.0, alias="PORTFOLIO_MINIMUM_TRADE_VALUE")
+    # Effectively a constant in Spec 1: default False and validator rejects True (NSE/BSE).
+    portfolio_allow_fractional_shares: bool = Field(
+        default=False,
+        alias="PORTFOLIO_ALLOW_FRACTIONAL_SHARES",
+        description="Must remain False for Indian Cash Equity whole-share delivery (Spec 1).",
+    )
+    portfolio_reserve_cash_enabled: bool = Field(default=False, alias="PORTFOLIO_RESERVE_CASH_ENABLED")
+    portfolio_starting_capital: float = Field(default=100000.0, ge=1000.0, alias="PORTFOLIO_STARTING_CAPITAL")
+
+    # FEAT-011 Spec 1 (Shadow Infrastructure Foundation): configuration contract
+    shadow_mode_enabled: bool = Field(default=False, alias="SHADOW_MODE_ENABLED")
+    shadow_mode_stage: str = Field(default="SHADOW", alias="SHADOW_MODE_STAGE")
+    shadow_mode_ruleset: str = Field(default="experimental_v1", alias="SHADOW_MODE_RULESET")
+    shadow_mode_persistence_enabled: bool = Field(default=False, alias="SHADOW_MODE_PERSISTENCE_ENABLED")
+
+    # Sprint 3: Reduce Scan-Result Fan-out feature flag
+    scan_result_minimal_writes: bool = Field(default=False, alias="SCAN_RESULT_MINIMAL_WRITES")
+
+    def is_scan_result_minimal_writes(self) -> bool:
+        try:
+            raw = os.environ.get("SCAN_RESULT_MINIMAL_WRITES")
+            if raw is not None and str(raw).strip() != "":
+                enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+                object.__setattr__(self, "scan_result_minimal_writes", enabled)
+                return enabled
+            return bool(self.scan_result_minimal_writes)
+        except Exception:
+            return False
+
+    # Sprint 5: Scanner Single Final Write feature flag
+    scanner_single_final_write_enabled: bool = Field(default=False, alias="SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+    # Full broker-backed scan wall-clock budget (data fetch + analysis + rate limits).
+    # FR-012's 30s target applies to pure in-memory aggregation; production Fyers
+    # universe scans need a much larger budget. Override via env.
+    scan_execution_timeout_seconds: float = Field(
+        default=600.0, ge=30.0, le=3600.0, alias="SCAN_EXECUTION_TIMEOUT_SECONDS"
+    )
+
+    def is_scanner_single_final_write_enabled(self) -> bool:
+        try:
+            raw = os.environ.get("SCANNER_SINGLE_FINAL_WRITE_ENABLED")
+            if raw is not None and str(raw).strip() != "":
+                enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+                object.__setattr__(self, "scanner_single_final_write_enabled", enabled)
+                return enabled
+            return bool(self.scanner_single_final_write_enabled)
+        except Exception:
+            return False
+
+    # Sprint 4: Authoritative Candle Store feature flags
+    authoritative_candle_store_enabled: bool = Field(default=False, alias="AUTHORITATIVE_CANDLE_STORE_ENABLED")
+    candle_store_dual_write: bool = Field(default=True, alias="CANDLE_STORE_DUAL_WRITE")
+    candle_store_allow_fallback: bool = Field(default=True, alias="CANDLE_STORE_ALLOW_FALLBACK")
+
+    def is_authoritative_candle_store_enabled(self) -> bool:
+        """Live feature-flag read for Authoritative Candle Store (zero-redeploy rollback).
+
+        Priority on every call (pure read — does not mutate settings attributes):
+        1. ``os.environ["AUTHORITATIVE_CANDLE_STORE_ENABLED"]`` when set (non-empty).
+        2. ``settings.authoritative_candle_store_enabled`` attribute (tests / in-process toggles).
+
+        On any evaluation error, defaults to False (legacy fallback fail-safe).
+        """
+        try:
+            raw = os.environ.get("AUTHORITATIVE_CANDLE_STORE_ENABLED")
+            if raw is not None and str(raw).strip() != "":
+                return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            return bool(self.authoritative_candle_store_enabled)
+        except Exception:
+            return False
+
+    def is_candle_store_allow_fallback(self) -> bool:
+        """Whether ACS may return best-available data / provider fallback on errors."""
+        try:
+            raw = os.environ.get("CANDLE_STORE_ALLOW_FALLBACK")
+            if raw is not None and str(raw).strip() != "":
+                return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+            return bool(self.candle_store_allow_fallback)
+        except Exception:
+            return True
+
+
+
+    # FEAT-012/FEAT-013: Governance states and validation reporting
+    governance_reports_dir: str = Field(default="governance/reports", alias="GOVERNANCE_REPORTS_DIR")
+    rule_states_file: str = Field(default="backend/app/config/rule_states.json", alias="RULE_STATES_FILE")
 
     model_config = SettingsConfigDict(
-        env_file=str(ROOT_DIR / ".env"),
-        env_file_encoding='utf-8',
+        env_file=_ENV_FILES,
+        env_file_encoding="utf-8",
         extra="ignore",
-        populate_by_name=True
+        populate_by_name=True,
     )
+
+    @model_validator(mode="after")
+    def _resolve_smtp_mail_aliases(self):
+        """
+        Accept both SMTP_* (canonical) and MAIL_* (common Flask/Django-style) names.
+
+        Root cause of missed password-reset emails: .env had MAIL_SERVER / MAIL_USERNAME
+        filled while SMTP_HOST / SMTP_USER were empty. pydantic only binds SMTP_* aliases.
+        Empty SMTP_* must fall back to MAIL_*.
+        """
+        try:
+            from dotenv import dotenv_values
+        except ImportError:  # pragma: no cover
+            dotenv_values = None  # type: ignore[assignment]
+
+        merged: dict[str, str] = {}
+        if dotenv_values is not None:
+            for path in _ENV_FILES:
+                if Path(path).is_file():
+                    for key, val in dotenv_values(path).items():
+                        if key and val is not None and str(val).strip():
+                            merged[key] = str(val).strip()
+        for key, val in os.environ.items():
+            if val is not None and str(val).strip():
+                merged[key] = str(val).strip()
+
+        def pick(*names: str) -> str:
+            for name in names:
+                val = merged.get(name)
+                if val is not None and str(val).strip():
+                    return str(val).strip()
+            return ""
+
+        if not (self.smtp_host or "").strip():
+            self.smtp_host = pick("SMTP_HOST", "MAIL_SERVER")
+        if not (self.smtp_user or "").strip():
+            self.smtp_user = pick("SMTP_USER", "MAIL_USERNAME")
+        if not (self.smtp_password or "").strip():
+            self.smtp_password = pick("SMTP_PASSWORD", "MAIL_PASSWORD")
+        if not (self.smtp_from or "").strip():
+            self.smtp_from = pick("SMTP_FROM", "MAIL_FROM", "SMTP_USER", "MAIL_USERNAME")
+        if not (self.smtp_from_name or "").strip():
+            self.smtp_from_name = pick("SMTP_FROM_NAME", "MAIL_FROM_NAME") or "TradeX"
+
+        # Port: only override default when MAIL_PORT / SMTP_PORT provides a value
+        port_raw = pick("SMTP_PORT", "MAIL_PORT")
+        if port_raw:
+            try:
+                self.smtp_port = int(port_raw)
+            except ValueError:
+                _logger.warning("Invalid SMTP/MAIL port %r; keeping %s", port_raw, self.smtp_port)
+
+        tls_raw = pick("SMTP_USE_TLS", "MAIL_USE_TLS")
+        if tls_raw:
+            self.smtp_use_tls = tls_raw.lower() in {"1", "true", "yes", "on"}
+
+        if self.smtp_host:
+            _logger.info(
+                "SMTP configured | host=%s port=%s user=%s from=%s tls=%s",
+                self.smtp_host,
+                self.smtp_port,
+                self.smtp_user or "(none)",
+                self.smtp_from or self.smtp_user or "(none)",
+                self.smtp_use_tls,
+            )
+        else:
+            _logger.warning(
+                "SMTP not configured | set SMTP_HOST/SMTP_USER/SMTP_PASSWORD "
+                "(or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) for password-reset emails"
+            )
+        return self
 
     @field_validator("database_url", mode="before")
     def _validate_db_url(cls, v, info):
@@ -184,12 +410,64 @@ class Settings(BaseSettings):
         cleaned = str(v).strip().upper()
         if cleaned in {"REALISTIC", "LEGACY"}:
             return cleaned
-        import logging
-        logging.getLogger("app.config").warning(
+        _logger.warning(
             "Unknown execution_model %r – normalising to REALISTIC.  Valid: %s",
             v, ["REALISTIC", "LEGACY"],
         )
         return "REALISTIC"
+
+    @field_validator("shadow_mode_stage", mode="before")
+    @classmethod
+    def _validate_shadow_mode_stage(cls, v: str | None) -> str:
+        if v is None or not str(v).strip():
+            return "SHADOW"
+        cleaned = str(v).strip().upper()
+        if cleaned in {"OFF", "SHADOW", "ACTIVE"}:
+            return cleaned
+        raise ValueError(f"Invalid shadow_mode_stage: {v}. Valid options: OFF, SHADOW, ACTIVE")
+
+    @field_validator("shadow_mode_persistence_enabled")
+    @classmethod
+    def _warn_shadow_persistence_non_binding(cls, v: bool) -> bool:
+        # Audit M3: flag is loadable but IShadowStore writes are not wired in Spec 1.
+        if v is True:
+            _logger.warning(
+                "shadow_mode_persistence_enabled=True is NON-BINDING in FEAT-011 Spec 1 "
+                "(006-shadow-infra-foundation): shadow comparison DB writes are not wired yet. "
+                "IShadowStore persistence lands in a later specification."
+            )
+        return v
+
+    def is_shadow_hook_enabled(self) -> bool:
+        """Return True when the orchestrator shadow hook should run.
+
+        Requires the master toggle and a non-OFF stage. Stage ACTIVE is accepted
+        for forward-compat but Spec 1 still only constructs context / invokes a
+        registered executor without affecting production recommendations.
+        """
+        return bool(self.shadow_mode_enabled) and self.shadow_mode_stage != "OFF"
+
+    @field_validator("portfolio_simulation_enabled")
+    @classmethod
+    def _warn_portfolio_simulation_non_binding(cls, v: bool) -> bool:
+        # Audit M1 / hardening: flag is loadable but has no runtime consumers in Spec 1.
+        if v is True:
+            _logger.warning(
+                "portfolio_simulation_enabled=True is NON-BINDING in FEAT-024B Spec 1 "
+                "(005-portfolio-config): multi-asset portfolio simulation, position sizing, "
+                "and cash accounting are not wired yet. BacktestService single-asset paths "
+                "remain unchanged."
+            )
+        return v
+
+    @field_validator("portfolio_allow_fractional_shares")
+    @classmethod
+    def _validate_fractional_shares(cls, v: bool) -> bool:
+        if v is True:
+            raise ValueError(
+                "Fractional shares are not allowed for Indian Cash Equity swing trading."
+            )
+        return v
 
     @cached_property
     def cors_origins(self) -> list[str]:
@@ -275,4 +553,46 @@ class Settings(BaseSettings):
             return []
         return list(dict.fromkeys(symbols))
 
+    def log_portfolio_config_snapshot(self) -> None:
+        """Emit non-secret portfolio config for ops (Spec 1 NON-BINDING contract)."""
+        _logger.info(
+            "Portfolio config loaded (FEAT-024B Spec 1 NON-BINDING): "
+            "simulation_enabled=%s max_concurrent_positions=%s max_position_pct=%s "
+            "minimum_trade_value=%s allow_fractional_shares=%s reserve_cash_enabled=%s "
+            "starting_capital=%s | dual-source: BacktestService still uses its own "
+            "hardcoded equity and position_sizing_pct",
+            self.portfolio_simulation_enabled,
+            self.portfolio_max_concurrent_positions,
+            self.portfolio_max_position_pct,
+            self.portfolio_minimum_trade_value,
+            self.portfolio_allow_fractional_shares,
+            self.portfolio_reserve_cash_enabled,
+            self.portfolio_starting_capital,
+        )
+
+    def log_shadow_config_snapshot(self) -> None:
+        """Emit non-secret shadow config for ops (Spec 1)."""
+        _logger.info(
+            "Shadow config loaded: "
+            "enabled=%s stage=%s ruleset=%s persistence_enabled=%s hook_active=%s",
+            self.shadow_mode_enabled,
+            self.shadow_mode_stage,
+            self.shadow_mode_ruleset,
+            self.shadow_mode_persistence_enabled,
+            self.is_shadow_hook_enabled(),
+        )
+        if self.shadow_mode_stage == "ACTIVE":
+            _logger.warning(
+                "shadow_mode_stage=ACTIVE is reserved for future execution activation; "
+                "Spec 1 still isolates shadow work from production scoring and API responses."
+            )
+        if self.shadow_mode_persistence_enabled:
+            _logger.warning(
+                "shadow_mode_persistence_enabled=True is NON-BINDING in Spec 1 "
+                "(no shadow DB writes yet)."
+            )
+
+
 settings = Settings()
+settings.log_portfolio_config_snapshot()
+settings.log_shadow_config_snapshot()

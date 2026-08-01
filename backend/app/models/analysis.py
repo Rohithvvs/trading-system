@@ -3,9 +3,54 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Boolean
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+import json
 
 from ..db.base import Base
+
+
+class ChoiceArray(TypeDecorator):
+    """Platform-independent ARRAY type.
+    Uses PostgreSQL's ARRAY type, or JSON-serialized TEXT on SQLite.
+    """
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, item_type, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.item_type = item_type
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(ARRAY(self.item_type))
+        else:
+            return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == 'postgresql':
+            return value
+        if isinstance(value, str):
+            return value
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return []
+        if dialect.name == 'postgresql':
+            return value
+        if value == '{}':
+            return []
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            if value.startswith('{') and value.endswith('}'):
+                return [x.strip() for x in value[1:-1].split(',') if x.strip()]
+            return []
+
 
 
 class AnalysisHistory(Base):
@@ -29,7 +74,7 @@ class AnalysisHistory(Base):
     sector_filter_triggered: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     original_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
     challenger_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    reason_codes: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reason_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # SR-004 Market Permission Engine Audit Columns
     market_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -38,6 +83,9 @@ class AnalysisHistory(Base):
     market_volatility_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
     market_new_entry_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     market_risk_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    shadow_outputs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    situation_tags: Mapped[list[str]] = mapped_column(ChoiceArray(Text), server_default="{}", nullable=False)
 
     stock = relationship("WatchedStock", back_populates="analyses")
 
@@ -96,3 +144,40 @@ class ScannedCandidate(Base):
     technical_signal: Mapped[str | None] = mapped_column(String(20), nullable=True)
     screener_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     matched: Mapped[bool] = mapped_column(default=False)
+
+
+class ArticleDedupLog(Base):
+    """Audit row for a removed near-duplicate article (FR-009).
+
+    Table name matches the specification clarification: ``news_deduplication_audit``.
+    """
+
+    __tablename__ = "news_deduplication_audit"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol: Mapped[str] = mapped_column(String(25), index=True)
+    kept_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    deduplicated_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    kept_title: Mapped[str] = mapped_column(Text, nullable=False)
+    deduplicated_title: Mapped[str] = mapped_column(Text, nullable=False)
+    similarity: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(String(250), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+
+class BackfillProgress(Base):
+    __tablename__ = "backfill_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    last_processed_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="RUNNING", nullable=False)
+    processed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+

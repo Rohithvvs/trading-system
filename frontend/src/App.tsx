@@ -9,7 +9,6 @@ const AllAnalyzedStocksTable = lazy(() =>
 const CandidateTable = lazy(() =>
   import("./components/CandidateTable").then((m) => ({ default: m.CandidateTable })),
 );
-import { isMarketOpenForDisplay, checkCanPlaceBuyOrder, showMarketClosedAlert } from "./utils/tradingHours";
 import type {
   CandidateRow,
   DashboardFilters,
@@ -32,10 +31,18 @@ import { ScannerProgress } from "./components/ScannerProgress";
 import { StatusCards } from "./components/StatusCards";
 import { AdminRoute } from "./components/AdminRoute";
 import FyersCallback from "./components/FyersCallback";
+import { PaperOrderProvider } from "./contexts/PaperOrderContext";
+import { navigateToPaperOrder } from "./utils/paperOrderNavigation";
+import { FeaturePermissionsProvider } from "./contexts/FeaturePermissionsContext";
+import { FeatureGuard } from "./components/FeatureGuard";
+import { AccessDenied } from "./components/AccessDenied";
 
 /** Code-split heavy modules — shell/nav paint first */
 const PaperTradingPage = lazy(() =>
   import("./components/PaperTradingPage").then((m) => ({ default: m.PaperTradingPage })),
+);
+const PaperOrderPage = lazy(() =>
+  import("./pages/PaperOrderPage").then((m) => ({ default: m.PaperOrderPage })),
 );
 const UserProfilePage = lazy(() =>
   import("./components/profile/UserProfilePage").then((m) => ({ default: m.UserProfilePage })),
@@ -52,14 +59,14 @@ const StockDetailPanel = lazy(() =>
 const MarketsPage = lazy(() =>
   import("./pages/MarketsPage").then((m) => ({ default: m.MarketsPage })),
 );
-const WatchlistPage = lazy(() =>
-  import("./pages/WatchlistPage").then((m) => ({ default: m.WatchlistPage })),
-);
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage").then((m) => ({ default: m.PerformancePage })),
 );
 const DiagnosticsPage = lazy(() =>
   import("./pages/Diagnostics").then((m) => ({ default: m.DiagnosticsPage })),
+);
+const AdminPanelPage = lazy(() =>
+  import("./components/admin/AdminPanelPage").then((m) => ({ default: m.AdminPanelPage })),
 );
 
 function ViewFallback() {
@@ -157,11 +164,8 @@ export default function App() {
     loadAndApply();
 
     const intervalId = setInterval(() => {
-      const status = getMarketStatus();
-      if (status === "Open") {
-        console.info("[scanner] 30-min auto-polling new cached scan...");
-        loadAndApply();
-      }
+      console.info("[scanner] 30-min auto-polling new cached scan...");
+      loadAndApply();
     }, 30 * 60 * 1000);
 
     return () => clearInterval(intervalId);
@@ -181,7 +185,6 @@ export default function App() {
     }
   }, [symbolParam]);
 
-  const marketStatus = useMemo(() => getMarketStatus(), []);
   const analysisItems = screenerResult?.analysis?.items ?? [];
   const shortlistRows = useMemo(() => buildCandidateRows(screenerResult), [screenerResult]);
 
@@ -196,7 +199,13 @@ export default function App() {
         if (filters.signal === "REJECT") return sig === "reject" || sig === "bearish" || sig === "sell";
         return true;
       })
-      .filter((row) => row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1])
+      .filter((row) => {
+        // Keep analysis-failed rows visible under REJECT; do not invent Score=100.
+        if (row.score === null || row.score === undefined) {
+          return filters.signal === "REJECT" || filters.signal === "ALL";
+        }
+        return row.score >= filters.scoreRange[0] && row.score <= filters.scoreRange[1];
+      })
       .filter((row) => (filters.onlyHighConfidence ? (row.confidence ?? 0) >= 0.7 : true))
       .filter((row) => (searchTerm ? row.symbol.includes(searchTerm) : true))
       .sort((left, right) => compareRows(left, right, filters.sortBy));
@@ -335,24 +344,6 @@ export default function App() {
     }
   }
 
-  function handleExportCsv() {
-    const rows = screenerResult?.all_analyzed_stocks?.length ? screenerResult.all_analyzed_stocks : screenerResult?.matches ?? [];
-    if (!rows.length) {
-      toast.info("Nothing to export yet");
-      return;
-    }
-    const headers = ["symbol", "close", "screener_score", "technical_signal", "matched", "volume"];
-    const csv = [headers.join(","), ...rows.map((row: any) => headers.map((key) => JSON.stringify(row[key] ?? "")).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `scan-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success("CSV exported");
-  }
-
   function loadSavedScan(scan: any) {
     setSelectedUniverse(scan.universe ?? "NIFTY500");
     setTimeframe(scan.timeframe ?? "1d");
@@ -362,41 +353,58 @@ export default function App() {
   }
 
   const sendRowToPaperTrading = useCallback((row: CandidateRow, suggestedEntry?: number | null) => {
-    const sig = (row as any).signal || (row as any).recommendation;
-    if (sig === "BUY") {
-      const check = checkCanPlaceBuyOrder();
-      if (!check.allowed) {
-        showMarketClosedAlert(check);
-        return;
-      }
-    }
-    const prefill = buildPaperTradingPrefill(row);
-    setPaperTradingPrefill({
+    const prefill = buildPaperTradingPrefill(row, "BUY");
+    const updatedPrefill = {
       ...prefill,
       suggested_entry: suggestedEntry ?? prefill.suggested_entry,
+    };
+
+    // Dedicated full-page order ticket — never open a drawer on Scanner
+    navigateToPaperOrder(navigate, {
+      symbol: row.symbol,
+      side: "BUY",
+      prefill: updatedPrefill,
+      currentPrice: suggestedEntry ?? updatedPrefill.suggested_entry ?? null,
+      signal: String(row.signal ?? "BUY"),
+      score: row.score ?? null,
+      confidence: row.confidence ?? null,
+      riskReward: row.riskReward ?? null,
+      returnTo: `${window.location.pathname}${window.location.search || ""}`,
     });
-    navigate("/paper");
   }, [navigate]);
 
   const scannerListView = useMemo(() => (
     <div className="scanner-center">
-      <header className="page-hero scanner-page-hero">
-        <div>
+      {/* Row 1: Title (left) + CTA & status chips (right) — trading-desk header */}
+      <header className="scanner-page-header" data-testid="scanner-page-header">
+        <div className="scanner-page-header__left">
           <p className="ds-label">Scanner</p>
           <h1 className="ds-display">Scanner</h1>
-          <p className="ds-muted">Favorites and scan results from the shared swing scanner.</p>
+          <p className="ds-muted">
+            Favorites and scan results from the shared swing scanner.
+          </p>
         </div>
-        <div className="page-hero__actions scanner-header-right">
-          <button
-            type="button"
-            className="button ghost-button"
-            onClick={() => navigate("/markets")}
-          >
-            Run from Markets
-          </button>
+
+        <div className="scanner-page-header__right">
+          <div className="scanner-page-header__cta">
+            <button
+              type="button"
+              className="button ghost-button scanner-page-header__run-btn"
+              onClick={() => navigate("/markets")}
+              data-testid="scanner-run-from-markets"
+            >
+              Run from Markets
+            </button>
+          </div>
           <StatusCards
             compact
-            lastScanAt={screenerResult?.last_scan_completed_at ?? screenerResult?.scanned_at ?? screenerResult?.analysis?.generated_at ?? null}
+            className="scanner-page-header__status"
+            lastScanAt={
+              screenerResult?.last_scan_completed_at ??
+              screenerResult?.scanned_at ??
+              screenerResult?.analysis?.generated_at ??
+              null
+            }
             isLoading={isLoading}
             scannedSymbols={screenerResult?.scanned_symbols ?? null}
             durationSec={lastScanDuration}
@@ -404,6 +412,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Row 2: Result view tabs */}
       <div className="scanner-result-tabs" role="tablist" aria-label="Result views">
         <button
           type="button"
@@ -536,112 +545,183 @@ export default function App() {
   ), [navigate]);
 
   return (
-    <AppShell>
-      <Suspense fallback={<ViewFallback />}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/scanner" replace />} />
-          <Route path="/home" element={<Navigate to="/scanner" replace />} />
-          <Route
-            path="/markets"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <MarketsPage
-                  onLoadSavedScan={loadSavedScan}
-                  screenerResult={screenerResult}
-                  isLoading={isLoading}
-                  scanError={error}
-                  marketStatus={marketStatus}
-                  selectedUniverse={selectedUniverse}
-                  timeframe={timeframe}
-                  summaryMetrics={summaryMetrics}
-                  onRunScanner={handleRunScanner}
-                  search={filters.search}
-                  onSearchChange={handleSearchChange}
-                  topN={topN}
-                  lookback={lookback}
-                  universe={selectedUniverse}
-                  universes={universesMapped}
-                  onTopNChange={setTopN}
-                  onLookbackChange={setLookback}
-                  onTimeframeChange={setTimeframe}
-                  onUniverseChange={setSelectedUniverse}
-                  theme={theme}
-                  onThemeToggle={toggleTheme}
-                  progressData={progressData}
-                  scanStartTime={scanStartTime}
-                />
-              </Suspense>
-            }
-          />
-          <Route path="/scanner" element={scannerView} />
-          <Route
-            path="/watchlist"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <WatchlistPage />
-              </Suspense>
-            }
-          />
-          <Route path="/paper" element={paperDeskView} />
-          <Route path="/paper/:section" element={paperDeskView} />
-          <Route
-            path="/performance"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <PerformancePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/diagnostics"
-            element={
-              <Suspense fallback={<ViewFallback />}>
-                <DiagnosticsPage />
-              </Suspense>
-            }
-          />
-          <Route path="/profile" element={profileView} />
-          <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
-          <Route
-            path="/admin/logs"
-            element={
-              <AdminRoute>
-                <Suspense fallback={<ViewFallback />}>
-                  <SystemLogs />
-                </Suspense>
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/command"
-            element={
-              <AdminRoute>
-                <Suspense fallback={<ViewFallback />}>
-                  <CentralCommand />
-                </Suspense>
-              </AdminRoute>
-            }
-          />
-          <Route path="/fyers/callback" element={<FyersCallback />} />
-          <Route path="*" element={<Navigate to="/scanner" replace />} />
-        </Routes>
-      </Suspense>
-    </AppShell>
+    <FeaturePermissionsProvider>
+      <PaperOrderProvider>
+        <AppShell>
+          <Suspense fallback={<ViewFallback />}>
+            <Routes>
+              {/* Ungated core landing (audit M-4) — avoid defaulting into a gated route */}
+              <Route path="/" element={<Navigate to="/markets" replace />} />
+              <Route path="/home" element={<Navigate to="/markets" replace />} />
+              <Route
+                path="/markets"
+                element={
+                  <Suspense fallback={<ViewFallback />}>
+                    <MarketsPage
+                      onLoadSavedScan={loadSavedScan}
+                      screenerResult={screenerResult}
+                      isLoading={isLoading}
+                      scanError={error}
+                      selectedUniverse={selectedUniverse}
+                      timeframe={timeframe}
+                      summaryMetrics={summaryMetrics}
+                      onRunScanner={handleRunScanner}
+                      search={filters.search}
+                      onSearchChange={handleSearchChange}
+                      topN={topN}
+                      lookback={lookback}
+                      universe={selectedUniverse}
+                      universes={universesMapped}
+                      onTopNChange={setTopN}
+                      onLookbackChange={setLookback}
+                      onTimeframeChange={setTimeframe}
+                      onUniverseChange={setSelectedUniverse}
+                      theme={theme}
+                      onThemeToggle={toggleTheme}
+                      progressData={progressData}
+                      scanStartTime={scanStartTime}
+                    />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/scanner"
+                element={
+                  <FeatureGuard feature="advanced_scanner" fallback={<AccessDenied />}>
+                    {scannerView}
+                  </FeatureGuard>
+                }
+              />
+              <Route path="/watchlist" element={<Navigate to="/paper?tab=watchlist" replace />} />
+              <Route path="/paper" element={paperDeskView} />
+              <Route path="/paper/:section" element={paperDeskView} />
+              <Route
+                path="/paper-order"
+                element={
+                  <Suspense fallback={<ViewFallback />}>
+                    <PaperOrderPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/performance"
+                element={
+                  <FeatureGuard feature="portfolio_analytics" fallback={<AccessDenied />}>
+                    <Suspense fallback={<ViewFallback />}>
+                      <PerformancePage />
+                    </Suspense>
+                  </FeatureGuard>
+                }
+              />
+              <Route
+                path="/diagnostics"
+                element={
+                  <Suspense fallback={<ViewFallback />}>
+                    <DiagnosticsPage />
+                  </Suspense>
+                }
+              />
+              <Route path="/profile" element={profileView} />
+              <Route path="/logs" element={<Navigate to="/admin/logs" replace />} />
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <Suspense fallback={<ViewFallback />}>
+                      <AdminPanelPage />
+                    </Suspense>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <AdminRoute>
+                    <FeatureGuard feature="system_logs" fallback={<AccessDenied />}>
+                      <Suspense fallback={<ViewFallback />}>
+                        <SystemLogs />
+                      </Suspense>
+                    </FeatureGuard>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/command"
+                element={
+                  <AdminRoute>
+                    <FeatureGuard feature="central_command" fallback={<AccessDenied />}>
+                      <Suspense fallback={<ViewFallback />}>
+                        <CentralCommand />
+                      </Suspense>
+                    </FeatureGuard>
+                  </AdminRoute>
+                }
+              />
+              <Route path="/fyers/callback" element={<FyersCallback />} />
+              <Route path="*" element={<Navigate to="/markets" replace />} />
+            </Routes>
+          </Suspense>
+        </AppShell>
+        {/* Global BUY/SELL bus → dedicated /paper-order page (no drawer) */}
+        <PaperOrderRouteBridge />
+      </PaperOrderProvider>
+    </FeaturePermissionsProvider>
   );
 }
 
-function buildPaperTradingPrefill(row: CandidateRow): RecommendationPrefillRequest {
+/** Listens for paper:open-order and navigates to the full-page order ticket. */
+function PaperOrderRouteBridge() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail || {};
+      navigateToPaperOrder(navigate, {
+        symbol: detail.symbol,
+        side: detail.side ?? "BUY",
+        prefill: detail.prefill ?? null,
+        orderId: detail.orderId ?? null,
+        returnTo: detail.returnTo,
+        currentPrice: detail.currentPrice ?? null,
+        signal: detail.signal ?? null,
+        score: detail.score ?? null,
+        confidence: detail.confidence ?? null,
+        riskReward: detail.riskReward ?? null,
+      });
+    };
+    window.addEventListener("paper:open-order", handler);
+    return () => window.removeEventListener("paper:open-order", handler);
+  }, [navigate]);
+
+  return null;
+}
+
+function buildPaperTradingPrefill(row: CandidateRow, side?: "BUY" | "SELL"): RecommendationPrefillRequest {
   const plan =
     row.analysisItem?.recommendation.trade_plans.find((item) => item.mode === "swing") ??
     row.analysisItem?.recommendation.trade_plans[0];
+  let suggested_stop: number | null = plan?.stop_loss ?? row.stopLoss ?? null;
+  let suggested_targets: number[] = [plan?.target_1, plan?.target_2].filter(
+    (value): value is number => typeof value === "number",
+  );
+  if (plan && side) {
+    const needsSwap =
+      (side === "BUY" && plan.bias === "short") || (side === "SELL" && plan.bias === "long");
+    if (needsSwap && plan.target_1 != null && plan.stop_loss != null) {
+      suggested_stop = plan.target_1;
+      suggested_targets = [plan.stop_loss, plan.target_2].filter(
+        (value): value is number => typeof value === "number",
+      );
+    }
+  }
   return {
     symbol: row.symbol,
     suggested_entry: plan ? (plan.entry_low + plan.entry_high) / 2 : row.entryLow,
-    suggested_stop: plan?.stop_loss ?? row.stopLoss ?? null,
-    suggested_targets: [plan?.target_1, plan?.target_2].filter((value): value is number => typeof value === "number"),
+    suggested_stop,
+    suggested_targets,
     recommendation_meta: {
       signal: row.signal,
-      score: row.score,
+      score: row.score ?? 0,
       confidence: Math.round((row.confidence ?? 0) * 100) / 100,
     },
   };
@@ -680,18 +760,37 @@ function buildCandidateRows(screenerResult: ScreenerResponse | null): CandidateR
       signal = "WATCH";
     }
 
+    const rec = analysis?.recommendation;
+    const riskFactors = rec?.reasoning?.risk_factors ?? [];
+    const hasPlans = Boolean(plan) || Boolean(rec?.trade_plans?.length);
+    const analysisFailed =
+      !analysis ||
+      riskFactors.some((r) => typeof r === "string" && r.toLowerCase().includes("analysis failed")) ||
+      // Backend clears score/plans on true analysis failure (never invent Score=100).
+      (Boolean(rec) && rec!.score === 0 && !hasPlans);
+
+    // NEVER fall back to screener_score as the recommendation score.
+    // Screener scores can hit 100 and look like a fake "perfect" composite.
+    // Only use the real composite score from the completed analysis pipeline.
+    const compositeScore = analysisFailed
+      ? null
+      : typeof rec?.score === "number"
+        ? rec.score
+        : null;
+
     return {
       rank: ranking?.rank ?? null,
       symbol,
       signal,
-      score: analysis?.recommendation.score ?? match?.screener_score ?? 0,
-      confidence: analysis?.recommendation.confidence ?? null,
+      score: compositeScore,
+      confidence: analysisFailed ? null : rec?.confidence ?? null,
       entryLow: plan?.entry_low ?? null,
       entryHigh: plan?.entry_high ?? null,
       stopLoss: plan?.stop_loss ?? null,
       target1: plan?.target_1 ?? null,
       target2: plan?.target_2 ?? null,
       riskReward: plan?.risk_reward_ratio ?? null,
+      analysisFailed: Boolean(analysisFailed),
       trend: formatTrend(technical, match),
       momentum: formatMomentum(technical, match),
       volume: formatVolume(technical, match),
@@ -739,7 +838,7 @@ function compareRows(left: CandidateRow, right: CandidateRow, sortBy: SortKey) {
   if (sortBy === "rank") return (left.rank ?? 999) - (right.rank ?? 999);
   if (sortBy === "confidence") return (right.confidence ?? -1) - (left.confidence ?? -1);
   if (sortBy === "riskReward") return (right.riskReward ?? -1) - (left.riskReward ?? -1);
-  return right.score - left.score;
+  return (right.score ?? -1) - (left.score ?? -1);
 }
 
 function formatTrend(
@@ -778,16 +877,4 @@ function formatVolume(
   return match.conditions.volume_above_previous_day ? "expanding" : "adequate";
 }
 
-function getMarketStatus() {
-  try {
-    return isMarketOpenForDisplay();
-  } catch {
-    const now = new Date();
-    const day = now.getDay();
-    const minutes = now.getHours() * 60 + now.getMinutes();
-    const open = 9 * 60 + 15;
-    const close = 15 * 60 + 30;
-    if (day === 0 || day === 6) return "Closed";
-    return minutes >= open && minutes <= close ? "Open" : "Closed";
-  }
-}
+

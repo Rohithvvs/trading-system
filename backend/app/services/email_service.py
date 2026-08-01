@@ -4,6 +4,8 @@ import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
+
 from ..config import settings
 
 logger = logging.getLogger("app.email")
@@ -37,28 +39,87 @@ PASSWORD_RESET_HTML = """\
 </html>
 """
 
+PASSWORD_RESET_TEXT = """\
+Reset Your Password
+
+We received a request to reset your password. Open this link to set a new password:
+
+%s
+
+If you didn't request this, you can safely ignore this email.
+This link expires in 15 minutes.
+
+— TradeX Trading System
+"""
+
+
+def smtp_is_configured() -> bool:
+    """True when enough SMTP settings exist to attempt delivery."""
+    return bool(
+        (settings.smtp_host or "").strip()
+        and (settings.smtp_user or "").strip()
+        and (settings.smtp_password or "").strip()
+    )
+
+
+def _smtp_config_status() -> str:
+    return (
+        f"host={'set' if (settings.smtp_host or '').strip() else 'MISSING'} "
+        f"user={'set' if (settings.smtp_user or '').strip() else 'MISSING'} "
+        f"password={'set' if (settings.smtp_password or '').strip() else 'MISSING'} "
+        f"from={settings.smtp_from or settings.smtp_user or 'MISSING'} "
+        f"port={settings.smtp_port}"
+    )
+
 
 def send_password_reset_email(recipient: str, reset_url: str) -> bool:
-    if not settings.smtp_host:
-        logger.warning("SMTP not configured; skipping password reset email to %s", recipient)
+    if not smtp_is_configured():
+        logger.warning(
+            "SMTP not configured; skipping password reset email to %s | %s | "
+            "Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD (or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) in repo-root .env",
+            recipient,
+            _smtp_config_status(),
+        )
         return False
 
     subject = "Reset Your Password"
     html = PASSWORD_RESET_HTML % reset_url
+    text = PASSWORD_RESET_TEXT % reset_url
+
+    from_addr = (settings.smtp_from or settings.smtp_user or "").strip()
+    from_name = (getattr(settings, "smtp_from_name", None) or "TradeX").strip()
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = settings.smtp_from or settings.smtp_user
+    msg["From"] = formataddr((from_name, from_addr)) if from_name else from_addr
     msg["To"] = recipient
+    msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
+    host = settings.smtp_host.strip()
+    port = int(settings.smtp_port or 587)
+    use_tls = bool(getattr(settings, "smtp_use_tls", True))
+
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.send_message(msg)
-        logger.info("Password reset email sent to %s", recipient)
+        # Port 465 = implicit SSL; 587 = STARTTLS (typical Gmail)
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=20) as server:
+                server.login(settings.smtp_user, settings.smtp_password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as server:
+                if use_tls:
+                    server.starttls()
+                server.login(settings.smtp_user, settings.smtp_password)
+                server.send_message(msg)
+        logger.info("Password reset email sent to %s via %s:%s", recipient, host, port)
         return True
     except Exception as exc:
-        logger.exception("Failed to send password reset email to %s: %s", recipient, exc)
+        logger.exception(
+            "Failed to send password reset email to %s via %s:%s: %s",
+            recipient,
+            host,
+            port,
+            exc,
+        )
         return False

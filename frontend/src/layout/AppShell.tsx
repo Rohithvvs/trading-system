@@ -3,9 +3,10 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { useDensity } from "../hooks/useDensity";
-import { useDeveloperMode } from "../hooks/useDeveloperMode";
+import { useFeaturePermissions } from "../hooks/useFeaturePermissions";
 import { ADMIN_NAV, RETAIL_NAV, isNavActive } from "./navConfig";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { navigateToPaperOrder } from "../utils/paperOrderNavigation";
 
 type Props = {
   children: ReactNode;
@@ -32,11 +33,11 @@ function readSidebarCollapsed(): boolean {
 }
 
 export function AppShell({ children, topActions, title }: Props) {
-  const { user, logout } = useAuth();
+  const { user, logout, role } = useAuth();
   const { theme } = useTheme();
   const { density, setDensity } = useDensity();
-  const { developerMode, setDeveloperMode } = useDeveloperMode();
   const location = useLocation();
+  const isAdmin = role === "admin";
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     typeof window === "undefined" ? false : readSidebarCollapsed(),
@@ -95,8 +96,15 @@ export function AppShell({ children, topActions, title }: Props) {
     };
   }, [profileOpen]);
 
+  const { canAccess } = useFeaturePermissions();
+
   const initials = (user?.full_name || user?.email || "U").slice(0, 1).toUpperCase();
-  const navItems = developerMode ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
+  // Sprint 4: admin destinations by real role; Sprint 5: filter by feature permissions
+  const baseNavItems = isAdmin ? [...RETAIL_NAV, ...ADMIN_NAV] : RETAIL_NAV;
+  const navItems = baseNavItems.filter((item) => {
+    if (item.featureKey && !canAccess(item.featureKey)) return false;
+    return true;
+  });
 
   return (
     <div
@@ -113,7 +121,7 @@ export function AppShell({ children, topActions, title }: Props) {
       {/* Desktop / tablet sidebar */}
       <aside className="app-sidebar" aria-label="Main navigation" data-collapsed={sidebarCollapsed ? "true" : "false"}>
         <div className="app-sidebar__brand">
-          <Link to="/scanner" className="app-brand-link" aria-label="Go to Scanner">
+          <Link to="/markets" className="app-brand-link" aria-label="Go to Markets">
             <span className="app-brand-mark" aria-hidden>
               TS
             </span>
@@ -163,14 +171,7 @@ export function AppShell({ children, topActions, title }: Props) {
                 <option value="compact">Compact</option>
               </select>
             </label>
-            <label className="app-dev-toggle" title="Developer mode">
-              <input
-                type="checkbox"
-                checked={developerMode}
-                onChange={(e) => setDeveloperMode(e.target.checked)}
-              />
-              <span className="ds-caption app-sidebar__meta-label">Developer mode</span>
-            </label>
+            {/* Developer mode toggle hidden (Sprint 4): unused for routes; never unlocks /admin/* */}
           </div>
           <ThemeToggle />
         </div>
@@ -196,7 +197,12 @@ export function AppShell({ children, topActions, title }: Props) {
               type="button"
               className="ds-btn ds-btn--buy ds-btn--sm"
               data-testid="global-buy-cta"
-              onClick={() => navigate("/paper?side=BUY")}
+              onClick={() =>
+                navigateToPaperOrder(navigate, {
+                  side: "BUY",
+                  returnTo: `${location.pathname}${location.search || ""}`,
+                })
+              }
             >
               BUY
             </button>
@@ -204,7 +210,12 @@ export function AppShell({ children, topActions, title }: Props) {
               type="button"
               className="ds-btn ds-btn--sell ds-btn--sm"
               data-testid="global-sell-cta"
-              onClick={() => navigate("/paper?side=SELL")}
+              onClick={() =>
+                navigateToPaperOrder(navigate, {
+                  side: "SELL",
+                  returnTo: `${location.pathname}${location.search || ""}`,
+                })
+              }
             >
               SELL
             </button>
@@ -235,6 +246,19 @@ export function AppShell({ children, topActions, title }: Props) {
                   <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate("/paper"); }}>
                     Paper Desk
                   </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="nav-admin-panel-profile"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        navigate("/admin");
+                      }}
+                    >
+                      Admin
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     role="menuitem"
@@ -278,7 +302,7 @@ export function AppShell({ children, topActions, title }: Props) {
 
       {/* Mobile bottom navigation */}
       <nav className="app-bottom-nav" aria-label="Primary">
-        {RETAIL_NAV.slice(0, 5).map((item) => {
+        {RETAIL_NAV.slice(0, 4).map((item) => {
           const active = isNavActive(location.pathname, item);
           return (
             <NavLink

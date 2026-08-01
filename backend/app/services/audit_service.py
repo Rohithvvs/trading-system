@@ -16,6 +16,12 @@ class AuditService:
         """
         Log a security-critical event to the database.
         """
+        if isinstance(user_id, str):
+            try:
+                user_id = uuid.UUID(user_id)
+            except Exception:
+                user_id = None
+
         audit_log = AuditLog(
             user_id=user_id,
             event_type=event_type,

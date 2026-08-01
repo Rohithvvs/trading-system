@@ -1,16 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { useAuth } from '../hooks/useAuth';
 import { authGoogleLogin, checkBackendHealth, toUserFacingApiMessage } from '../api';
-
-const GOOGLE_LOGO = (
-  <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
-    <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-    <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-    <path fill="#FBBC05" d="M10.54 28.59A14.5 14.5 0 0 1 9.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.99 23.99 0 0 0 0 24c0 3.77.87 7.35 2.56 10.56l7.98-5.97z" />
-    <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.97C6.51 42.62 14.62 48 48 48z" />
-  </svg>
-);
 
 const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const CLIENT_ID_MISSING = !clientId;
@@ -24,6 +16,15 @@ if (CLIENT_ID_MISSING) {
 } else {
   console.info('[GoogleSignInButton] Loaded VITE_GOOGLE_CLIENT_ID:', clientId.slice(0, 8) + '...');
 }
+
+const GOOGLE_LOGO = (
+  <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+    <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+    <path fill="#FBBC05" d="M10.54 28.59A14.5 14.5 0 0 1 9.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.99 23.99 0 0 0 0 24c0 3.77.87 7.35 2.56 10.56l7.98-5.97z" />
+    <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.97C6.51 42.62 14.62 48 24 48z" />
+  </svg>
+);
 
 const spinner = (
   <svg className="animate-spin h-5 w-5 text-gray-500 dark:text-gray-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -45,120 +46,132 @@ export const GoogleSignInButton: React.FC = () => {
   return <GoogleSignInActive />;
 };
 
+/**
+ * Google Sign-In via Identity Services **credential** flow (id_token JWT).
+ *
+ * IMPORTANT: Do NOT use `google.accounts.oauth2.initTokenClient` here.
+ * Token Client returns only `access_token`, never `id_token`. The backend
+ * (`POST /auth/google`) verifies a Google ID token with google-auth.
+ *
+ * Also avoid a one-shot `mountedRef = true` + cleanup-only `false` pattern:
+ * React StrictMode re-runs effect cleanups in dev and leaves that ref false
+ * forever, which silently drops the callback and freezes "Authenticating...".
+ */
 const GoogleSignInActive: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState('');
-  const mountedRef = useRef(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [buttonWidth, setButtonWidth] = useState(320);
+  // Use a generation counter so StrictMode unmounts don't cancel a live attempt.
+  const authGenerationRef = useRef(0);
 
   useEffect(() => {
-    return () => { mountedRef.current = false; };
+    const el = containerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const w = Math.round(el.getBoundingClientRect().width);
+      if (w > 0) setButtonWidth(w);
+    };
+    measure();
+
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
-  const handleGoogleSignIn = useCallback(() => {
-    setIsAuthenticating(true);
-    setError('');
-    console.info('[GoogleSignInButton] Opening Google OAuth popup...');
+  const completeBackendLogin = useCallback(
+    async (idToken: string, generation: number) => {
+      console.info('[GoogleSignInButton] Sending id_token to backend...');
+      try {
+        const health = await checkBackendHealth();
+        if (authGenerationRef.current !== generation) return;
+        if (!health.ok) {
+          setError(health.message || 'Cannot connect to server.');
+          setIsAuthenticating(false);
+          return;
+        }
 
-    const { google } = window as any;
-    if (!google?.accounts?.oauth2) {
-      console.error('[GoogleSignInButton] Google Identity Services SDK not loaded');
-      if (mountedRef.current) {
-        setError('Google Identity Services failed to load. Please refresh and try again.');
-        setIsAuthenticating(false);
+        const data = await authGoogleLogin(idToken);
+        if (authGenerationRef.current !== generation) return;
+
+        console.info('[GoogleSignInButton] Backend login successful', { user: data.user });
+        login(data.user);
+        const from = location.state?.from?.pathname || '/';
+        console.info('[GoogleSignInButton] Redirecting to:', from);
+        navigate(from, { replace: true });
+      } catch (err: unknown) {
+        if (authGenerationRef.current !== generation) return;
+        const message = toUserFacingApiMessage(err, 'Google sign-in failed. Please try again.');
+        console.error('[GoogleSignInButton] Backend login failed:', message);
+        setError(message);
+      } finally {
+        if (authGenerationRef.current === generation) {
+          setIsAuthenticating(false);
+        }
       }
-      return;
-    }
+    },
+    [navigate, location, login],
+  );
 
-    const tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: 'openid email profile',
-      callback: async (response: any) => {
-        console.info('[GoogleSignInButton] callback fired', {
-          hasError: !!response.error,
-          hasIdToken: !!response.id_token,
-          hasAccessToken: !!response.access_token,
-        });
+  const handleSuccess = useCallback(
+    (credentialResponse: CredentialResponse) => {
+      const idToken = credentialResponse.credential;
+      console.info('[GoogleSignInButton] GIS credential received', {
+        hasCredential: !!idToken,
+        selectBy: credentialResponse.select_by,
+      });
 
-        if (!mountedRef.current) {
-          console.info('[GoogleSignInButton] callback ignored (unmounted)');
-          return;
-        }
+      if (!idToken) {
+        console.error('[GoogleSignInButton] No credential (id_token) in Google response', credentialResponse);
+        setError('No authentication token received from Google.');
+        setIsAuthenticating(false);
+        return;
+      }
 
-        if (response.error) {
-          setIsAuthenticating(false);
-          if (response.error === 'popup_closed_by_user' || response.error === 'access_denied') {
-            console.info('[GoogleSignInButton] User cancelled the sign-in popup');
-            setError('Google sign-in was cancelled.');
-          } else {
-            console.error('[GoogleSignInButton] Google OAuth error:', response.error, response.error_description);
-            setError(`Google sign-in failed (${response.error_description || response.error}). Please try again.`);
-          }
-          return;
-        }
+      const generation = ++authGenerationRef.current;
+      setIsAuthenticating(true);
+      setError('');
+      void completeBackendLogin(idToken, generation);
+    },
+    [completeBackendLogin],
+  );
 
-        if (!response.id_token) {
-          console.error('[GoogleSignInButton] No id_token in Google response', response);
-          setIsAuthenticating(false);
-          setError('No authentication token received from Google.');
-          return;
-        }
-
-        console.info('[GoogleSignInButton] Sending token to backend...');
-        try {
-          const health = await checkBackendHealth();
-          if (!health.ok) {
-            if (!mountedRef.current) return;
-            setError(health.message || 'Cannot connect to server.');
-            setIsAuthenticating(false);
-            return;
-          }
-          const data = await authGoogleLogin(response.id_token);
-          if (!mountedRef.current) return;
-          console.info('[GoogleSignInButton] Backend login successful', { user: data.user });
-          login(data.user);
-          const from = location.state?.from?.pathname || '/';
-          console.info('[GoogleSignInButton] Redirecting to:', from);
-          navigate(from, { replace: true });
-        } catch (err: unknown) {
-          if (!mountedRef.current) return;
-          const message = toUserFacingApiMessage(err, 'Google sign-in failed. Please try again.');
-          console.error('[GoogleSignInButton] Backend login failed:', message);
-          setError(message);
-        } finally {
-          if (mountedRef.current) {
-            setIsAuthenticating(false);
-          }
-        }
-      },
-    });
-
-    tokenClient.requestAccessToken();
-  }, [navigate, location, login]);
+  const handleError = useCallback(() => {
+    console.error('[GoogleSignInButton] Google Sign-In error / cancelled');
+    setIsAuthenticating(false);
+    setError('Google sign-in was cancelled or failed. Please try again.');
+  }, []);
 
   return (
-    <div className="w-full">
-      <button
-        type="button"
-        onClick={handleGoogleSignIn}
-        disabled={isAuthenticating}
-        aria-label="Continue with Google"
-        className={buttonClass}
-      >
-        {isAuthenticating ? (
-          <>
-            {spinner}
-            <span>Authenticating...</span>
-          </>
-        ) : (
-          <>
-            {GOOGLE_LOGO}
-            <span>Continue with Google</span>
-          </>
-        )}
-      </button>
+    <div className="w-full" ref={containerRef}>
+      {isAuthenticating ? (
+        <button type="button" disabled aria-label="Authenticating with Google" className={buttonClass}>
+          {spinner}
+          <span>Authenticating...</span>
+        </button>
+      ) : (
+        <div className="w-full flex justify-center google-signin-host" style={{ minHeight: 50 }}>
+          <GoogleLogin
+            onSuccess={handleSuccess}
+            onError={handleError}
+            useOneTap={false}
+            theme="outline"
+            size="large"
+            text="continue_with"
+            shape="rectangular"
+            logo_alignment="left"
+            width={String(buttonWidth)}
+          />
+        </div>
+      )}
       {error && (
         <p className="mt-2 text-sm text-red-500 dark:text-red-400 text-center" role="alert">{error}</p>
       )}

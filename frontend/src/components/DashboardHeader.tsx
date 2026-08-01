@@ -31,7 +31,6 @@ function formatScanTime(isoString: string | null): string {
 type DashboardHeaderProps = {
   isLoading: boolean;
   lastScanAt: string | null;
-  marketStatus: string;
   search: string;
   onSearchChange: (value: string) => void;
   onRunScanner: () => void;
@@ -51,7 +50,6 @@ type DashboardHeaderProps = {
 export const DashboardHeader = memo(function DashboardHeader({
   isLoading,
   lastScanAt,
-  marketStatus,
   search,
   onSearchChange,
   onRunScanner,
@@ -78,10 +76,6 @@ export const DashboardHeader = memo(function DashboardHeader({
           <h1 className="dh-title">Swing Decision Dashboard</h1>
         </div>
         <div className="dh-meta-group">
-          <span className={`dh-status dh-status--${marketStatus === "Open" ? "open" : "closed"}`}>
-            <span className="dh-status-dot" aria-hidden />
-            {marketStatus === "Open" ? "Market Open" : "Closed"}
-          </span>
           <span className="dh-scan-time">
             Last Scan: <strong>{formatScanTime(lastScanAt)}</strong>
           </span>

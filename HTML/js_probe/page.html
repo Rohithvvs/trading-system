@@ -1,0 +1,949 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta http-equiv="cache-control" content="max-age=0" />
+    <meta http-equiv="cache-control" content="no-cache" />
+    <meta http-equiv="expires" content="0" />
+    <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <meta http-equiv="pragma" content="no-cache" />
+    <title>FYERS - Born to Trade</title>
+    <meta name="title" content="Login to FYERS – Access Your Trading & Demat Account" />
+    <meta name="description" content="Login securely to FYERS and manage your trading and demat account easily. Trade stocks, derivatives, mutual funds, and more with a secure platform." />
+    <meta name="image" content="https://assets.fyers.in/images/fyers_meta.png" />
+    
+    <meta property="og:title" content="Login to FYERS – Access Your Trading & Demat Account" />
+    <meta property="og:description" content="Login securely to FYERS and manage your trading and demat account easily. Trade stocks, derivatives, mutual funds, and more with a secure platform." />
+    <meta property="og:url" content="https://login.fyers.in/" />
+    <meta property="og:image" content="https://assets.fyers.in/images/fyers_meta.png" />
+    <meta property="og:image:secure_url" content="https://assets.fyers.in/images/fyers_meta.png" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Login to FYERS – Access Your Trading & Demat Account" />
+    <meta name="twitter:description" content="Login securely to FYERS and manage your trading and demat account easily. Trade stocks, derivatives, mutual funds, and more with a secure platform." />
+    <meta name="twitter:image" content="https://assets.fyers.in/images/fyers_meta.png" />
+    <meta name="twitter:image:alt" content="FYERS Trading Platform" />
+
+     <link rel="canonical" href="https://login.fyers.in/" />
+    <meta name="apple-mobile-web-app-title" content="Login to FYERS – Access Your Trading & Demat Account" />
+
+    <link rel="shortcut icon" type="image/jpg" href="https://assets.fyers.in/images/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script type="text/javascript" src="https://trade.fyers.in/lib/jquery/1.12.4/jquery.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@200;300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link href="https://login.fyers.in/new-sso/16.3/webLoginCss/fyers-ui.css?v=1.2" rel="stylesheet" type="text/css">
+    <script type="text/javascript" src="https://trade.fyers.in/lib/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.1.0/css/all.css"
+        integrity="sha384-lKuwvrZot6UHsBSfcMvOkWwlCMgc0TaWr+30HWe3a4ltaBwTZhyTEggF5tJv8tbt" crossorigin="anonymous">
+
+    <script src="https://trade.fyers.in/lib/bootstrap/3.3.5/bootstrap.min.js"></script>
+     
+    <script src="https://assets.fyers.in/Lib/crypto/crypto-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.5.0/lib/qr-code-styling.js"></script>
+    <link rel="stylesheet" href="https://assets.fyers.in/Lib/intlTelInput.css" />
+    <script src="https://assets.fyers.in/Lib/intlTelInput.min.js"></script>
+    <link rel="stylesheet" href="https://assets.fyers.in/fy_notifications/css/2.0/notify.min.css" />
+    <script src="https://trade.fyers.in/Prod/1.2/fyers-widget.min.js"></script>
+    <link rel="preload" as="font" href="https://assets.fyers.in/global-components/fonts/text-security-disc.woff"
+        type="font/woff" crossorigin="anonymous">
+    <link rel="canonical" href=" https://login.fyers.in/ ">
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    
+    
+    <script src="https://assets.fyers.in/Lib/analytics/user-engagement.min.js"></script>
+    
+</head>
+
+<body class="bg-primary">
+    <section id="token-validation-loader">
+        <div class="login-container-loader">
+            <img src="https://assets.fyers.in/verified-pnl/images/fyers-loader-white.gif" alt="Loading...">
+        </div>
+    </section>
+    <section class="login-page">
+        <div class="agreement-container agreement agreement-mobile"></div>
+
+        <section class="banner-section">
+            <div id="login-banner-container"></div>
+        </section>
+        <section class="login-area">
+            <section class="container login-form" id="main-login-form">
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div class="pb-4" id="upper-section">
+                            <form id="mobileIdForm">
+                                <h4 class="mb-4">Login to FYERS</h4>
+                                <div class="d-flex login-switch" style="gap: 0.5rem;">
+                                    <label>
+                                        <input type="radio" name="loginType" value="mobile_rb" id="mobile_rb" checked>
+                                        <p>Mobile number</p>
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="loginType" value="clientId_rb" id="clientId_rb">
+                                        <p>Client ID</p>
+                                    </label>
+                                </div>
+                                <div id="mobile-input-section">
+                                    <div class="banner-container" id="mob-banner">
+                                    </div>
+                                    <form id="mobileIdForm">
+                                        
+                                        <div class="input-group pt-2" id="mobile-input-group">
+                                            <input type="tel" id="mobile-code" name="mobile-code"
+                                                style="padding-left: 75px;"
+                                                class="form-control input-bar text-uppercase validate"
+                                                placeholder="Mobile number" autocomplete="off" minlength="7"
+                                                maxlength="15">
+                                        </div>
+                                        
+                                        <button id="mobileNumberSubmit" type="submit"
+                                            class="btn btn-secondary btn-secondary-new btn-block justify-content-center mt-3"
+                                            disabled>
+                                            Continue <span class="loading-dots"
+                                                style="display: none;"><span>.</span><span>.</span></span>
+                                        </button>
+                                    </form>
+                                </div>
+                                <div id="clientid-input-section" style="display: none;">
+                                    <div class="banner-container" id="cid-banner"></div>
+                                    <form id="clientIdForm">
+                                        
+                                        <div class="input-group pt-2">
+                                            <input type="text" id="fy_client_id" name="fy_client_id"
+                                                class="form-control input-bar text-uppercase validate client_id"
+                                                placeholder="Client ID" autocomplete="off">
+                                        </div>
+                                        
+
+                                        
+                                        <button id="clientIdSubmit" type="submit"
+                                            class="btn btn-secondary btn-secondary-new btn-block justify-content-center mt-3"
+                                            disabled>
+                                            Continue <span class="loading-dots"
+                                                style="display: none;"><span>.</span><span>.</span></span>
+                                        </button>
+                                    </form>
+                                </div>
+                                
+                                <div class="captcha-container mt-4" style="display: none;" id="captcha1"></div>
+                                <div class="captcha-container mt-4" style="display: none;" id="captcha2"></div>
+
+                                
+                                <div class="text-center my-3 text-muted position-relative or_divider">
+                                    <hr>
+                                    <span class="or_placeholder">OR</span>
+                                </div>
+
+                                
+                                <div id="qr_here"></div>
+                                
+                                <div class="text-center mb-3 onboarding-text">
+                                    Don't have an account? <span
+                                        class="text-primary registerNow" style="cursor: pointer;">Open account</span>
+                                </div>
+                        </div>
+                        <div>
+                            
+                             <form >
+                                <div class="navigation-container" id="platform-selector-main">
+                                    <div class="text-center platform-selection">
+                                        <p>Login to:</p>
+                                        <label class="platform-icon-border">
+                                            <input type="radio" name="platform" value="web_redirection" id="main_web_rd"
+                                                checked>
+                                            <img src="https://int-assets-prod.s3.amazonaws.com/new-login/images/fyers-web.svg"
+                                                alt="FYERS Web" class="platform-icon"> FYERS Web
+                                        </label>
+                                        <label>
+                                            <input type="radio" name="platform" value="trader_redirection"
+                                                id="main_trader_rd">
+                                            <img src="https://int-assets-prod.s3.amazonaws.com/new-login/images/fyers-trader.svg"
+                                                alt="FYERS Trader" class="platform-icon"> FYERS Trader
+                                        </label>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <section class="container login-form" id="qr-code-form" style="display: none;">
+                <div class="banner-container" id="qr-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <form id="qrCodeForm">
+                            <h4>Login to FYERS</h4>
+                            <p class="container_desc mt-3" style="text-align: center;">
+                                Use latest FYERS app.</br> Go to Menu &rarr; by clicking on 
+                                <img src="https://assets.fyers.in/images/global-header/hamburger-menu.svg" alt="menu" style="height: 16px; vertical-align: middle;">
+                                & click on Login to web.
+                            </p>
+                            <div class="text-center mt-4 main-qr-container">
+                            </div>
+                            <div class="text-center my-3 text-muted position-relative or_divider">
+                                <hr>
+                                <span class="or_placeholder">OR</span>
+                            </div>
+                            <button type="button" id="back_to_mobile_login_fromQr"
+                                class="btn-block btn btn-secondary btn-secondary-new">Login with mobile number</button>
+                            <button type="button" id="login_client_id_fromQr"
+                                class="btn-block btn btn-secondary btn-secondary-new">Login with client ID</button>
+                            <div class="text-center onboarding-text">
+                                Don't have an account? <span
+                                    class="text-primary registerNow" style="cursor: pointer;">Open account</span>
+                            </div>
+                        </form>
+                        <div>
+                            <div class="navigation-container" id="platform-selector-modal">
+                                <div class="text-center platform-selection">
+                                    <p>Login to:</p>
+                                    <label>
+                                        <input type="radio" name="platform" value="web_redirection" id="modal_web_rd"
+                                            checked>
+                                        <img src="https://int-assets-prod.s3.amazonaws.com/new-login/images/fyers-web.svg"
+                                            alt="FYERS Web" class="platform-icon"> FYERS Web
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="platform" value="trader_redirection"
+                                            id="modal_trader_rd">
+                                        <img src="https://int-assets-prod.s3.amazonaws.com/new-login/images/fyers-trader.svg"
+                                            alt="FYERS Trader" class="platform-icon"> FYERS Trader
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+            </section>
+            <section class="container login-form" id="multiple-account-form" style="display: none;">
+                <div class="banner-container" id="multi-user-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <form id="multipleAccountForm">
+                                <div id="select-client-id">
+                                    <h4 style="font-size: 24px;">Select client ID?
+                                    </h4>
+                                </div>
+                                <div class="row mt-4 mx-auto">
+                                    <ul class="client-lst" id="multi-accounts-ul">
+
+                                    </ul>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <section class="container login-form" id="not-connected-form" style="display: none;">
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="mb-4">
+                                <div class="col" style="text-align: center;margin: 2%;">
+                                    <img src="https://assets.fyers.in/images/cg-offline.svg" alt="FYERS" width="125" />
+                                </div>
+                            </div>
+                            <form id="offlineForm">
+                                <h4>You are offline!</h4>
+                                <div>Please check your internet connection. Trying again in <u><a href="#"><span
+                                                id="timer0"></span></a></u> seconds.
+                                </div>
+                                <button id="offlineSubmit" type="submit"
+                                    class="btn btn-secondary btn-secondary-new btn-block mt-4">Try Now</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="server-response-page" style="display: none;">
+                <div class="banner-container" id="server-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="text-center mb-4">
+                                <img src="https://assets.fyers.in/images/cg-server-offline.svg" alt="server offline"
+                                    width="125" />
+                            </div>
+                            <form id="serverNoResponseForm">
+                                <h4>We couldn’t connect</h4>
+                                <div class="container_desc">Check your internet and retry.
+                                </div>
+                                <button id="serverNoResSubmit" type="submit"
+                                    class="btn btn-secondary btn-block btn-secondary-new mt-4">Try
+                                    Now</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="confirm-otp-page" style="display: none;">
+                <div class="banner-container" id="votp-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <form id="confirmOtpForm">
+                                <h4>Hey, <span id="client_name" class="text-capitalize mb-0"></span>!</h4>
+                                <div class="mt-md-4 container_desc" id="verify_otp_content">
+                                    Enter the 6-digit OTP received on <span id="client_mno"></span>.
+                                </div>
+                                <div class="mt-md-4 container_desc" id="verify_totp_content">
+                                    Enter a 6 digit TOTP generated on your authenticator app.
+                                </div>
+                                <div id="otp-container"
+                                    class="d-flex justify-center justify-content-center mt-3 mx-auto otp-container">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline otp-field"
+                                        type="number" id="first" maxlength="1" pattern="\d*" autocomplete="off"
+                                        data-next="second" />
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline otp-field"
+                                        type="number" data-next="third" data-previous="first" id="second" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline otp-field"
+                                        type="number" data-next="fourth" data-previous="second" id="third" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline otp-field"
+                                        type="number" data-next="fifth" data-previous="third" id="fourth" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline otp-field"
+                                        type="number" data-next="sixth" data-previous="fourth" id="fifth" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline otp-field"
+                                        type="number" id="sixth" data-previous="fifth" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                </div>
+                                <button class="btn btn-secondary btn-block mt-3 btn-secondary-new" id="confirmOtpSubmit"
+                                    type="submit" disabled>Confirm
+                                    OTP</button>
+                            <div class="switch_container_parent">
+                                <div class="switch_container">
+                                    <div class="cookies-link text-capitalize"></div>
+                                    <div class="switch_timer resend_otp" id="resend_otp_timer" href="" aria-disabled="">
+                                        <a>
+                                            <span id="timer1"></span></a>
+                                    </div>
+                                </div>
+                            </div>
+
+                                <div id="timer-totp"> Problem with TOTP?
+                                    <a class="resend_otp" id="resend_otp_timer" href="" aria-disabled=""> Send OTP</a>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="sent-clientId-form" style="display: none;">
+                <div class="banner-container" id="scid-banner">
+
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <div class="col text-center mb-4">
+                                <img src="https://assets.fyers.in/images/cg-message-sent.svg" alt="message sent"
+                                    width="125" />
+                            </div>
+                            <form id="sentMessageForm">
+                                <h4>Check Your Email/SMS</h4>
+                                <div>We have sent the Client ID to your registered email and mobile number.
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="verify-pin-page" style="display: none;">
+                <div class="banner-container" id="vpin-banner">
+
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <form id="verifyPinForm">
+                            <h4 class="cookies-header text-capitalize"></h4>
+                            
+                            <div class="container_desc ">
+                                Enter your 4-digit PIN
+                            </div>
+                            <div id="pin-container"
+                                class="d-flex justify-center justify-content-center mt-3 mx-auto pin-container">
+                                <input
+                                    class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline pin-field fy-secure-input"
+                                    type="number" id="first" data-next="second" maxlength="1" pattern="\d*"
+                                    autocomplete="off" />
+                                <input
+                                    class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline pin-field fy-secure-input"
+                                    type="number" id="second" data-next="third" data-previous="first" maxlength="1"
+                                    pattern="\d*" autocomplete="off"
+                                    oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                <input
+                                    class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline pin-field fy-secure-input"
+                                    type="number" id="third" data-next="fourth" data-previous="second" maxlength="1"
+                                    pattern="\d*" autocomplete="off"
+                                    oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                <input
+                                    class="text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline pin-field fy-secure-input"
+                                    type="number" id="fourth" data-previous="third" maxlength="1" pattern="\d*"
+                                    autocomplete="off" data-autosubmit="true"
+                                    oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                            </div>
+                            <button id="verifyPinSubmit" type="submit" class="btn btn-secondary btn-block mt-md-4 mt-3 btn-secondary-new" disabled>
+                                Login<span class="loading-dots" 
+                                style="display: none;"><span>.</span><span>.</span></span>
+                            </button>
+                            <div class="switch_container_parent">
+                                <div class="switch_container">
+                                    <div class="cookies-link"></div>
+                                </div>
+                                <a class="d-block" id="fogot_pin" href="#">Forgot PIN?</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+
+            </section>
+            <section class="container login-form" id="forgot-clientid-page" style="display: none;">
+                <div class="banner-container" id="fcid-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <form id="forgotClientIdForm">
+                                <h4 class="pt-2">Forgot Client ID?</h4>
+                                <div class="row mt-lg-1 mt-4 mx-auto position-relative">
+                                    <input type="text" id="fy_reg_email" name="fy_reg_email" width="100%"
+                                        class="form-control mt-md-3 input-bar validate" placeholder="Registered Email"
+                                        autocomplete="on">
+                                </div>
+                                <div class="row mt-lg-1 mt-1 mx-auto position-relative">
+                                    <input type="text" id="pan_or_yob" name="pan_or_yob" width="100%"
+                                        class="form-control text-uppercase input-bar mt-md-3 validate" placeholder="PAN"
+                                        maxlength="10" autocomplete="on">
+                                </div>
+                                <div>
+                                    <button class=" btn btn-secondary btn-secondary-new btn-block mt-4"
+                                        id="forgotClientIDSubmit" type="submit">Send
+                                        OTP<span class="ml-1 loading-dots"
+                                        style="display: none;"><span>.</span><span>.</span></span></button>
+                                </div>
+                                <div class="captcha-container mt-3" style="display: none;" id="captcha3"></div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="create-pin-page" style="display: none;">
+                <div class="banner-container" id="cpin-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <form id="createPinForm">
+                                <h4 class="pt-2">Create PIN</h4>
+                                <div>
+                                </div>
+                                <div class="mt-2">
+                                    <p class="mt-2 container_desc">New  PIN</p>
+                                </div>
+                                <div id="create-pin-container"
+                                    class="d-flex justify-center justify-content-center mt-3 mx-auto create-pin-container">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline c-pin-field"
+                                        type="number" id="first" data-next="second" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline c-pin-field"
+                                        type="number" id="second" data-next="third" data-previous="first" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline c-pin-field"
+                                        type="number" id="third" data-next="fourth" data-previous="second" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                    <input
+                                        class="text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline c-pin-field"
+                                        type="number" id="fourth" data-previous="third" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);" />
+                                </div>
+                                <div class="mt-3">
+                                    <p class="container_desc mb-0 ">Confirm PIN</p>
+                                </div>
+                                <div id="confirm-pin-container"
+                                    class="d-flex justify-center justify-content-center mt-2 mx-auto confirm-pin-container">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="first" data-next="second" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="second" data-next="third" data-previous="first" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="third" data-next="fourth" data-previous="second" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="fourth" data-previous="third" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                </div>
+                                <span class='error d-none' id="error_field"></span>
+                                <button id="createPinSubmit" type="submit"
+                                    class="btn btn-secondary btn-secondary-new btn-block mt-4" disabled>Confirm
+                                    PIN</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="forgot-pin-page" style="display: none;">
+                <div class="banner-container" id="fpin-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div class="pb-4">
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <form id="forgotPinForm">
+                                <h4 class="pt-2">Forgot PIN?</h4>
+                                <div class="row mt-1 mx-auto">
+                                    <input type="text" id="fy_client_id" name="fy_client_id" width="100%"
+                                        class="form-control input-bar text-uppercase mt-md-3 validate"
+                                        placeholder="Client ID" autocomplete="on">
+                                    
+                                </div>
+                                <div class="row mt-lg-1 mt-3 mx-auto">
+                                    <input type="text" id="pan_or_yob" name="pan_or_yob" width="100%"
+                                        class="form-control input-bar text-uppercase mt-md-3 validate"
+                                        placeholder="PAN / Year of birth" maxlength="10" autocomplete="on">
+                                    
+                                </div>
+                                <div>
+                                    <button class=" btn btn-secondary btn-block btn-secondary-new mt-4"
+                                        id="forgotPinSubmit" type="submit">Send
+                                        OTP<span class="ml-1 loading-dots"
+                                        style="display: none;"><span>.</span><span>.</span></span></button>
+                                </div>
+                                <div class="captcha-container mt-3" style="display: none;" id="captcha4"></div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="account-blocked-page" style="display: none;">
+                <div class="banner-container" id="ab-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <form id="accountBlockedForm">
+                            
+                            <h4>Account Blocked</h4>
+                            <p class="container_desc mb-3 mt-4">To unblock please confirm PAN/ Year of birth</p>
+                            <div class="row mt-lg-1 mt-3 mx-auto position-relative">
+                                <input type="text" id="pan_or_yob" name="pan_or_yob" width="100%"
+                                    class="form-control input-bar text-uppercase validate"
+                                    placeholder="PAN / Year of birth" maxlength="10" autocomplete="off">
+                            </div>
+                            <div>
+                                <button class=" btn btn-secondary btn-secondary-new btn-block mt-4" id="accBlockSubmit"
+                                    type="submit" disabled>Send OTP<span class="ml-1 loading-dots"
+                                    style="display: none;"><span>.</span><span>.</span></span></button>
+                            </div>
+                            <div class="captcha-container mt-3" style="display: none;" id="captcha5"></div>
+                            <a class="d-inline-block mt-2 cookies-link" style="text-transform: capitalize;" href="#"></a>
+                        </form>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="new-user-page" style="display: none;">
+                <div class="banner-container" id="nu-banner">
+
+                </div>
+
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <form id="newUserForm">
+                            <h4 class="cookies-header mb-0 text-capitalize"></h4>
+                            <a class="d-inline-block cookies-link" href="#"></a>
+                            <h4>Welcome to FYERS!</h4>
+                            <div class="container_desc mt-3">
+                                Let's secure your account.
+                            </div>
+                            <div class=" mt-2">
+                                <input type="text" id="pan_or_yob" name="pan_or_yob" width="100%"
+                                    class="form-control input-bar text-uppercase validate"
+                                    placeholder="PAN / Year of birth" maxlength="10" autocomplete="off">
+                            </div>
+                            <div>
+                                <button class=" btn btn-secondary btn-secondary-new btn-block mt-4" id="newUSerSubmit"
+                                    type="submit">Send
+                                    OTP</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+            </section>
+            <section class="container login-form" id="change-pin-page" style="display: none;">
+                <div class="banner-container" id="chpin-banner">
+                </div>
+                <div id="container">
+                    <div class="bg-white login-container">
+                        <div>
+                            <div class="back_container d-flex pb-3">
+                                <a class="back_to_login d-flex align-items-center" id="back_to_login" href="#"
+                                    style="text-decoration: none;">
+                                    <img class="back_img"
+                                        src="https://assets.fyers.in/marketing_website/calculator_icon/arrow.svg"
+                                        alt="back" style="margin-right: 6px;" />
+                                    Back
+                                </a>
+                            </div>
+                            <form id="changePinForm">
+                                <h4>Change PIN</h4>
+                                <div>
+                                </div>
+                                <div class="mt-2">
+                                    <p class="container_desc mb-0 mt-3">New PIN</p>
+                                </div>
+                                <div id="new-pin-container"
+                                    class="d-flex justify-center justify-content-center mt-2 mx-auto new-pin-container">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chn-pin-field"
+                                        type="number" data-next="second" id="first" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chn-pin-field"
+                                        type="number" data-next="third" data-previous="first" id="second" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chn-pin-field"
+                                        type="number" data-next="fourth" data-previous="second" id="third" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chn-pin-field"
+                                        type="number" id="fourth" data-previous="third" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                </div>
+                                <div class="mt-3">
+                                    <p class="container_desc mb-0 ">Confirm PIN</p>
+                                </div>
+                                <div id="new-pin-confirm-container"
+                                    class="d-flex justify-center justify-content-center mt-2 mx-auto new-pin-confirm-container">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="first" data-next="second" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="second" data-next="third" data-previous="first" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="mr-4 text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="third" data-next="fourth" data-previous="second" maxlength="1"
+                                        pattern="\d*" autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                    <input
+                                        class="text-center form-control form-control-solid rounded focus:border-blue-400 focus:shadow-outline chc-pin-field"
+                                        type="number" id="fourth" data-previous="third" maxlength="1" pattern="\d*"
+                                        autocomplete="off"
+                                        oninput="javascript: if (this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);">
+                                </div>
+                                <span class='error d-none' id="error_field"></span>
+                                <button id="changePinSubmit" type="submit"
+                                    class="btn btn-secondary btn-secondary-new btn-block mt-4"
+                                    disabled>Continue</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+            <section>
+                <div class="agreement-container agreement mt-2 agreement-desktop"></div>
+            </section>
+        </section>
+    </section>
+    <script type="text/javascript" src="https://login.fyers.in/new-sso/17.0/api_v3_login/login.min.js?v=1.3"></script>
+    <script type="text/javascript" src="https://trade.fyers.in/fyers_login/live/js/jquery.validate.js"></script>
+    
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-NTFX8XLKVH"></script>
+    <script>
+        window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); } gtag('js', new Date()); gtag('config', 'G-NTFX8XLKVH');
+    </script>
+    <script>
+        function captchaCallback(id) {
+            sessionStorage.setItem("fy_captcha_token", id)
+            updateDots('disable');
+            validateMobileNumber();
+            $("#clientIdSubmit").prop("disabled", false);
+            $("#forgotPinSubmit").prop("disabled", false);
+            $("#forgotClientIDSubmit").prop("disabled", false);
+            $("#accBlockSubmit").prop("disabled", false);
+        }
+
+        async function validateMobileNumber() {
+            var mobile = document.getElementById('mobile-code').value;
+            var btn = document.getElementById('mobileNumberSubmit');
+            var indiaItem = document.getElementById('iti-0__item-in');
+            var isIndia = indiaItem && indiaItem.getAttribute('aria-selected') === 'true';
+            if (isIndia) {
+                btn.disabled = !(mobile.length === 10);
+            } else {
+                btn.disabled = !(mobile.length > 0);
+            }
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            document.getElementById('mobile-code').focus();
+            var mobileInput = document.getElementById('mobile-code');
+            if (mobileInput) {
+                mobileInput.addEventListener('input', function () {
+                    if (sessionStorage.getItem('fy_captcha_token')) {
+                        validateMobileNumber();
+                    }
+                });
+                mobileInput.addEventListener('keyup', function () {
+                    if (!sessionStorage.getItem('fy_captcha_token')) {
+                        validateMobileNumber();
+                    }
+                });
+                mobileInput.addEventListener('paste', function (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const clipboardData = event.clipboardData || window.clipboardData;
+                    const pastedData = clipboardData ? clipboardData.getData('Text') : "";
+                    if (pastedData) {
+                        const cleanedValue = pastedData.replace(/\D/g, "");
+                        this.value = cleanedValue;
+                        this.dispatchEvent(new Event('input', { bubbles: true }));
+                        if (sessionStorage.getItem('fy_captcha_token')) {
+                            validateMobileNumber();
+                        }
+                    }
+                });
+
+                if (sessionStorage.getItem('fy_captcha_token')) {
+                    validateMobileNumber();
+                }
+            }
+            setTimeout(function () {
+                document.getElementById('mobile_rb').checked = true;
+                document.getElementById('clientId_rb').checked = false;
+                const urlParams = new URLSearchParams(window.location.search);
+                const cb = urlParams.get('cb');
+
+                if (cb) {
+                    if (cb.startsWith('https://fyers.in/web')) {
+                        document.getElementById('main_web_rd').checked = true;
+                    } 
+                    else if (cb.startsWith('https://trade.fyers.in')) {
+                        document.getElementById('main_trader_rd').checked = true;
+                    }
+                } else {
+                    if (window.innerWidth > 1024) {
+                        document.getElementById('main_web_rd').checked = true;
+                        document.getElementById('main_trader_rd').checked = false;
+                    } else {
+                        document.getElementById('main_trader_rd').checked = true;
+                        document.getElementById('main_web_rd').checked = false;
+                    }
+                }
+
+                const shouldShowPlatform = (
+                    (!cb || cb.includes('https://fyers.in/web') || cb.includes('https://trade.fyers.in')) &&
+                    !window.location.search.includes('redirect_uri'));
+                document.querySelectorAll('.platform-selection').forEach(function(el) {
+                    el.style.display = shouldShowPlatform ? '' : 'none';
+                });
+                
+                const upperSection = document.getElementById('upper-section');
+                if (upperSection) {
+                    if (shouldShowPlatform) {
+                        upperSection.classList.add('pb-4');
+                    } else {
+                        upperSection.classList.remove('pb-4');
+                    }
+                }
+            }, 1);
+            let ignoreNextMutation = false;
+            document.getElementById("mobile-code").addEventListener("keydown", function (event) {
+                if (event.key === "Enter") {
+                    ignoreNextMutation = true;
+                }
+            });
+            var dialCodeDiv = document.querySelector('.iti__selected-dial-code');
+            if (dialCodeDiv) {
+                var observer = new MutationObserver(function (mutationsList, observer) {
+                    if (ignoreNextMutation) {
+                        ignoreNextMutation = false;
+                        return;
+                    }
+                    if (sessionStorage.getItem('fy_captcha_token')) {
+                        validateMobileNumber();
+                    }
+                });
+                observer.observe(dialCodeDiv, { childList: true, characterData: true, subtree: true });
+            }
+        });
+    </script>
+    <script>
+        $(document).ready(function () {
+            document.getElementById("token-validation-loader").style.display = "flex";
+            if (sessionStorage.getItem("fy_captcha_token")) {
+                sessionStorage.removeItem("fy_captcha_token")
+            }
+            let login = new Login();
+            window.login = login;
+            login.events.initiateLoginEvents();
+        })
+
+        document.onreadystatechange = function () {
+            var state = document.readyState
+            if (state == 'complete') {
+                
+                setTimeout(() => {
+                    FyersWidget.notification.callNotificationsOnInterval({ env: "PROD", interval: 300000, width: "container" });
+                }, 7000)
+            }
+        }
+    </script>
+
+<script>
+    const dots = [
+        "#mobileNumberSubmit .loading-dots",
+        "#clientIdSubmit .loading-dots",
+        "#forgotClientIDSubmit .loading-dots",
+        "#forgotPinSubmit .loading-dots",
+        "#accBlockSubmit .loading-dots",
+        "#verifyPinSubmit .loading-dots"
+    ].map(selector => document.querySelector(selector));
+
+    function updateDots(state) {
+        dots.forEach(dot => {
+            if (!dot) return; 
+            dot.style.display = (state === 'enable') ? 'inline-flex' : 'none';
+        });
+    }
+
+    updateDots('enable');
+</script>
+<script>
+
+(function(){
+  function safeEnableDots(){
+    try { if (typeof updateDots === 'function') updateDots('enable'); } catch(e) {}
+  }
+  function attachHandlers(){
+    var form = document.getElementById('verifyPinForm');
+    if (form && !form.__dotsHooked) {
+      form.addEventListener('submit', function(){ safeEnableDots(); }, true);
+      form.__dotsHooked = true;
+    }
+    if (window.LoginService && LoginService.prototype && typeof LoginService.prototype.verifyPin === 'function' && !LoginService.prototype.__dotsPatched){
+      var original = LoginService.prototype.verifyPin;
+      LoginService.prototype.verifyPin = function(){ safeEnableDots(); return original.apply(this, arguments); };
+      LoginService.prototype.__dotsPatched = true;
+    }
+  }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(attachHandlers, 0);
+  } else {
+    document.addEventListener('DOMContentLoaded', attachHandlers);
+  }
+})();
+</script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1e30b047c37f82b',t:'MTc4NDU2MTgwMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

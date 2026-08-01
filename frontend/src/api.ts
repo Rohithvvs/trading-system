@@ -23,13 +23,9 @@ import {
   toUserFacingApiMessage,
 } from "./utils/apiErrors";
 import { cachedFetch, CACHE_KEYS, invalidateCache, setCached } from "./utils/appCache";
+import { authStorage } from "./utils/storage";
 
 export { toUserFacingApiMessage, ApiClientError } from "./utils/apiErrors";
-
-const DEFAULT_JSON_HEADERS = {
-  "Content-Type": "application/json",
-  Accept: "application/json",
-} as const;
 
 const IS_DEV = typeof window !== "undefined" && (window as any).__VITE_DEV__;
 
@@ -51,13 +47,20 @@ async function fetchWithDiagnostics(
   apiLog(`[api] ${label} -> ${url}`);
 
   try {
+    const method = (init?.method ?? "GET").toUpperCase();
+    // Avoid Content-Type on GET/HEAD — it forces CORS preflight on every poll.
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...((init?.headers as Record<string, string> | undefined) ?? {}),
+    };
+    if (method !== "GET" && method !== "HEAD" && !headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    // Session auth uses HttpOnly cookies (credentials: include). Do not pull JWT from localStorage.
     const fetchInit: RequestInit = {
       ...init,
       credentials: "include",
-      headers: {
-        ...DEFAULT_JSON_HEADERS,
-        ...(init?.headers ?? {}),
-      },
+      headers,
     };
     const response = await fetch(url, fetchInit);
     const elapsedMs = Math.round(performance.now() - startedAt);
@@ -150,15 +153,43 @@ export async function runPresetScreener(
     topN,
   });
   
-  const response = await fetchWithDiagnostics("/analysis/screener/full", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "text/event-stream",
-    },
-    body: JSON.stringify({ mode, timeframe, symbols, top_n: topN }),
-    signal,
-  }, "Scanner request");
+  // Client-side connect timeout — never leave UI at "Connecting data feed..." forever.
+  const CONNECT_TIMEOUT_MS = 30_000;
+  const connectTimer = setTimeout(() => {
+    /* resolved via race below */
+  }, CONNECT_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    const fetchPromise = fetchWithDiagnostics("/analysis/screener/full", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ mode, timeframe, symbols, top_n: topN }),
+      signal,
+    }, "Scanner request");
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const id = setTimeout(
+        () => reject(new Error("Scanner connection timed out after 30s — check backend and broker token.")),
+        CONNECT_TIMEOUT_MS,
+      );
+      if (signal) {
+        signal.addEventListener("abort", () => clearTimeout(id), { once: true });
+      }
+    });
+    response = await Promise.race([fetchPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(connectTimer);
+  }
+
+  // Headers received — leave pure "Connecting..." state immediately.
+  onProgress?.({
+    stage: "Data feed connected — starting scan...",
+    progress: 3,
+  });
 
   if (!response.ok) {
     const message = await response.text();
@@ -169,7 +200,10 @@ export async function runPresetScreener(
   if (contentType.includes("application/json")) {
     const body = await response.json();
     if (body?.status === "scan_in_progress") {
-      throw Object.assign(new Error("SCAN_IN_PROGRESS"), { scanInProgress: true });
+      throw Object.assign(
+        new Error(body?.message || "SCAN_IN_PROGRESS"),
+        { scanInProgress: true },
+      );
     }
     throw new Error("Unexpected scanner response format");
   }
@@ -182,15 +216,25 @@ export async function runPresetScreener(
   const decoder = new TextDecoder();
   let buffer = "";
   let payload: ScreenerResponse | null = null;
-  // Server sends heartbeat every 5s. Allow 180s gap before declaring stall.
-  // This gives generous headroom for slow proxy buffering + long processing stages.
-  const STREAM_STALL_TIMEOUT_MS = 180_000;
+  // Server sends progress/heartbeat every ~5s. Stall if nothing for 90s.
+  const STREAM_STALL_TIMEOUT_MS = 90_000;
+  let lastProgressAt = Date.now();
+  let sawRealProgress = false;
 
   while (true) {
     let result: ReadableStreamReadResult<Uint8Array>;
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
-        const id = setTimeout(() => reject(new Error("Scanner stream stalled — no data for 180s")), STREAM_STALL_TIMEOUT_MS);
+        const id = setTimeout(() => {
+          const waited = Math.round((Date.now() - lastProgressAt) / 1000);
+          reject(
+            new Error(
+              sawRealProgress
+                ? `Scanner stream stalled — no progress for ${waited}s`
+                : "Scanner stuck at startup — no progress events received. Check broker token and backend logs for [SCAN].",
+            ),
+          );
+        }, STREAM_STALL_TIMEOUT_MS);
         if (signal) signal.addEventListener("abort", () => clearTimeout(id), { once: true });
       });
       result = await Promise.race([reader.read(), timeoutPromise]);
@@ -200,16 +244,24 @@ export async function runPresetScreener(
     }
     if (result.done) break;
 
+    lastProgressAt = Date.now();
     buffer += decoder.decode(result.value, { stream: true });
-    const events = buffer.split('\n\n');
+    const events = buffer.split("\n\n");
     buffer = events.pop() || "";
 
     for (const event of events) {
       if (!event.trim()) continue;
 
-      // SSE comment lines (starting with ':') are keepalive heartbeats — ignore them
-      // but their arrival resets the stall timeout via the reader.read() race above
-      if (event.trim().startsWith(':')) continue;
+      // SSE comment keepalives reset stall timer (via lastProgressAt above).
+      if (event.trim().startsWith(":")) {
+        if (!sawRealProgress) {
+          onProgress?.({
+            stage: "Waiting for broker response...",
+            progress: 5,
+          });
+        }
+        continue;
+      }
 
       const eventMatch = event.match(/event:\s*(.*?)\n/);
       const dataMatch = event.match(/data:\s*(.*)/);
@@ -221,15 +273,13 @@ export async function runPresetScreener(
 
       try {
         const data = JSON.parse(dataRaw);
-        
+
         if (eventType === "progress") {
-          // Heartbeat events still reset the stall timer (via data arrival),
-          // but only update UI for real progress events or heartbeat status
-          if (data.heartbeat && !data.stage) continue;
+          sawRealProgress = true;
           if (onProgress) {
             onProgress({
               stage: data.stage || "Scanning...",
-              progress: data.progress || 0,
+              progress: typeof data.progress === "number" ? data.progress : 0,
               current_symbol: data.current_symbol,
               worker_id: data.worker_id,
               done: data.done,
@@ -244,6 +294,7 @@ export async function runPresetScreener(
             throw new Error(data.message || "Scanner encountered an internal error");
           } else if (data.status === "complete") {
             payload = data.result;
+            onProgress?.({ stage: "Completed", progress: 100 });
           }
         }
       } catch (err) {
@@ -306,31 +357,59 @@ export async function fetchPaperAccountSummary(opts?: { force?: boolean }): Prom
         const message = await response.text();
         throw new Error(message || "Failed to load account summary");
       }
-      return response.json();
+      const payload = await response.json();
+      // Single source of truth for Desk + Order capital. Log raw API shape for diagnostics.
+      console.info("[paper-capital] api account_summary_response", {
+        available_cash: payload?.available_cash ?? null,
+        available_funds: payload?.available_funds ?? null,
+        balance: payload?.balance ?? payload?.cash_balance ?? null,
+        equity: payload?.equity ?? null,
+        reserved_cash: payload?.reserved_cash ?? null,
+        max_risk_per_trade: payload?.max_risk_per_trade ?? null,
+        keys: payload && typeof payload === "object" ? Object.keys(payload) : [],
+      });
+      return payload;
     },
     { force: opts?.force, swr: !opts?.force, softTimeoutMs: 3000 },
   );
 }
 
-export async function fetchMarketStatus(): Promise<{ is_open: boolean; status: string; reason: string; current_ist?: string; next_open_ist?: string | null }> {
-  return cachedFetch(
-    CACHE_KEYS.marketStatus,
-    async () => {
-      const response = await fetchWithDiagnostics(`/health/market-status`, undefined, "Market status");
-      if (!response.ok) {
-        throw new Error("Market status unavailable");
-      }
-      return response.json();
-    },
-    { swr: true, ttlMs: 5 * 60 * 1000, softTimeoutMs: 2500 },
-  );
-}
-
 export async function fetchPaperQuote(symbol: string): Promise<PaperQuoteResponse> {
-  const response = await fetchWithDiagnostics(`/paper-trading/symbols/${encodeURIComponent(symbol)}/quote`, undefined, "Paper quote");
+  const response = await fetchWithDiagnostics(
+    `/paper-trading/symbols/${encodeURIComponent(symbol)}/quote`,
+    undefined,
+    "Paper quote",
+  );
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Failed to load live paper trading quote");
+    let detail: unknown = null;
+    let message = "";
+    try {
+      detail = await response.json();
+      if (detail && typeof detail === "object") {
+        const d = detail as Record<string, unknown>;
+        const nested = d.detail;
+        if (nested && typeof nested === "object") {
+          message = String((nested as Record<string, unknown>).reason ?? (nested as Record<string, unknown>).message ?? "");
+        } else if (typeof nested === "string") {
+          message = nested;
+        } else {
+          message = String(d.reason ?? d.message ?? "");
+        }
+      }
+    } catch {
+      try {
+        message = await response.text();
+      } catch {
+        message = "";
+      }
+    }
+    const err = new Error(message || "Failed to load live paper trading quote") as Error & {
+      status?: number;
+      detail?: unknown;
+    };
+    err.status = response.status;
+    err.detail = detail;
+    throw err;
   }
   return response.json() as Promise<PaperQuoteResponse>;
 }
@@ -363,6 +442,7 @@ export async function placePaperOrder(ticket: PaperOrderTicketState, idempotency
       symbol: ticket.symbol,
       side: ticket.side,
       type: ticket.type,
+      product_type: ticket.productType ?? "CNC",
       qty: ticket.qty,
       limit_price: ticket.limitPrice,
       stop_price: ticket.stopPrice,
@@ -1229,6 +1309,30 @@ async function throwIfAuthFailed(response: Response, fallback: string): Promise<
   throw new Error(formatAuthErrorDetail(errorData?.detail, fallback));
 }
 
+function persistAuthFromResponse(data: any): {
+  role: "trader" | "admin";
+  user: { id: string; email: string; full_name: string; role: "trader" | "admin" };
+} {
+  const role = data.role === "admin" || data.user?.role === "admin" ? "admin" : "trader";
+  const user = {
+    id: String(data.id ?? data.user?.id ?? ""),
+    email: data.email ?? data.user?.email ?? "",
+    full_name: data.full_name ?? data.user?.full_name ?? "",
+    role: role as "trader" | "admin",
+  };
+  // Persist role/profile only (FR-015/016). JWT lives in HttpOnly cookie, not localStorage.
+  authStorage.setAccessToken(""); // clears any legacy token key
+  if (user.id && user.email) {
+    authStorage.setUserProfile({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role,
+    });
+  }
+  return { role, user };
+}
+
 export async function authSignup(payload: any): Promise<any> {
   try {
     const response = await fetchWithDiagnostics(
@@ -1240,7 +1344,10 @@ export async function authSignup(payload: any): Promise<any> {
       "Auth signup",
     );
     await throwIfAuthFailed(response, "Signup failed");
-    return response.json();
+    const data = await response.json();
+    // Persist role (+ access_token when issued) for FR-015/FR-016.
+    const { role, user } = persistAuthFromResponse(data);
+    return { ...data, role, user };
   } catch (err) {
     throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Signup failed"));
   }
@@ -1257,7 +1364,10 @@ export async function authLogin(payload: any): Promise<any> {
       "Auth login",
     );
     await throwIfAuthFailed(response, "Login failed");
-    return response.json();
+    const data = await response.json();
+    // Normalize flat login payload into a role-aware user object for AuthProvider.
+    const { role, user } = persistAuthFromResponse(data);
+    return { ...data, role, user };
   } catch (err) {
     throw err instanceof Error ? err : new Error(toUserFacingApiMessage(err, "Login failed"));
   }
@@ -1277,7 +1387,9 @@ export async function authGoogleLogin(idToken: string): Promise<any> {
       "Auth google",
     );
     await throwIfAuthFailed(response, "Google login failed");
-    return response.json();
+    const data = await response.json();
+    const { role, user } = persistAuthFromResponse(data);
+    return { ...data, role, user };
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw mapNetworkError(err, apiUrl("/auth/google"), "Auth google");
@@ -1291,7 +1403,20 @@ export async function authGoogleLogin(idToken: string): Promise<any> {
 export async function authMe(): Promise<any> {
   const response = await fetchWithDiagnostics("/auth/me", undefined, "Auth me");
   if (!response.ok) throw new Error("Not authenticated");
-  return response.json();
+  const data = await response.json();
+  const role = data.role === "admin" ? "admin" : "trader";
+  const profile = {
+    ...data,
+    id: String(data.id),
+    role: role as "trader" | "admin",
+  };
+  authStorage.setUserProfile({
+    id: profile.id,
+    email: profile.email,
+    full_name: profile.full_name || "",
+    role: profile.role,
+  });
+  return profile;
 }
 
 /** Authenticated user profile (DB-backed — syncs across browsers/devices). */
@@ -1350,6 +1475,9 @@ export async function authLogout(): Promise<void> {
     await fetchWithDiagnostics("/auth/logout", { method: "POST" }, "Auth logout");
   } catch (err) {
     console.error(toUserFacingApiMessage(err));
+  } finally {
+    // Always clear client-side role/token storage on logout (FR-016).
+    authStorage.clearAuth();
   }
 }
 

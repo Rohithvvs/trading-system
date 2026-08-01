@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CandidateTable } from "../CandidateTable";
 import type { CandidateRow } from "../../types";
 
@@ -9,6 +9,22 @@ vi.mock("recharts", () => ({
   AreaChart: () => <div>AreaChart</div>,
   Area: () => <div>Area</div>,
   YAxis: () => <div>YAxis</div>,
+}));
+
+const mockCanAccess = vi.fn();
+
+vi.mock("../../hooks/useFeaturePermissions", () => ({
+  useFeaturePermissions: () => ({
+    canAccess: mockCanAccess,
+    isLoading: false,
+    permissions: {},
+    error: null,
+    refetchPermissions: vi.fn(),
+  }),
+}));
+
+vi.mock("../../hooks/useResearchPrefetch", () => ({
+  useResearchPrefetch: () => ({ hoverHandlers: () => ({}) }),
 }));
 
 describe("Dashboard Component", () => {
@@ -67,10 +83,16 @@ describe("CandidateTable Component", () => {
     },
   };
 
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: grant export so existing render tests stay stable
+    mockCanAccess.mockReturnValue(true);
+  });
+
   it("renders favorites table with symbol and BUY signal (no fake alpha card)", () => {
     render(<CandidateTable rows={[mockRow]} selectedSymbol={null} onSelect={vi.fn()} />);
 
-    expect(screen.getByText("TCS.NS")).toBeDefined();
+    expect(screen.getAllByText("TCS.NS").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("BUY").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("System Alpha Overview")).toBeNull();
   });
@@ -78,11 +100,43 @@ describe("CandidateTable Component", () => {
   it("renders the Regime Badge based on sentiment", () => {
     render(<CandidateTable rows={[mockRow]} selectedSymbol={null} onSelect={vi.fn()} />);
     // Because newsSentiment is 'Bullish', it should render 'CATALYST' badge
-    expect(screen.getByText("CATALYST")).toBeDefined();
+    expect(screen.getAllByText("CATALYST").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows empty state when no rows", () => {
     render(<CandidateTable rows={[]} selectedSymbol={null} onSelect={vi.fn()} />);
     expect(screen.getByText("No matching stocks")).toBeDefined();
+  });
+
+  // ── Sprint 5: export_data feature guard ─────────────────────────────────
+
+  it("shows Export CSV button when export_data feature access is granted", () => {
+    mockCanAccess.mockImplementation((key: string) => key === "export_data");
+
+    render(<CandidateTable rows={[mockRow]} selectedSymbol={null} onSelect={vi.fn()} />);
+
+    expect(screen.getByTestId("export-data-btn")).toBeTruthy();
+    expect(screen.getByText("Export CSV")).toBeTruthy();
+    expect(mockCanAccess).toHaveBeenCalledWith("export_data");
+  });
+
+  it("hides Export CSV button when export_data feature access is denied (trader)", () => {
+    mockCanAccess.mockReturnValue(false);
+
+    render(<CandidateTable rows={[mockRow]} selectedSymbol={null} onSelect={vi.fn()} />);
+
+    expect(screen.queryByTestId("export-data-btn")).toBeNull();
+    expect(screen.queryByText("Export CSV")).toBeNull();
+    // Table body still renders — only export control is gated
+    expect(screen.getAllByText("TCS.NS").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not render export control in empty state (no rows)", () => {
+    mockCanAccess.mockReturnValue(true);
+
+    render(<CandidateTable rows={[]} selectedSymbol={null} onSelect={vi.fn()} />);
+
+    expect(screen.queryByTestId("export-data-btn")).toBeNull();
+    expect(screen.getByText("No matching stocks")).toBeTruthy();
   });
 });

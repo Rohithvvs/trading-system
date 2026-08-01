@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import uuid
 from pathlib import Path
 from typing import Any, Generator
 import logging
@@ -15,7 +17,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 ARTIFACT_DIR = ROOT / "tests" / "artifacts" / "backend"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+# Legacy shared path (kept for artifact hooks / env default before per-test rebind)
 TEST_DB_PATH = ARTIFACT_DIR / "test_app_v2.db"
+# Active per-test SQLite file used by test_engine + rebinding of AsyncSessionLocal
+CURRENT_TEST_DB_PATH: Path | None = None
 
 # Export artifact dir and RUN_ID early so the application picks them up when imported
 RUN_ID = os.environ.get("RUN_ID") or datetime.utcnow().strftime("%Y%m%dT%H%M%S")
@@ -26,6 +31,8 @@ os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB_PATH}")
 os.environ.setdefault("NIFTY500_SYMBOLS", "INFY-EQ,TCS-EQ,RELIANCE-EQ")
 os.environ.setdefault("FYERS_ACCESS_TOKEN", "")
+# Snapshot for restoring process-wide engine after per-test rebinds
+_DEFAULT_TEST_DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -34,9 +41,10 @@ import sqlalchemy.pool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID  # noqa: E402
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, ARRAY  # noqa: E402
+from sqlalchemy.pool import NullPool  # noqa: E402
 
-# SQLite cannot render PostgreSQL JSONB/UUID natively. Register compilers early so
+# SQLite cannot render PostgreSQL JSONB/UUID/ARRAY natively. Register compilers early so
 # fixture create_all() works without relying on app lifespan hooks.
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_sqlite(type_, compiler, **kw):  # noqa: ARG001
@@ -46,6 +54,12 @@ def _compile_jsonb_sqlite(type_, compiler, **kw):  # noqa: ARG001
 @compiles(PG_UUID, "sqlite")
 def _compile_uuid_sqlite(type_, compiler, **kw):  # noqa: ARG001
     return "CHAR(36)"
+
+
+@compiles(ARRAY, "sqlite")
+def _compile_array_sqlite(type_, compiler, **kw):  # noqa: ARG001
+    return "TEXT"
+
 
 
 # Support both `pytest` from repo root and from backend/ with PYTHONPATH=.
@@ -63,6 +77,161 @@ except ModuleNotFoundError:
     from backend.app.models import *  # noqa: F401,F403,E402
 
 
+def _session_modules() -> list[Any]:
+    """Return all loaded session modules (app.* and backend.app.* may both exist)."""
+    mods: list[Any] = []
+    seen: set[int] = set()
+    for name in ("app.db.session", "backend.app.db.session"):
+        mod = sys.modules.get(name)
+        if mod is not None and id(mod) not in seen:
+            mods.append(mod)
+            seen.add(id(mod))
+    if mods:
+        return mods
+    # Force-import whichever import path works in this process
+    try:
+        from app.db import session as session_mod  # type: ignore
+        return [session_mod]
+    except ModuleNotFoundError:
+        from backend.app.db import session as session_mod  # type: ignore
+        return [session_mod]
+
+
+def _sqlite_async_url(sync_or_async_url: str) -> str:
+    if sync_or_async_url.startswith("sqlite:///") and "+aiosqlite" not in sync_or_async_url:
+        return sync_or_async_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    return sync_or_async_url
+
+
+def _rebind_sync_sqlite(db_path: Path) -> None:
+    """Point process-wide SessionLocal / get_sync_db at the per-test SQLite file.
+
+    Complements async rebind so paper-trading and other sync FastAPI deps see the
+    same schema/file as ``db_session`` and ``AsyncSessionLocal``.
+    """
+    sync_url = f"sqlite:///{db_path.as_posix()}"
+    for sm in _session_modules():
+        if not hasattr(sm, "SessionLocal"):
+            continue
+        new_engine = create_engine(
+            sync_url,
+            connect_args={"check_same_thread": False},
+            poolclass=NullPool,
+        )
+        old = getattr(sm, "sync_engine", None)
+        sm.sync_engine = new_engine
+        sm.SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=new_engine,
+            expire_on_commit=False,
+        )
+        if old is not None:
+            try:
+                old.dispose(close=True)
+            except TypeError:
+                try:
+                    old.dispose()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+
+def _rebind_async_sqlite(db_path: Path) -> None:
+    """Point process-wide AsyncSessionLocal at the per-test SQLite file (NullPool).
+
+    Rebinds every loaded session module so dual import paths (app vs backend.app)
+    cannot keep writing into a stale shared DB (regression R1/R2).
+    """
+    global CURRENT_TEST_DB_PATH
+    CURRENT_TEST_DB_PATH = db_path
+
+    async_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    for sm in _session_modules():
+        new_engine = create_async_engine(
+            async_url,
+            connect_args={"check_same_thread": False},
+            poolclass=NullPool,
+        )
+        if hasattr(sm, "rebind_async_engine"):
+            sm.rebind_async_engine(new_engine)
+        else:
+            # Fallback for older session modules
+            try:
+                sm.engine.sync_engine.dispose(close=True)
+            except Exception:
+                pass
+            sm.engine = new_engine
+            sm.AsyncSessionLocal = async_sessionmaker(
+                bind=new_engine,
+                autoflush=False,
+                autocommit=False,
+                expire_on_commit=False,
+                class_=AsyncSession,
+            )
+
+    # Keep sync form for Alembic/settings; env.py converts to aiosqlite for async
+    sync_url = f"sqlite:///{db_path.as_posix()}"
+    os.environ["DATABASE_URL"] = sync_url
+    try:
+        settings.database_url = sync_url
+    except Exception:
+        pass
+
+    # Sync SessionLocal must track the same file as async + db_session
+    _rebind_sync_sqlite(db_path)
+
+
+def _dispose_async_sqlite() -> None:
+    for sm in _session_modules():
+        try:
+            sm.engine.sync_engine.dispose(close=True)
+        except Exception:
+            pass
+
+
+def _restore_default_async_engine() -> None:
+    """Restore process-wide async + sync engines after per-test rebind teardown."""
+    global CURRENT_TEST_DB_PATH
+    CURRENT_TEST_DB_PATH = None
+    sync_url = _DEFAULT_TEST_DATABASE_URL
+    os.environ["DATABASE_URL"] = sync_url
+    try:
+        settings.database_url = sync_url
+    except Exception:
+        pass
+    async_url = _sqlite_async_url(sync_url)
+    for sm in _session_modules():
+        new_engine = create_async_engine(
+            async_url,
+            connect_args={"check_same_thread": False},
+            poolclass=NullPool,
+        )
+        if hasattr(sm, "rebind_async_engine"):
+            sm.rebind_async_engine(new_engine)
+        else:
+            try:
+                sm.engine.sync_engine.dispose(close=True)
+            except Exception:
+                pass
+            sm.engine = new_engine
+            sm.AsyncSessionLocal = async_sessionmaker(
+                bind=new_engine,
+                autoflush=False,
+                autocommit=False,
+                expire_on_commit=False,
+                class_=AsyncSession,
+            )
+    # Restore sync SessionLocal to the default test DATABASE_URL
+    try:
+        default_path = Path(sync_url.replace("sqlite:///", "", 1))
+        if default_path.suffix or "sqlite" in sync_url:
+            _rebind_sync_sqlite(default_path)
+    except Exception:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def test_settings() -> Generator[None, None, None]:
     settings.app_env = "test"
@@ -72,33 +241,49 @@ def test_settings() -> Generator[None, None, None]:
 
 @pytest.fixture()
 def test_engine():
-    # Ensure fresh DB file for each test
-    if TEST_DB_PATH.exists():
+    """Fresh per-test SQLite DB shared by sync engine and app AsyncSessionLocal."""
+    global CURRENT_TEST_DB_PATH
+    db_path = ARTIFACT_DIR / f"test_{uuid.uuid4().hex}.db"
+    CURRENT_TEST_DB_PATH = db_path
+
+    if db_path.exists():
         try:
-            # Need to close any dangling connections or wait for file lock, but usually fine
-            TEST_DB_PATH.unlink()
+            db_path.unlink()
         except OSError:
             pass
 
+    # Dispose any prior async pool before creating a new file path
+    _dispose_async_sqlite()
+
     engine = create_engine(
-        f"sqlite:///{TEST_DB_PATH}",
+        f"sqlite:///{db_path.as_posix()}",
         connect_args={"check_same_thread": False},
+        poolclass=NullPool,
     )
-    
+
     with engine.connect() as conn:
         conn.execute(sqlalchemy.text("PRAGMA journal_mode=WAL"))
         conn.execute(sqlalchemy.text("PRAGMA synchronous=NORMAL"))
         conn.commit()
-        
+
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+
+    # Ensure services that open AsyncSessionLocal see the same schema/file
+    _rebind_async_sqlite(db_path)
+
     yield engine
+
+    _dispose_async_sqlite()
     engine.dispose()
-    if TEST_DB_PATH.exists():
+    if db_path.exists():
         try:
-            TEST_DB_PATH.unlink()
+            db_path.unlink()
         except OSError:
             pass
+    # Restore default engine so subsequent suites (e.g. app/tests) are not left
+    # with a disposed/deleted SQLite file binding.
+    _restore_default_async_engine()
 
 
 @pytest.fixture()
@@ -132,11 +317,19 @@ async def async_db_session():
 
 
 @pytest.fixture()
-def client(db_session: Session) -> Generator[TestClient, None, None]:
-    def override_get_db() -> Generator[Session, None, None]:
-        yield db_session
+def client(test_engine) -> Generator[TestClient, None, None]:
+    """HTTP client against the per-test DB using real async/sync session factories.
 
-    app.dependency_overrides[get_db] = override_get_db
+    Do **not** override ``get_db`` with a sync ``Session``: FastAPI async routes
+    call ``await db.execute`` and fail with ChunkedIteratorResult errors when a
+    sync session is injected. ``test_engine`` rebinds ``AsyncSessionLocal`` and
+    ``SessionLocal`` to the same SQLite file used by ``db_session``.
+
+    Prefer ``db_session.commit()`` before API reads when seeding via the sync
+    fixture so the async path observes committed rows.
+    """
+    # Clear any leftover overrides from other fixtures
+    app.dependency_overrides.pop(get_db, None)
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -195,14 +388,34 @@ def pytest_runtest_makereport(item, call):
     outcome = yield
     rep = outcome.get_result()
     if rep.when == "call" and rep.failed:
-        # Copy the sqlite DB file for offline inspection
+        # Copy the active per-test sqlite DB file for offline inspection
         try:
-            if TEST_DB_PATH.exists():
+            src = CURRENT_TEST_DB_PATH if CURRENT_TEST_DB_PATH and CURRENT_TEST_DB_PATH.exists() else None
+            if src is None and TEST_DB_PATH.exists():
+                src = TEST_DB_PATH
+            if src is not None:
                 dst = ARTIFACT_DIR / "db" / f"{re.sub(r'[^A-Za-z0-9_.-]+', '_', rep.nodeid)}.db"
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(TEST_DB_PATH, dst)
+                shutil.copy2(src, dst)
         except Exception as e:
             try:
                 (ARTIFACT_DIR / "db" / f"{re.sub(r'[^A-Za-z0-9_.-]+', '_', rep.nodeid)}_db_error.txt").write_text(str(e))
             except Exception:
                 pass
+
+
+@pytest.fixture(autouse=True)
+def reset_rule_manager():
+    """Reset the RuleManager singleton before and after each test."""
+    try:
+        from app.governance.rule_manager import RuleManager
+        RuleManager.reset_instance()
+    except ImportError:
+        pass
+    yield
+    try:
+        from app.governance.rule_manager import RuleManager
+        RuleManager.reset_instance()
+    except ImportError:
+        pass
+

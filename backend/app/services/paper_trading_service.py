@@ -171,19 +171,12 @@ class PaperTradingService:
         if not payload.idempotency_key:
             raise ValueError("Idempotency key is required.")
 
-        # === CENTRALIZED MARKET HOURS VALIDATION (applies to Paper + future Live) ===
-        # Only Buy orders are restricted. Sells/closes are allowed to manage risk.
-        if getattr(payload, "side", None) == "BUY":
-            from .trading_hours_service import trading_hours, MarketClosedError
-            try:
-                trading_hours.validate_can_place_buy_order()
-            except MarketClosedError as mce:
-                # Re-raise as ValueError so existing route error handling surfaces the friendly message.
-                # This ensures NO order is created, no fill attempted, and no backend side-effects.
-                raise ValueError(str(mce)) from mce
-
         account = self._get_or_create_account(for_update=True)
+        from ..utils.symbol import canonical_symbol
+
         self._validate_symbol(payload.symbol)
+        # Always persist canonical form so quote polling and positions stay consistent
+        order_symbol = canonical_symbol(payload.symbol)
         existing = self.db.scalar(
             select(PaperOrder).where(
                 PaperOrder.account_id == account.id,
@@ -205,11 +198,11 @@ class PaperTradingService:
                 message="Idempotent retry: existing order returned.",
             )
         self._refresh_pending_orders(account.id)
-        price = self._price_snapshot(payload.symbol)
+        price = self._price_snapshot(order_symbol)
         trigger_price = self._requested_price(payload, price.current_price)
         order = PaperOrder(
             account_id=account.id,
-            symbol=payload.symbol,
+            symbol=order_symbol,
             side=payload.side,
             order_type=payload.type,
             product_type=payload.product_type,
@@ -418,9 +411,11 @@ class PaperTradingService:
         )
 
     def recommendation_prefill(self, payload: RecommendationPrefillRequest) -> RecommendationPrefillResponse:
+        from ..utils.symbol import canonical_symbol
+
         targets = payload.suggested_targets or []
         return RecommendationPrefillResponse(
-            symbol=payload.symbol.strip().upper(),
+            symbol=canonical_symbol(payload.symbol),
             qty=1,
             limit_price=payload.suggested_entry,
             stop_loss=payload.suggested_stop,
@@ -433,45 +428,243 @@ class PaperTradingService:
         )
 
     def get_workspace(self, symbol: str) -> PaperWorkspaceSnapshot:
-        self._validate_symbol(symbol)
-        snapshot = self._price_snapshot(symbol)
+        from ..utils.symbol import canonical_symbol
+
+        normalized = canonical_symbol(symbol)
+        self._validate_symbol(normalized)
+        snapshot = self._price_snapshot(normalized)
         return self._workspace_from_snapshot(snapshot, None, None, None)
 
     def get_quote(self, symbol: str) -> PaperQuoteResponse:
-        normalized_symbol = symbol.strip().upper()
-        self.logger.info("QUOTE_REQUEST_STARTED | symbol=%s", normalized_symbol)
+        """Return latest paper-trading quote with graceful degradation.
+
+        Always canonicalizes symbols (e.g. ``INFY-EQ`` → ``INFY``) before
+        universe validation and broker calls. Temporary provider failures return
+        a structured degraded status and last-known price when available instead
+        of failing the request.
+        """
+        import time as _time
+        from ..utils.symbol import canonical_symbol
+
+        started = _time.perf_counter()
+        raw_symbol = (symbol or "").strip()
+        normalized_symbol = canonical_symbol(raw_symbol)
+        user = str(self.user_id) if self.user_id else "system"
+        broker = "FYERS"
+        endpoint = "quotes"
+        retry_count = 0
+        exception_name: str | None = None
+        status_code = 200
+        reason: str | None = None
+        is_stale = False
+        last_successful_at: datetime | None = None
+        now = datetime.now(timezone.utc)
+
+        self.logger.info(
+            "QUOTE_REQUEST_STARTED | timestamp=%s | user=%s | broker=%s | symbol=%s | "
+            "raw_symbol=%s | endpoint=%s | retry_count=%s",
+            now.isoformat(),
+            user,
+            broker,
+            normalized_symbol,
+            raw_symbol,
+            endpoint,
+            retry_count,
+        )
+
         self._validate_symbol(normalized_symbol)
-        
-        import asyncio; from ..db.session import main_event_loop
+
+        ltp: float | None = None
+        source = "NO_DATA"
+
+        # 1) Live LTP via shared event loop (bounded timeout).
+        # Unit tests mock run_coroutine_threadsafe; production uses main_event_loop.
         try:
-            future = asyncio.run_coroutine_threadsafe(self.fyers_service.fetch_ltp(normalized_symbol), main_event_loop)
+            import asyncio
+            from ..db.session import main_event_loop
+
+            future = asyncio.run_coroutine_threadsafe(
+                self.fyers_service.fetch_ltp(normalized_symbol),
+                main_event_loop,
+            )
             ltp = future.result(timeout=5)
-        except Exception as e:
-            self.logger.exception("QUOTE_REQUEST_FAILURE | symbol=%s | error=%s", normalized_symbol, e)
-            ltp = None
-            
-        source = "FYERS_QUOTE"
-        if ltp is None:
-            from .fyers_service import _run_sync
-            candles = _run_sync(self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2))
-            if candles:
-                ltp = candles[-1].close
-                source = "CANDLE_FALLBACK"
+            if ltp is not None and float(ltp) > 0:
+                source = "FYERS_QUOTE"
             else:
-                ltp = 0.0
-                source = "NO_DATA"
-                
-        if source == "NO_DATA":
-            self.logger.warning("PAPER_PRICE_UNAVAILABLE | symbol=%s | source=%s", normalized_symbol, source)
+                ltp = None
+        except Exception as e:
+            exception_name = type(e).__name__
+            latency_ms = int((_time.perf_counter() - started) * 1000)
+            self.logger.error(
+                "QUOTE_REQUEST_FAILURE | timestamp=%s | user=%s | broker=%s | symbol=%s | "
+                "endpoint=%s | status_code=%s | latency_ms=%s | retry_count=%s | exception=%s | error=%s",
+                datetime.now(timezone.utc).isoformat(),
+                user,
+                broker,
+                normalized_symbol,
+                endpoint,
+                status_code,
+                latency_ms,
+                retry_count,
+                exception_name,
+                str(e)[:200],
+                exc_info=True,
+            )
+            ltp = None
+
+        # 2) Candle fallback (bounded) when live LTP missing
+        if ltp is None:
+            try:
+                from .fyers_service import _run_sync
+
+                candles = None
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fut = pool.submit(
+                        _run_sync,
+                        self.fyers_service.fetch_ohlcv(normalized_symbol, AnalysisMode.swing, "1d", 2),
+                    )
+                    candles = fut.result(timeout=8)
+                if candles:
+                    close = getattr(candles[-1], "close", None)
+                    if close is not None and float(close) > 0:
+                        ltp = float(close)
+                        source = "CANDLE_FALLBACK"
+                        reason = reason or (
+                            "Quote Provider Timeout"
+                            if exception_name in {"TimeoutError", "CancelledError", "FuturesTimeoutError"}
+                            else "Live quote unavailable; using candle fallback"
+                        )
+                        is_stale = True
+            except Exception as e:
+                retry_count += 1
+                exception_name = exception_name or type(e).__name__
+                self.logger.warning(
+                    "QUOTE_CANDLE_FALLBACK_FAILURE | timestamp=%s | user=%s | broker=%s | symbol=%s | "
+                    "endpoint=ohlcv | latency_ms=%s | retry_count=%s | exception=%s | error=%s",
+                    datetime.now(timezone.utc).isoformat(),
+                    user,
+                    broker,
+                    normalized_symbol,
+                    int((_time.perf_counter() - started) * 1000),
+                    retry_count,
+                    type(e).__name__,
+                    str(e)[:200],
+                )
+
+        # 3) Last successful in-process snapshot (failover display)
+        if ltp is None:
+            try:
+                import time as _mono
+
+                with _price_snapshot_cache_lock:
+                    cached_entry = _price_snapshot_cache.get(normalized_symbol)
+                if cached_entry:
+                    snap, _ts = cached_entry
+                    if snap and snap.current_price and float(snap.current_price) > 0:
+                        ltp = float(snap.current_price)
+                        source = (
+                            snap.source
+                            if snap.source in {"FYERS_QUOTE", "CANDLE_FALLBACK", "NO_DATA", "TEST_MOCK"}
+                            else "CANDLE_FALLBACK"
+                        )
+                        reason = reason or (
+                            "Quote Provider Timeout"
+                            if exception_name in {"TimeoutError", "CancelledError", "FuturesTimeoutError"}
+                            else "Using last successful price"
+                        )
+                        is_stale = True
+                        last_successful_at = snap.fetched_at
+                        self.logger.info(
+                            "QUOTE_LAST_KNOWN_PRICE | symbol=%s | ltp=%s | age_source=%s",
+                            normalized_symbol,
+                            ltp,
+                            snap.source,
+                        )
+            except Exception:
+                pass
+
+        if ltp is None or float(ltp) <= 0:
+            ltp = 0.0
+            source = "NO_DATA"
+            reason = reason or (
+                "Quote Provider Timeout"
+                if exception_name in {"TimeoutError", "CancelledError", "FuturesTimeoutError"}
+                else "Market data unavailable"
+            )
+            is_stale = True
+            self.logger.warning(
+                "PAPER_PRICE_UNAVAILABLE | timestamp=%s | user=%s | broker=%s | symbol=%s | "
+                "endpoint=%s | status_code=%s | latency_ms=%s | retry_count=%s | exception=%s | reason=%s",
+                datetime.now(timezone.utc).isoformat(),
+                user,
+                broker,
+                normalized_symbol,
+                endpoint,
+                status_code,
+                int((_time.perf_counter() - started) * 1000),
+                retry_count,
+                exception_name,
+                reason,
+            )
         else:
-            self.logger.info("PAPER_PRICE_UPDATE | symbol=%s | ltp=%s | source=%s", normalized_symbol, ltp, source)
-            
-        self.logger.info("QUOTE_REQUEST_SUCCESS | symbol=%s | ltp=%s | source=%s", normalized_symbol, ltp, source)
+            reason = None
+            is_stale = False
+            self.logger.info(
+                "PAPER_PRICE_UPDATE | symbol=%s | ltp=%s | source=%s",
+                normalized_symbol,
+                ltp,
+                source,
+            )
+
+        latency_ms = int((_time.perf_counter() - started) * 1000)
+        self.logger.info(
+            "QUOTE_REQUEST_SUCCESS | timestamp=%s | user=%s | broker=%s | symbol=%s | endpoint=%s | "
+            "status_code=%s | latency_ms=%s | retry_count=%s | exception=%s | ltp=%s | source=%s | "
+            "reason=%s",
+            datetime.now(timezone.utc).isoformat(),
+            user,
+            broker,
+            normalized_symbol,
+            endpoint,
+            status_code,
+            latency_ms,
+            retry_count,
+            exception_name,
+            ltp,
+            source,
+            reason,
+        )
+
+        # Seed snapshot cache on successful live/candle prices for future failover
+        if ltp and float(ltp) > 0 and source != "NO_DATA":
+            try:
+                import time as _mono
+
+                snap = PriceSnapshot(
+                    symbol=normalized_symbol,
+                    current_price=float(ltp),
+                    candles=[],
+                    ema_20=None,
+                    supertrend=None,
+                    source=source,
+                    fetched_at=last_successful_at or now,
+                )
+                with _price_snapshot_cache_lock:
+                    # Only overwrite with fresher live data; keep last known if degraded re-hit
+                    existing = _price_snapshot_cache.get(normalized_symbol)
+                    if not existing or source == "FYERS_QUOTE" or not existing[0].current_price:
+                        _price_snapshot_cache[normalized_symbol] = (snap, _mono.monotonic())
+            except Exception:
+                pass
+
         return PaperQuoteResponse(
             symbol=normalized_symbol,
-            current_price=round(ltp, 2) if ltp is not None else 0.0,
+            current_price=round(float(ltp), 2),
             source=source,  # type: ignore[arg-type]
-            updated_at=datetime.now(timezone.utc),
+            updated_at=now,
+            reason=reason,
+            is_stale=is_stale,
+            last_successful_at=last_successful_at,
         )
 
     def get_account_by_id(self, account_id: int, for_update: bool = False) -> PaperTradingAccount:
@@ -556,8 +749,20 @@ class PaperTradingService:
         return svc._get_or_create_account()
 
     def _validate_symbol(self, symbol: str) -> None:
-        if symbol.strip().upper() not in settings.nifty500_symbols:
-            raise ValueError("Only configured Nifty 500 cash symbols are allowed.")
+        """Accept raw, exchange-prefixed, or ``-EQ`` forms by canonicalizing first.
+
+        Universe symbols are stored in canonical form (e.g. ``INFY``), while the
+        UI/broker often send ``INFY-EQ`` or ``NSE:INFY-EQ``. Exact-string checks
+        previously rejected valid cash symbols and broke live quote polling.
+        """
+        from ..utils.symbol import canonical_symbol
+
+        raw = (symbol or "").strip().upper()
+        canon = canonical_symbol(raw)
+        allowed = settings.nifty500_symbols
+        if canon in allowed or raw in allowed:
+            return
+        raise ValueError("Only configured Nifty 500 cash symbols are allowed.")
 
     def _position_models(self, account_id: int) -> list[PaperPosition]:
         try:
@@ -615,7 +820,7 @@ class PaperTradingService:
             return order, position, None, "Order is already terminal."
         if current_price <= 0:
             order.status = "PENDING"
-            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING"}:
                 order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Live market price unavailable; order remains pending."
 
@@ -647,7 +852,7 @@ class PaperTradingService:
 
         if not should_fill:
             order.status = "PENDING"
-            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "MARKET_CLOSED_WAITING", "ERROR_RETRYING"}:
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING"}:
                 order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Order placed and kept pending."
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AnalysisMode(str, Enum):
@@ -82,11 +82,11 @@ class FundamentalAnalysisResult(BaseModel):
 
 class ArticleItem(BaseModel):
     title: str
-    description: str
-    source: str
-    url: str
-    published_at: datetime
-    sentiment_score: float
+    description: str = ""
+    source: str = "unknown"
+    url: str = ""
+    published_at: datetime | None = None
+    sentiment_score: float = 0.0
 
 
 class BacktestResult(BaseModel):
@@ -168,6 +168,11 @@ class FinalRecommendation(BaseModel):
     reasoning: RecommendationReasoning
     trade_plans: list[TradePlan]
     summary: str
+    # Component scores on 0–100 scale (pre-overlay) for Strict BUY Gate multi-condition checks.
+    # Optional so older callers / tests that omit them still construct cleanly.
+    technical_score: float | None = None
+    backtest_score: float | None = None
+    fundamental_score: float | None = None
     # FEAT-004 — Market Regime Overlay (optional logging/metadata fields)
     # Defaults to None; populated when FEAT-004 runs. Contains the full
     # feat004 log payload (regime, benchmark trend inputs, score adjustment,
@@ -330,3 +335,52 @@ class ScreenerResponse(BaseModel):
     scan_stages: list[ScreenerStageSummary] = Field(default_factory=list)
     stopped_at_stage: str | None = None
     duplicate_symbols_skipped: int = 0
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class ShadowExecutionContext(BaseModel):
+    """Immutable production snapshot for experimental evaluation (FR-007)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    candles: list[OHLCVPoint]
+    technical_results: list[TechnicalAnalysisResult]
+    sentiment_score: float
+    fundamental_result: FundamentalAnalysisResult | None = None
+    backtests: list[BacktestResult] = Field(default_factory=list)
+    production_recommendation: FinalRecommendation
+    production_challenger_recommendation: FinalRecommendation | None = None
+    scan_date: datetime = Field(default_factory=_utc_now)
+
+
+class ShadowExecutionResult(BaseModel):
+    """Immutable shadow run output DTO."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ruleset_name: str
+    score: float
+    action: str
+    reasoning: list[str] = Field(default_factory=list)
+    executed_at: datetime = Field(default_factory=_utc_now)
+
+
+class ShadowComparisonLog(BaseModel):
+    """Immutable production-vs-shadow comparison record (persistence later)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    scan_date: datetime
+    ruleset_name: str
+    production_action: str
+    production_score: float
+    shadow_action: str
+    shadow_score: float
+    score_delta: float
+    is_mismatch: bool
+

@@ -132,7 +132,6 @@ class MarketEngineService:
                 symbols = sorted(await self._desired_symbols(db))
                 return {
                     "status": session.status,
-                    "market_hours_active": self.is_market_hours(),
                     "websocket_connected": bool(session.websocket_connected),
                     "token_status": session.token_status,
                     "paused_reason": session.paused_reason,
@@ -149,7 +148,7 @@ class MarketEngineService:
                 async with AsyncSessionLocal() as db:
                     async with db.begin():
                         session = await self._get_or_create_session(db)
-                        if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED", "WAITING_MARKET_OPEN"}:
+                        if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED"}:
                             if session.status == "ERROR_RETRYING":
                                 session.status = "RUNNING"
                                 self.logger.info("MARKET_ENGINE_RECOVERED | Engine recovered from error state")
@@ -161,19 +160,9 @@ class MarketEngineService:
             await asyncio.sleep(2)
 
     async def _reconcile_session(self, db, session: MarketEngineSession) -> None:
-        if not self.is_market_hours():
-            if session.status != "WAITING_MARKET_OPEN":
-                self.logger.info("Market closed; engine waiting for next session")
-            session.status = "WAITING_MARKET_OPEN"
-            session.websocket_connected = False
-            await self._set_market_closed_waiting(db)
-            self._feed.stop(notify=False)
-            return
-
         try:
             desired = await self._desired_symbols(db)
             session.monitored_symbols_count = len(desired)
-            await self._resume_active_models(db)
             self._feed.sync_symbols(desired)
             if desired:
                 token = await get_current_access_token(db)
@@ -378,24 +367,6 @@ class MarketEngineService:
         position_symbols = {pos.symbol for pos in positions if pos.symbol}
         return {s for s in order_symbols | position_symbols if s}
 
-    async def _set_market_closed_waiting(self, db) -> None:
-        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
-            if order.lifecycle_state in ACTIVE_ORDER_STATES:
-                order.lifecycle_state = "MARKET_CLOSED_WAITING"
-        for position in (await db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN"))).all():
-            if position.lifecycle_state in ACTIVE_POSITION_STATES:
-                position.lifecycle_state = "MARKET_CLOSED_WAITING"
-
-    async def _resume_active_models(self, db) -> None:
-        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
-            if order.lifecycle_state in {"MARKET_CLOSED_WAITING", "ERROR_RETRYING", "TOKEN_EXPIRED_PAUSED"}:
-                order.lifecycle_state = "PENDING_ENTRY"
-                order.paused_reason = None
-        for position in (await db.scalars(select(PaperPosition).where(PaperPosition.status == "OPEN"))).all():
-            if position.lifecycle_state in {"MARKET_CLOSED_WAITING", "ERROR_RETRYING", "TOKEN_EXPIRED_PAUSED"}:
-                position.lifecycle_state = "OPEN_POSITION"
-                position.paused_reason = None
-
     async def _pause_for_token(self, db, session: MarketEngineSession) -> None:
         already_paused = session.status == "PAUSED_TOKEN_EXPIRED"
         session.status = "PAUSED_TOKEN_EXPIRED"
@@ -526,12 +497,6 @@ class MarketEngineService:
         await db.flush()
         return session
 
-    def is_market_hours(self, now: datetime | None = None) -> bool:
-        local = (now or datetime.now(timezone.utc)).astimezone(IST)
-        if local.weekday() >= 5:
-            return False
-        return time(9, 0) <= local.time() <= time(16, 0)
-
     async def _reconciliation_loop(self) -> None:
         """
         Independent background task to reconcile OHLC paths.
@@ -540,8 +505,7 @@ class MarketEngineService:
         while self._running:
             try:
                 await asyncio.sleep(300)
-                if self.is_market_hours():
-                    await self._sweep_historical_positions()
+                await self._sweep_historical_positions()
             except asyncio.CancelledError:
                 break
             except Exception as e:

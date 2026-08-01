@@ -4,7 +4,7 @@ import logging
 import time
 from sqlalchemy import select, text
 from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.paper_trading import PaperTradingAccount, PaperOrder, PaperPosition, ExecutionEvent
 from app.services.market_engine_service import MarketEngineService
