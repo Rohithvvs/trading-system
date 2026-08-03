@@ -19,6 +19,9 @@ _account_creation_lock = threading.Lock()
 from ..config import settings
 from ..models.paper_trading import (
     DEFAULT_PAPER_STARTING_BALANCE,
+    OPEN_ORDER_STATUSES,
+    PENDING_MARKET_OPEN_STATUS,
+    TERMINAL_ORDER_STATUSES,
     ExecutionEvent,
     PaperOrder,
     PaperPosition,
@@ -28,6 +31,7 @@ from ..models.paper_trading import (
     PaperTransaction,
     PaperAlert,
 )
+from ..services.trading_hours_service import trading_hours
 from ..schemas import AnalysisMode, OHLCVPoint
 from ..schemas.paper_trading import (
     PaperAccountSummary,
@@ -104,7 +108,11 @@ class PaperTradingService:
         return PaperTradingDashboardResponse(
             account=summary,
             positions=[self._serialize_position(item, price_cache.get(item.symbol)) for item in positions],
-            open_orders=[self._serialize_order(item, price_cache.get(item.symbol)) for item in orders if item.status == "PENDING"],
+            open_orders=[
+                self._serialize_order(item, price_cache.get(item.symbol))
+                for item in orders
+                if item.status in OPEN_ORDER_STATUSES
+            ],
             order_history=[self._serialize_order(item, price_cache.get(item.symbol)) for item in orders],
             trades=[self._serialize_trade(item) for item in trades],
             symbols=settings.nifty500_symbols,
@@ -128,11 +136,11 @@ class PaperTradingService:
     def get_pending_orders(self) -> list[PaperOrderResponse]:
         account = self._get_or_create_account()
         self._refresh_pending_orders(account.id)
-        orders = [item for item in self._order_models(account.id) if item.status == "PENDING"]
+        orders = [item for item in self._order_models(account.id) if item.status in OPEN_ORDER_STATUSES]
         price_cache = self._load_price_cache({item.symbol for item in orders})
         self.db.commit()
         # Re-fetch orders after commit to avoid stale object errors
-        orders = [item for item in self._order_models(account.id) if item.status == "PENDING"]
+        orders = [item for item in self._order_models(account.id) if item.status in OPEN_ORDER_STATUSES]
         return [self._serialize_order(item, price_cache.get(item.symbol)) for item in orders]
 
     def get_order_history(self) -> list[PaperOrderResponse]:
@@ -200,6 +208,10 @@ class PaperTradingService:
         self._refresh_pending_orders(account.id)
         price = self._price_snapshot(order_symbol)
         trigger_price = self._requested_price(payload, price.current_price)
+        market_status = trading_hours.get_market_status()
+        market_is_open = bool(market_status.get("is_open"))
+        next_open = None if market_is_open else trading_hours.get_next_market_open()
+
         order = PaperOrder(
             account_id=account.id,
             symbol=order_symbol,
@@ -218,6 +230,8 @@ class PaperTradingService:
             source_confidence=payload.source_confidence,
             status="PENDING",
             lifecycle_state="PENDING_ENTRY",
+            market_session=str(market_status.get("status") or market_status.get("session") or "UNKNOWN"),
+            scheduled_execution=next_open,
             idempotency_key=payload.idempotency_key,
         )
         self.db.add(order)
@@ -238,81 +252,146 @@ class PaperTradingService:
                     message="Idempotent retry: existing order returned.",
                 )
             raise
-        try:
-            trading_logger.info(
-                "ORDER_PLACED | account=%s | order_id=%s | symbol=%s | side=%s | qty=%s | order_type=%s | order_price=%s | stop_loss=%s | target=%s | source_signal=%s | source_score=%s | source_confidence=%s",
-                account.id,
-                getattr(order, "id", None),
-                order.symbol,
-                order.side,
-                order.qty,
-                order.order_type,
-                order.order_price,
-                order.stop_loss,
-                order.target,
-                order.source_signal,
-                order.source_score,
-                order.source_confidence,
-            )
-        except Exception:
-            pass
-        order.last_evaluated_at = datetime.now(timezone.utc)
-        order.last_seen_ltp = price.current_price
-        # Try to fill the order (this will update order.status, create/update position, and adjust account in the same session)
-        filled_order, position, trade, message = self._try_fill_order(account, order, price.current_price)
 
-        # Log transaction (cash outflow) to SQLite and add notifications before commit
-        try:
-            if filled_order.status == "FILLED" and filled_order.side == "BUY":
-                filled_order.lifecycle_state = "ENTRY_FILLED"
-                if position:
-                    position.lifecycle_state = "OPEN_POSITION"
-                tx = PaperTransaction(
-                    account_id=int(account.id),
-                    timestamp=datetime.now(timezone.utc),
-                    symbol=filled_order.symbol,
-                    action="BUY",
-                    qty=int(filled_order.qty),
-                    price=float(filled_order.filled_price) if filled_order.filled_price is not None else None,
-                    amount=-float(filled_order.filled_price or 0.0) * int(filled_order.qty),
-                    balance_after=float(account.cash_balance),
+        order.last_evaluated_at = datetime.now(timezone.utc)
+        order.last_seen_ltp = price.current_price if price.current_price > 0 else None
+        filled_order = order
+        position = None
+        trade = None
+        message = "Order placed."
+
+        if not market_is_open:
+            # After hours / weekend / holiday: accept order, do NOT create position or touch capital
+            order.status = PENDING_MARKET_OPEN_STATUS
+            order.lifecycle_state = PENDING_MARKET_OPEN_STATUS
+            order.scheduled_execution = next_open
+            try:
+                trading_logger.info(
+                    "ORDER_PLACED_PENDING | user_id=%s | account=%s | order_id=%s | symbol=%s | side=%s | qty=%s | "
+                    "status=%s | market_status=%s | scheduled_execution=%s | order_type=%s | requested_price=%s",
+                    self.user_id,
+                    account.id,
+                    getattr(order, "id", None),
+                    order.symbol,
+                    order.side,
+                    order.qty,
+                    order.status,
+                    order.market_session,
+                    order.scheduled_execution.isoformat() if order.scheduled_execution else None,
+                    order.order_type,
+                    order.order_price,
                 )
-                self.db.add(tx)
+            except Exception:
+                pass
+            message = (
+                "Order accepted. The market is currently closed. "
+                "Your order has been placed successfully and will be executed automatically when the market opens."
+            )
+            try:
                 self.add_notification(
                     account.id,
-                    f"{filled_order.symbol} paper buy filled at Rs {round(float(filled_order.filled_price or 0.0), 2)}.",
-                    "success",
-                    "ENTRY_FILLED",
-                    "order",
-                    filled_order.id,
-                    dedupe_key=f"entry-filled:{filled_order.id}",
-                    commit=False,
-                )
-            elif filled_order.status == "PENDING" and filled_order.side == "BUY":
-                self.add_notification(
-                    account.id,
-                    f"{filled_order.symbol} limit buy waiting for entry at Rs {round(float(filled_order.order_price or 0.0), 2)}.",
+                    (
+                        f"Order accepted for {order.symbol}. Market is closed "
+                        f"({order.market_session}). "
+                        f"Scheduled for next market open"
+                        f"{(' at ' + order.scheduled_execution.astimezone(timezone.utc).isoformat()) if order.scheduled_execution else ''}."
+                    ),
                     "info",
-                    "PENDING_ENTRY_CREATED",
+                    "ORDER_PLACED_PENDING",
                     "order",
-                    filled_order.id,
-                    dedupe_key=f"pending-entry:{filled_order.id}",
+                    order.id,
+                    dedupe_key=f"pending-market-open:{order.id}",
                     commit=False,
                 )
-        except Exception as e:
-            print(f"ERROR creating notifications in place_order: {e}")
-            self.logger.exception("Failed to write BUY transaction or notification to SQLite")
+            except Exception:
+                self.logger.exception("Failed to write PENDING_MARKET_OPEN notification")
+        else:
+            try:
+                trading_logger.info(
+                    "ORDER_PLACED | account=%s | order_id=%s | symbol=%s | side=%s | qty=%s | order_type=%s | "
+                    "order_price=%s | market_status=OPEN | stop_loss=%s | target=%s",
+                    account.id,
+                    getattr(order, "id", None),
+                    order.symbol,
+                    order.side,
+                    order.qty,
+                    order.order_type,
+                    order.order_price,
+                    order.stop_loss,
+                    order.target,
+                )
+            except Exception:
+                pass
+            # Market open: attempt immediate execution (MARKET) or leave pending for price trigger
+            filled_order, position, trade, message = self._try_fill_order(
+                account, order, price.current_price, require_market_open=True
+            )
+
+            try:
+                if filled_order.status in {"FILLED", "EXECUTED"} and filled_order.side == "BUY":
+                    filled_order.lifecycle_state = "ENTRY_FILLED"
+                    if position:
+                        position.lifecycle_state = "OPEN_POSITION"
+                    tx = PaperTransaction(
+                        account_id=int(account.id),
+                        timestamp=datetime.now(timezone.utc),
+                        symbol=filled_order.symbol,
+                        action="BUY",
+                        qty=int(filled_order.qty),
+                        price=float(filled_order.filled_price) if filled_order.filled_price is not None else None,
+                        amount=-float(filled_order.filled_price or 0.0) * int(filled_order.qty),
+                        balance_after=float(account.cash_balance),
+                    )
+                    self.db.add(tx)
+                    self.add_notification(
+                        account.id,
+                        (
+                            f"Your BUY order for {filled_order.symbol} has been executed successfully. "
+                            f"Position has been added to your portfolio "
+                            f"(Rs {round(float(filled_order.filled_price or 0.0), 2)})."
+                        ),
+                        "success",
+                        "ORDER_EXECUTED",
+                        "order",
+                        filled_order.id,
+                        dedupe_key=f"entry-filled:{filled_order.id}",
+                        commit=False,
+                    )
+                elif filled_order.status in OPEN_ORDER_STATUSES and filled_order.side == "BUY":
+                    self.add_notification(
+                        account.id,
+                        f"{filled_order.symbol} {filled_order.order_type.lower()} buy waiting for entry at Rs {round(float(filled_order.order_price or 0.0), 2)}.",
+                        "info",
+                        "PENDING_ENTRY_CREATED",
+                        "order",
+                        filled_order.id,
+                        dedupe_key=f"pending-entry:{filled_order.id}",
+                        commit=False,
+                    )
+                elif filled_order.status in {"FILLED", "EXECUTED"} and filled_order.side == "SELL":
+                    self.add_notification(
+                        account.id,
+                        f"Your SELL order for {filled_order.symbol} has been executed successfully.",
+                        "success",
+                        "ORDER_EXECUTED",
+                        "order",
+                        filled_order.id,
+                        dedupe_key=f"exit-filled:{filled_order.id}",
+                        commit=False,
+                    )
+            except Exception as e:
+                print(f"ERROR creating notifications in place_order: {e}")
+                self.logger.exception("Failed to write transaction or notification in place_order")
 
         # Commit the order + position + account + transactions + notifications as one atomic unit
         try:
             self.db.commit()
         except Exception:
-            # Rollback to ensure the session is not left in a broken state
             try:
                 self.db.rollback()
             except Exception:
                 pass
-            self.logger.exception("Failed to commit order fill for symbol=%s account=%s", payload.symbol, account.id)
+            self.logger.exception("Failed to commit order for symbol=%s account=%s", payload.symbol, account.id)
             raise
 
         summary = self.get_dashboard(selected_symbol=payload.symbol).account
@@ -329,11 +408,39 @@ class PaperTradingService:
         order = self.db.scalar(select(PaperOrder).where(PaperOrder.id == order_id, PaperOrder.account_id == account.id))
         if not order:
             raise ValueError("Order not found.")
-        if order.status != "PENDING":
+        if order.status not in OPEN_ORDER_STATUSES:
             raise ValueError("Only pending orders can be cancelled.")
+        prior_status = order.status
         order.status = "CANCELLED"
         order.lifecycle_state = "CANCELLED"
         order.cancelled_at = datetime.now(timezone.utc)
+        try:
+            trading_logger.info(
+                "PENDING_ORDER_CANCELLED | user_id=%s | account=%s | order_id=%s | symbol=%s | qty=%s | "
+                "prior_status=%s | market_status=%s",
+                self.user_id,
+                account.id,
+                order.id,
+                order.symbol,
+                order.qty,
+                prior_status,
+                trading_hours.get_market_status().get("status"),
+            )
+        except Exception:
+            pass
+        try:
+            self.add_notification(
+                account.id,
+                f"Pending order for {order.symbol} cancelled.",
+                "info",
+                "PENDING_ORDER_CANCELLED",
+                "order",
+                order.id,
+                dedupe_key=f"order-cancelled:{order.id}",
+                commit=False,
+            )
+        except Exception:
+            pass
         self.db.commit()
         return PaperOrderActionResponse(
             account=self.get_dashboard(selected_symbol=order.symbol).account,
@@ -346,7 +453,7 @@ class PaperTradingService:
         order = self.db.scalar(select(PaperOrder).where(PaperOrder.id == order_id, PaperOrder.account_id == account.id))
         if not order:
             raise ValueError("Order not found.")
-        if order.status != "PENDING":
+        if order.status not in OPEN_ORDER_STATUSES:
             raise ValueError("Only pending orders can be modified.")
 
         # Apply provided updates
@@ -808,8 +915,10 @@ class PaperTradingService:
         account: PaperTradingAccount,
         order: PaperOrder,
         current_price: float,
+        *,
+        require_market_open: bool = True,
     ) -> tuple[PaperOrder, PaperPosition | None, PaperTradeHistory | None, str]:
-        if order.status in {"FILLED", "CANCELLED", "REJECTED"}:
+        if order.status in TERMINAL_ORDER_STATUSES:
             position = self.db.scalar(
                 select(PaperPosition).where(
                     PaperPosition.account_id == account.id,
@@ -818,11 +927,29 @@ class PaperTradingService:
                 )
             )
             return order, position, None, "Order is already terminal."
+
+        # Never execute outside market hours unless explicitly forced (tests only).
+        if require_market_open and not trading_hours.is_market_open():
+            if order.status != PENDING_MARKET_OPEN_STATUS:
+                # Preserve after-hours intent if already pending market open; otherwise leave working.
+                if order.status not in OPEN_ORDER_STATUSES:
+                    order.status = "PENDING"
+                if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING", PENDING_MARKET_OPEN_STATUS}:
+                    order.lifecycle_state = "PENDING_ENTRY"
+            return order, None, None, "Market closed; order remains pending until next session."
+
         if current_price <= 0:
-            order.status = "PENDING"
-            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING"}:
+            if order.status != PENDING_MARKET_OPEN_STATUS:
+                order.status = "PENDING"
+            if order.lifecycle_state not in {"TOKEN_EXPIRED_PAUSED", "ERROR_RETRYING", PENDING_MARKET_OPEN_STATUS}:
                 order.lifecycle_state = "PENDING_ENTRY"
             return order, None, None, "Live market price unavailable; order remains pending."
+
+        # After-hours queue promoted to working when session is open
+        if order.status == PENDING_MARKET_OPEN_STATUS:
+            order.status = "PENDING"
+            if order.lifecycle_state == PENDING_MARKET_OPEN_STATUS:
+                order.lifecycle_state = "PENDING_ENTRY"
 
         should_fill = False
         if order.order_type == "MARKET":
@@ -882,7 +1009,9 @@ class PaperTradingService:
             order.lifecycle_state = "ENTRY_FILLED"
             order.filled_at = datetime.now(timezone.utc)
             order.filled_price = fill_price
+            order.scheduled_execution = None
             # Deduct funds and create/update OPEN position
+            prior_cash = account.cash_balance
             account.cash_balance = q_pnl(dec(account.cash_balance) - estimated_cost)
             position = self.db.scalar(
                 select(PaperPosition).where(
@@ -941,14 +1070,37 @@ class PaperTradingService:
             )
             try:
                 trading_logger.info(
-                    "ORDER_FILLED | order_id=%s | account=%s | symbol=%s | side=BUY | qty=%s | filled_price=%s | position_id=%s",
+                    "ORDER_EXECUTED | order_id=%s | account=%s | user_id=%s | symbol=%s | side=BUY | qty=%s | "
+                    "filled_price=%s | status=FILLED | market_status=OPEN | execution_time=%s | position_id=%s",
                     getattr(order, "id", None),
                     account.id,
+                    self.user_id,
                     order.symbol,
                     order.qty,
                     order.filled_price,
+                    order.filled_at.isoformat() if order.filled_at else None,
                     getattr(position, "id", None),
                 )
+                trading_logger.info(
+                    "CAPITAL_UPDATED | account=%s | order_id=%s | symbol=%s | side=BUY | "
+                    "delta=%s | cash_before=%s | cash_after=%s",
+                    account.id,
+                    getattr(order, "id", None),
+                    order.symbol,
+                    -estimated_cost,
+                    prior_cash,
+                    account.cash_balance,
+                )
+                if position:
+                    trading_logger.info(
+                        "POSITION_CREATED | account=%s | position_id=%s | order_id=%s | symbol=%s | qty=%s | avg_entry_price=%s",
+                        account.id,
+                        getattr(position, "id", None),
+                        getattr(order, "id", None),
+                        position.symbol,
+                        position.qty,
+                        position.avg_entry_price,
+                    )
             except Exception:
                 pass
             return order, position, None, "Buy order filled."
@@ -973,6 +1125,8 @@ class PaperTradingService:
         order.lifecycle_state = "EXIT_FILLED"
         order.filled_at = datetime.now(timezone.utc)
         order.filled_price = fill_price
+        order.scheduled_execution = None
+        prior_cash = account.cash_balance
         account.cash_balance = q_pnl(dec(account.cash_balance) + q_pnl(fill_price * order_qty))
         pnl = q_pnl((fill_price - dec(position.avg_entry_price)) * order_qty)
         pnl_percent = q_pnl(((fill_price - dec(position.avg_entry_price)) / dec(position.avg_entry_price)) * Decimal("100")) if position.avg_entry_price else Decimal("0.00")
@@ -1022,14 +1176,27 @@ class PaperTradingService:
             updated_position = position
         try:
             trading_logger.info(
-                "ORDER_FILLED | order_id=%s | account=%s | symbol=%s | side=SELL | qty=%s | filled_price=%s | pnl=%s | pnl_percent=%.2f",
+                "ORDER_EXECUTED | order_id=%s | account=%s | user_id=%s | symbol=%s | side=SELL | qty=%s | "
+                "filled_price=%s | status=FILLED | market_status=OPEN | execution_time=%s | pnl=%s | pnl_percent=%.2f",
                 getattr(order, "id", None),
                 account.id,
+                self.user_id,
                 position.symbol,
                 order.qty,
                 fill_price,
+                order.filled_at.isoformat() if order.filled_at else None,
                 round(pnl, 2),
                 round(pnl_percent, 2),
+            )
+            trading_logger.info(
+                "CAPITAL_UPDATED | account=%s | order_id=%s | symbol=%s | side=SELL | "
+                "delta=%s | cash_before=%s | cash_after=%s",
+                account.id,
+                getattr(order, "id", None),
+                position.symbol,
+                q_pnl(fill_price * order_qty),
+                prior_cash,
+                account.cash_balance,
             )
         except Exception:
             pass
@@ -1378,31 +1545,259 @@ class PaperTradingService:
         return self.get_dashboard()
 
     def _refresh_pending_orders(self, account_id: int) -> None:
+        """
+        Re-evaluate working orders for this account.
+
+        - When market is CLOSED: leave PENDING_MARKET_OPEN orders untouched (no position, no capital).
+        - When market is OPEN: promote PENDING_MARKET_OPEN and attempt fills for all open orders.
+        """
+        if not trading_hours.is_market_open():
+            return
+
         pending_orders = list(
             self.db.scalars(
-                select(PaperOrder).where(PaperOrder.account_id == account_id, PaperOrder.status == "PENDING")
+                select(PaperOrder).where(
+                    PaperOrder.account_id == account_id,
+                    PaperOrder.status.in_(tuple(OPEN_ORDER_STATUSES)),
+                )
             )
         )
         if not pending_orders:
             return
-            
+
         symbols = {o.symbol for o in pending_orders}
         self.db.commit()  # Release connection before network I/O
         price_cache = self._load_price_cache(symbols)
-        
+
         # Re-fetch since we committed
-        account = self._get_or_create_account()
+        account = self._get_or_create_account(for_update=True)
         pending_orders = list(
             self.db.scalars(
-                select(PaperOrder).where(PaperOrder.account_id == account_id, PaperOrder.status == "PENDING")
+                select(PaperOrder).where(
+                    PaperOrder.account_id == account_id,
+                    PaperOrder.status.in_(tuple(OPEN_ORDER_STATUSES)),
+                )
             )
         )
         for order in pending_orders:
             price = price_cache.get(order.symbol)
-            if price:
-                order.last_evaluated_at = datetime.now(timezone.utc)
-                order.last_seen_ltp = price.current_price
-                self._try_fill_order(account, order, price.current_price)
+            if not price or price.current_price <= 0:
+                continue
+            was_pending_market_open = order.status == PENDING_MARKET_OPEN_STATUS
+            order.last_evaluated_at = datetime.now(timezone.utc)
+            order.last_seen_ltp = price.current_price
+            filled, position, trade, _msg = self._try_fill_order(
+                account, order, price.current_price, require_market_open=True
+            )
+            if was_pending_market_open and filled.status in {"FILLED", "EXECUTED"}:
+                try:
+                    trading_logger.info(
+                        "MARKET_OPEN_TRIGGER | account=%s | order_id=%s | symbol=%s | side=%s | qty=%s | "
+                        "status=%s | execution_time=%s",
+                        account.id,
+                        filled.id,
+                        filled.symbol,
+                        filled.side,
+                        filled.qty,
+                        filled.status,
+                        filled.filled_at.isoformat() if filled.filled_at else None,
+                    )
+                except Exception:
+                    pass
+                try:
+                    if filled.side == "BUY":
+                        tx = PaperTransaction(
+                            account_id=int(account.id),
+                            timestamp=datetime.now(timezone.utc),
+                            symbol=filled.symbol,
+                            action="BUY",
+                            qty=int(filled.qty),
+                            price=float(filled.filled_price) if filled.filled_price is not None else None,
+                            amount=-float(filled.filled_price or 0.0) * int(filled.qty),
+                            balance_after=float(account.cash_balance),
+                        )
+                        self.db.add(tx)
+                        self.add_notification(
+                            account.id,
+                            (
+                                f"Your BUY order for {filled.symbol} has been executed successfully. "
+                                f"Position has been added to your portfolio."
+                            ),
+                            "success",
+                            "ORDER_EXECUTED",
+                            "order",
+                            filled.id,
+                            dedupe_key=f"entry-filled:{filled.id}",
+                            commit=False,
+                        )
+                    elif filled.side == "SELL":
+                        self.add_notification(
+                            account.id,
+                            f"Your SELL order for {filled.symbol} has been executed successfully.",
+                            "success",
+                            "ORDER_EXECUTED",
+                            "order",
+                            filled.id,
+                            dedupe_key=f"exit-filled:{filled.id}",
+                            commit=False,
+                        )
+                except Exception:
+                    self.logger.exception("Failed post-execution bookkeeping for order_id=%s", filled.id)
+
+    def execute_pending_market_open_orders_for_account(self, account_id: int | None = None) -> dict:
+        """
+        Execute all PENDING_MARKET_OPEN orders for one account (or current user's account).
+        Intended for market-open scheduler and dashboard refresh.
+        """
+        if not trading_hours.is_market_open():
+            return {"executed": 0, "rejected": 0, "still_pending": 0, "market_open": False}
+
+        account = (
+            self.get_account_by_id(int(account_id), for_update=True)
+            if account_id is not None
+            else self._get_or_create_account(for_update=True)
+        )
+        self._refresh_pending_orders(account.id)
+        self.db.commit()
+        remaining = list(
+            self.db.scalars(
+                select(PaperOrder).where(
+                    PaperOrder.account_id == account.id,
+                    PaperOrder.status == PENDING_MARKET_OPEN_STATUS,
+                )
+            )
+        )
+        return {
+            "executed": 0,  # detailed counts computed by global runner
+            "rejected": 0,
+            "still_pending": len(remaining),
+            "market_open": True,
+            "account_id": account.id,
+        }
+
+    @staticmethod
+    def execute_all_pending_market_open_orders() -> dict:
+        """
+        System-wide market-open sweep: load every PENDING_MARKET_OPEN order and execute.
+        Safe to call repeatedly (idempotent for already-filled orders).
+        """
+        from ..db.session import SessionLocal
+
+        summary = {
+            "market_open": trading_hours.is_market_open(),
+            "processed": 0,
+            "executed": 0,
+            "rejected": 0,
+            "still_pending": 0,
+            "errors": 0,
+        }
+        if not summary["market_open"]:
+            return summary
+
+        try:
+            trading_logger.info(
+                "MARKET_OPEN_TRIGGER | scope=ALL | status=%s | next_action=execute_pending",
+                trading_hours.get_market_status().get("status"),
+            )
+        except Exception:
+            pass
+
+        with SessionLocal() as db:
+            order_ids = list(
+                db.scalars(
+                    select(PaperOrder.id).where(PaperOrder.status == PENDING_MARKET_OPEN_STATUS)
+                )
+            )
+        for oid in order_ids:
+            try:
+                with SessionLocal() as db:
+                    order = db.get(PaperOrder, oid)
+                    if not order or order.status != PENDING_MARKET_OPEN_STATUS:
+                        continue
+                    svc = PaperTradingService(db)  # system path
+                    account = svc.get_account_by_id(int(order.account_id), for_update=True)
+                    snap = svc._price_snapshot(order.symbol)
+                    price = snap.current_price if snap else 0.0
+                    if price <= 0:
+                        summary["still_pending"] += 1
+                        summary["processed"] += 1
+                        continue
+                    filled, position, trade, message = svc._try_fill_order(
+                        account, order, price, require_market_open=True
+                    )
+                    summary["processed"] += 1
+                    if filled.status in {"FILLED", "EXECUTED"}:
+                        summary["executed"] += 1
+                        try:
+                            trading_logger.info(
+                                "MARKET_OPEN_TRIGGER | order_id=%s | account=%s | symbol=%s | status=EXECUTED | price=%s",
+                                filled.id,
+                                account.id,
+                                filled.symbol,
+                                filled.filled_price,
+                            )
+                        except Exception:
+                            pass
+                        if filled.side == "BUY":
+                            tx = PaperTransaction(
+                                account_id=int(account.id),
+                                timestamp=datetime.now(timezone.utc),
+                                symbol=filled.symbol,
+                                action="BUY",
+                                qty=int(filled.qty),
+                                price=float(filled.filled_price) if filled.filled_price is not None else None,
+                                amount=-float(filled.filled_price or 0.0) * int(filled.qty),
+                                balance_after=float(account.cash_balance),
+                            )
+                            db.add(tx)
+                            svc.add_notification(
+                                account.id,
+                                (
+                                    f"Your BUY order for {filled.symbol} has been executed successfully. "
+                                    f"Position has been added to your portfolio."
+                                ),
+                                "success",
+                                "ORDER_EXECUTED",
+                                "order",
+                                filled.id,
+                                dedupe_key=f"entry-filled:{filled.id}",
+                                commit=False,
+                            )
+                        elif filled.side == "SELL":
+                            svc.add_notification(
+                                account.id,
+                                f"Your SELL order for {filled.symbol} has been executed successfully.",
+                                "success",
+                                "ORDER_EXECUTED",
+                                "order",
+                                filled.id,
+                                dedupe_key=f"exit-filled:{filled.id}",
+                                commit=False,
+                            )
+                    elif filled.status == "REJECTED":
+                        summary["rejected"] += 1
+                        svc.add_notification(
+                            account.id,
+                            f"Order for {filled.symbol} rejected at market open: {message}",
+                            "error",
+                            "ORDER_REJECTED",
+                            "order",
+                            filled.id,
+                            dedupe_key=f"order-rejected-open:{filled.id}",
+                            commit=False,
+                        )
+                    else:
+                        summary["still_pending"] += 1
+                    db.commit()
+            except Exception:
+                summary["errors"] += 1
+                try:
+                    trading_logger.exception(
+                        "MARKET_OPEN_TRIGGER | order_id=%s | error=execution_failed", oid
+                    )
+                except Exception:
+                    pass
+        return summary
 
     def _load_price_cache(self, symbols: set[str]) -> dict[str, PriceSnapshot]:
         cache: dict[str, PriceSnapshot] = {}
@@ -1567,7 +1962,13 @@ class PaperTradingService:
             unrealized += (current_price - dec(position.avg_entry_price)) * dec(position.qty)
         reserved_cash = Decimal("0")
         for order in orders:
-            if order.status == "PENDING" and order.side == "BUY" and order.order_type in ["LIMIT", "GTT"]:
+            # Do NOT reserve capital for PENDING_MARKET_OPEN (per market-hours lifecycle).
+            # Only reserve for in-session working limit/GTT buys.
+            if (
+                order.status in {"PENDING", "OPEN", "PARTIALLY_EXECUTED"}
+                and order.side == "BUY"
+                and order.order_type in ["LIMIT", "GTT"]
+            ):
                 cached = price_cache.get(order.symbol)
                 snap_price = cached.current_price if cached else None
                 if order.order_price and order.order_price > 0:
@@ -1601,7 +2002,7 @@ class PaperTradingService:
             reserved_cash=as_float(q_pnl(reserved_cash)),
             available_cash=as_float(q_pnl(dec(account.cash_balance) - reserved_cash)),
             open_positions_count=len(positions),
-            open_orders_count=len([item for item in orders if item.status == "PENDING"]),
+            open_orders_count=len([item for item in orders if item.status in OPEN_ORDER_STATUSES]),
             max_risk_per_trade=as_float(account.max_risk_per_trade),
             updated_at=datetime.now(timezone.utc),
         )
@@ -1648,6 +2049,7 @@ class PaperTradingService:
         )
 
     def _serialize_order(self, order: PaperOrder, snapshot: PriceSnapshot | None = None) -> PaperOrderResponse:
+        filled_price = as_float(q_price(order.filled_price)) if order.filled_price is not None else None
         return PaperOrderResponse(
             id=order.id,
             symbol=order.symbol,
@@ -1661,6 +2063,7 @@ class PaperTradingService:
             status=order.status,  # type: ignore[arg-type]
             lifecycle_state=order.lifecycle_state,  # type: ignore[arg-type]
             requested_entry_price=as_float(q_price(order.requested_entry_price)) if order.requested_entry_price is not None else None,
+            execution_price=filled_price,
             monitor_enabled=bool(order.monitor_enabled),
             paused_reason=order.paused_reason,
             notes=order.notes,
@@ -1673,8 +2076,11 @@ class PaperTradingService:
             price_fetched_at=snapshot.fetched_at if snapshot else None,
             is_price_stale=(snapshot.source != "FYERS_QUOTE") if snapshot else False,
             created_at=order.created_at,
+            scheduled_execution=getattr(order, "scheduled_execution", None),
+            executed_at=order.filled_at,
             filled_at=order.filled_at,
-            filled_price=as_float(q_price(order.filled_price)) if order.filled_price is not None else None,
+            filled_price=filled_price,
+            market_session=getattr(order, "market_session", None),
             product_type=getattr(order, "product_type", None),
         )
 
@@ -2011,9 +2417,13 @@ class PaperTradingService:
 
         orders_f = [o for o in orders if order_in_range(o)]
         total_orders = len(orders_f)
-        executed_orders = len([o for o in orders_f if (o.status or "").upper() == "FILLED"])
+        executed_orders = len([
+            o for o in orders_f if (o.status or "").upper() in {"FILLED", "EXECUTED"}
+        ])
         cancelled_orders = len([o for o in orders_f if (o.status or "").upper() == "CANCELLED"])
-        pending_orders = len([o for o in orders_f if (o.status or "").upper() == "PENDING"])
+        pending_orders = len([
+            o for o in orders_f if (o.status or "").upper() in OPEN_ORDER_STATUSES
+        ])
         buy_orders = len([o for o in orders_f if (o.side or "").upper() == "BUY"])
         sell_orders = len([o for o in orders_f if (o.side or "").upper() == "SELL"])
         intraday_trades = len([o for o in orders_f if (o.product_type or "").upper() == "MIS"])

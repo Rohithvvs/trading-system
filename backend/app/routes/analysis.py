@@ -121,8 +121,16 @@ async def screener_full(
     from ..services.lock_service import LockAcquisitionError
 
     try:
-        await ScanExecutionService.execute_scan(payload, progress_queue=q, trigger_source="ui")
-        logger.info("[SCAN] Worker started; opening SSE stream")
+        # Always persist the full ScreenerResponse into market_data.scan_results so
+        # GET /analysis/scan/latest (and page refresh) returns THIS run, not an older
+        # scheduler/history snapshot.
+        await ScanExecutionService.execute_scan(
+            payload,
+            progress_queue=q,
+            trigger_source="ui",
+            save_history=True,
+        )
+        logger.info("[SCAN] Worker started; opening SSE stream | save_history=True")
     except LockAcquisitionError as lock_exc:
         logger.warning("[SCAN] Lock denied | reason=%s", lock_exc)
         return JSONResponse(
@@ -556,8 +564,25 @@ async def get_latest_scan(
 
     if cache_status == "HIT":
         record_scanner_cache_hit(ENDPOINT_ANALYSIS_SCAN_LATEST)
+        try:
+            parsed = json.loads(payload) if isinstance(payload, str) else {}
+        except Exception:
+            parsed = {}
+        items = parsed.get("items") if isinstance(parsed.get("items"), list) else []
+        scan_logger.info(
+            "Loading latest scan... | endpoint=/analysis/scan/latest | "
+            "User ID: n/a | Latest Scan ID: %s | Completed At: %s | "
+            "Returned Rows: %s | Cache Hit/Miss: HIT",
+            parsed.get("scan_id") or parsed.get("scanned_at"),
+            parsed.get("last_scan_completed_at") or parsed.get("scanned_at"),
+            len(items),
+        )
     elif cache_status in ("MISS", "FALLBACK"):
         record_scanner_cache_miss(ENDPOINT_ANALYSIS_SCAN_LATEST)
+        scan_logger.info(
+            "Loading latest scan... | endpoint=/analysis/scan/latest | Cache Hit/Miss: %s",
+            cache_status,
+        )
 
     return Response(
         content=payload,

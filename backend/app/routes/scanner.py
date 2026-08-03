@@ -130,9 +130,30 @@ async def get_latest_completed_scan(
     if cache_status == "HIT":
         record_scanner_cache_hit(ENDPOINT_SCANNER_LATEST)
         duration_ms = int((time.perf_counter() - start_t) * 1000)
+        try:
+            parsed = json.loads(payload) if isinstance(payload, str) else {}
+        except Exception:
+            parsed = {}
+        logger.info(
+            "Loading latest scan... | endpoint=/scanner/latest | "
+            "User ID: n/a | Latest Scan ID: %s | Completed At: %s | "
+            "Returned Rows: %s | Cache Hit/Miss: HIT | duration_ms=%d",
+            parsed.get("scan_id"),
+            parsed.get("last_scan_completed_at") or parsed.get("scan_timestamp"),
+            (
+                len(parsed.get("buy_candidates") or [])
+                + len(parsed.get("watch_candidates") or [])
+                + len(parsed.get("rejected_candidates") or [])
+            ),
+            duration_ms,
+        )
         logger.debug("GET /scanner/latest Cache HIT | duration_ms=%d", duration_ms)
     elif cache_status in ("MISS", "FALLBACK"):
         record_scanner_cache_miss(ENDPOINT_SCANNER_LATEST)
+        logger.info(
+            "Loading latest scan... | endpoint=/scanner/latest | Cache Hit/Miss: %s",
+            cache_status,
+        )
 
     return Response(
         content=payload,

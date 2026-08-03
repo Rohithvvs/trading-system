@@ -207,7 +207,13 @@ export async function cachedFetch<T>(
         value = await withTimeout(fetcher(), softTimeoutMs);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.startsWith("SOFT_TIMEOUT_") || msg.includes("Failed to fetch") || msg.includes("Network")) {
+        // On force refresh (e.g. latest scan after F5), never substitute an older
+        // cached scan — wait for the network result instead.
+        const allowStaleFallback = !opts?.force;
+        if (
+          allowStaleFallback &&
+          (msg.startsWith("SOFT_TIMEOUT_") || msg.includes("Failed to fetch") || msg.includes("Network"))
+        ) {
           const stale = getStaleCached<T>(key);
           if (stale !== null) {
             console.info(`[cache] soft-timeout/network fallback for ${sk}`);

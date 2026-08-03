@@ -319,6 +319,16 @@ export type PaperPosition = {
   updated_at: string;
 };
 
+export type PaperOrderStatus =
+  | "PENDING"
+  | "PENDING_MARKET_OPEN"
+  | "OPEN"
+  | "EXECUTED"
+  | "FILLED"
+  | "PARTIALLY_EXECUTED"
+  | "CANCELLED"
+  | "REJECTED";
+
 export type PaperOrder = {
   id: number;
   symbol: string;
@@ -330,9 +340,10 @@ export type PaperOrder = {
   stop_price?: number | null;
   stop_loss?: number | null;
   target?: number | null;
-  status: "PENDING" | "FILLED" | "CANCELLED" | "REJECTED";
+  status: PaperOrderStatus;
   lifecycle_state?:
     | "PENDING_ENTRY"
+    | "PENDING_MARKET_OPEN"
     | "ENTRY_FILLED"
     | "OPEN_POSITION"
     | "EXIT_FILLED"
@@ -340,6 +351,7 @@ export type PaperOrder = {
     | "TOKEN_EXPIRED_PAUSED"
     | "ERROR_RETRYING";
   requested_entry_price?: number | null;
+  execution_price?: number | null;
   monitor_enabled?: boolean;
   paused_reason?: string | null;
   notes?: string | null;
@@ -352,8 +364,23 @@ export type PaperOrder = {
   price_fetched_at?: string | null;
   is_price_stale?: boolean;
   created_at: string;
+  scheduled_execution?: string | null;
+  executed_at?: string | null;
   filled_at?: string | null;
   filled_price?: number | null;
+  market_session?: string | null;
+};
+
+export type MarketSessionStatusResponse = {
+  is_open: boolean;
+  is_trading_day: boolean;
+  status: string;
+  reason: string;
+  current_ist: string;
+  open_time: string;
+  close_time: string;
+  next_open_ist?: string | null;
+  session?: string | null;
 };
 
 export type PaperTradeHistoryItem = {

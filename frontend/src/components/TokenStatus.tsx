@@ -181,7 +181,7 @@ export default function TokenStatus({ embedded = false }: TokenStatusProps) {
     try {
       const [res, scanRes, hist, bt] = await Promise.all([
         getTokenStatus({ force }),
-        getLatestScan().catch(() => null),
+        getLatestScan({ force: true }).catch(() => null),
         getTokenHistory().catch(() => ({ history: [] })),
         fetchBrokerToken(broker).catch(() => null),
       ]);

@@ -42,11 +42,11 @@ export function WorkstationPage({ onLoadSavedScan, onNavigate }: Props) {
 
   async function load() {
     try {
-      // Wave 1: critical status (fast, cached) — unblocks banner immediately
+      // Wave 1: critical status — force latest scan so refresh is never stale
       const [tokenData, healthData, latestData] = await Promise.all([
         getTokenStatus().catch(() => null),
         fetchApiHealth().catch(() => null),
-        getLatestScan().catch(() => null),
+        getLatestScan({ force: true }).catch(() => null),
       ]);
       setTokenStatus(tokenData);
       setHealth(healthData);

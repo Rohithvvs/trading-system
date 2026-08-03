@@ -455,9 +455,23 @@ class ScanExecutionService:
                     ) from to_exc
 
                 duration_ms = int((time.perf_counter() - start_t) * 1000)
+                # Stamp completion time so UI "Last Scan Completed" and history
+                # payload stay aligned after refresh (not only analysis.generated_at).
+                completed_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                try:
+                    response.scanned_at = completed_iso
+                    response.last_scan_completed_at = completed_iso
+                except Exception:
+                    pass
                 response_data = response
                 scan_status = "COMPLETED"
                 result = sanitize_for_json(response.model_dump(mode="json"))
+                if isinstance(result, dict):
+                    result["scanned_at"] = result.get("scanned_at") or completed_iso
+                    result["last_scan_completed_at"] = (
+                        result.get("last_scan_completed_at") or completed_iso
+                    )
+                    result["scan_id"] = result.get("scan_id") or scan_id
 
                 await ScanExecutionService._emit(
                     progress_queue,
@@ -514,6 +528,10 @@ class ScanExecutionService:
                                 )
                             )
 
+                        # History for GET /analysis/scan/latest is the singleton JSONB
+                        # payload (save_latest_scan_in_session), not the aggregate's
+                        # legacy chunk writer. Keep aggregate.save_history=False so
+                        # single-write does not attempt a divergent column layout.
                         aggregate = ScanAggregateResult(
                             scan_id=scan_id,
                             symbol_universe=cache_universe,
@@ -522,7 +540,7 @@ class ScanExecutionService:
                             total_scanned=response.scanned_symbols,
                             total_candidates=len(candidates_dto),
                             execution_duration_ms=float(duration_ms),
-                            save_history=write_history,
+                            save_history=False,
                         )
 
                         for attempt in range(2):
@@ -531,12 +549,26 @@ class ScanExecutionService:
                                     single_write_svc = ScannerSingleWriteService(db)
                                     await single_write_svc.persist_single_final_write(aggregate)
 
+                                    history_normalized = None
+                                    if write_history:
+                                        from ..db.scan_store import (
+                                            _prewarm_analysis_cache,
+                                            save_latest_scan_in_session,
+                                        )
+
+                                        history_normalized = await save_latest_scan_in_session(
+                                            db, result
+                                        )
+                                        await db.commit()
+
                                     try:
                                         scan_service = LatestScanService(db)
                                         rich_dash = LatestScanService.build_dashboard_payload_from_screener(
                                             response, duration_ms=duration_ms, scan_id=scan_id
                                         )
                                         await scan_service.prewarm_scanner_latest_cache(rich_dash)
+                                        if history_normalized is not None:
+                                            await _prewarm_analysis_cache(history_normalized)
                                     except Exception as warm_exc:
                                         logger.warning(
                                             "[SCAN] Post-commit cache prewarm failed | scan_id=%s | error=%s",

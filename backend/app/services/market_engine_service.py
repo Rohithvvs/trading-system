@@ -17,8 +17,9 @@ from ..utils import get_logger
 
 
 IST = ZoneInfo("Asia/Kolkata")
-ACTIVE_ORDER_STATES = {"PENDING_ENTRY"}
+ACTIVE_ORDER_STATES = {"PENDING_ENTRY", "PENDING_MARKET_OPEN"}
 ACTIVE_POSITION_STATES = {"OPEN_POSITION"}
+OPEN_ORDER_STATUSES = {"PENDING", "PENDING_MARKET_OPEN", "OPEN", "PARTIALLY_EXECUTED"}
 
 
 class MarketEngineService:
@@ -36,6 +37,11 @@ class MarketEngineService:
             self._sync_on_connection_change
         )
         self._loop = None
+
+    def is_market_hours(self, now: datetime | None = None) -> bool:
+        """Delegate to trading_hours_service (NSE calendar + session)."""
+        from .trading_hours_service import trading_hours
+        return trading_hours.is_market_open(now)
 
     def _sync_on_tick(self, symbol: str, price: float):
         if self._loop and self._running:
@@ -234,11 +240,15 @@ class MarketEngineService:
             self.logger.exception("Tick processing error for raw_symbol=%s canonical_symbol=%s", symbol, normalized)
 
     async def _process_symbol(self, db, symbol: str, price: float, raw_symbol: str = "", is_reconciliation: bool = False) -> None:
+        # Outside market hours: do not execute orders (PENDING_MARKET_OPEN stays pending).
+        if not self.is_market_hours():
+            return
+
         service = PaperTradingService(db)
         order_query = select(PaperOrder).where(
             PaperOrder.symbol.in_([symbol, f"{symbol}-EQ", f"NSE:{symbol}-EQ"]),
             PaperOrder.lifecycle_state.in_(ACTIVE_ORDER_STATES),
-            PaperOrder.status == "PENDING",
+            PaperOrder.status.in_(tuple(OPEN_ORDER_STATUSES)),
             PaperOrder.monitor_enabled.is_(True),
         )
         if db.bind and db.bind.dialect.name == "postgresql":
@@ -255,7 +265,7 @@ class MarketEngineService:
                 if not ord_obj:
                     return "MISSING", None, None
                 acc = svc.get_account_by_id(int(ord_obj.account_id), for_update=True)
-                fo, pos, _, _ = svc._try_fill_order(acc, ord_obj, ltp)
+                fo, pos, _, _ = svc._try_fill_order(acc, ord_obj, ltp, require_market_open=True)
                 if fo.status == "FILLED":
                     fo.lifecycle_state = "ENTRY_FILLED"
                     if pos:
@@ -279,8 +289,15 @@ class MarketEngineService:
                 def _add_notif(acc_id, oid):
                     with SessionLocal() as s:
                         PaperTradingService(s).add_notification(
-                            acc_id, f"{symbol} paper buy auto-filled at Rs {round(price, 2)}.",
-                            "success", "ENTRY_FILLED", "order", oid, dedupe_key=f"entry-filled:{oid}", commit=True)
+                            acc_id,
+                            f"Your BUY order for {symbol} has been executed successfully. Position has been added to your portfolio.",
+                            "success",
+                            "ORDER_EXECUTED",
+                            "order",
+                            oid,
+                            dedupe_key=f"entry-filled:{oid}",
+                            commit=True,
+                        )
                 # Notify the owning account only (never a shared/default account)
                 notif_account_id = fill_account_id if fill_account_id is not None else int(order.account_id)
                 await asyncio.to_thread(_add_notif, notif_account_id, order.id)
@@ -344,7 +361,7 @@ class MarketEngineService:
         order_symbols = set(
             (await db.scalars(
                 select(PaperOrder.symbol).where(
-                    PaperOrder.status == "PENDING",
+                    PaperOrder.status.in_(tuple(OPEN_ORDER_STATUSES)),
                     PaperOrder.lifecycle_state.in_(ACTIVE_ORDER_STATES),
                     PaperOrder.monitor_enabled.is_(True),
                 )
@@ -374,7 +391,7 @@ class MarketEngineService:
         session.paused_reason = "TOKEN_EXPIRED"
         session.websocket_connected = False
         affected_account_ids: set[int] = set()
-        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status == "PENDING"))).all():
+        for order in (await db.scalars(select(PaperOrder).where(PaperOrder.status.in_(tuple(OPEN_ORDER_STATUSES))))).all():
             order.lifecycle_state = "TOKEN_EXPIRED_PAUSED"
             order.paused_reason = "TOKEN_EXPIRED"
             affected_account_ids.add(int(order.account_id))
@@ -416,7 +433,7 @@ class MarketEngineService:
                 session.websocket_connected = False
                 # Multi-user: notify every account with open activity (no shared account)
                 order_accs = set(
-                    (await db.scalars(select(PaperOrder.account_id).where(PaperOrder.status == "PENDING"))).all()
+                    (await db.scalars(select(PaperOrder.account_id).where(PaperOrder.status.in_(tuple(OPEN_ORDER_STATUSES))))).all()
                 )
                 pos_accs = set(
                     (await db.scalars(select(PaperPosition.account_id).where(PaperPosition.status == "OPEN"))).all()

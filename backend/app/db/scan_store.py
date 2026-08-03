@@ -308,7 +308,14 @@ async def get_last_scan_time() -> str | None:
 
 
 async def load_latest_scan() -> dict | None:
-    """Return the latest scan payload or None if not yet run."""
+    """Return the latest scan payload or None if not yet run.
+
+    Source of truth for ``GET /analysis/scan/latest`` is the singleton
+    ``market_data.scan_results`` row (id=1). That row is overwritten on every
+    successful UI/scheduler scan with ``save_history=True`` so refresh always
+    surfaces the newest completed scan — never an older historical entry.
+    """
+    logger.info("Loading latest scan... | source=market_data.scan_results | cache=MISS (DB read)")
     async with AsyncSessionLocal() as db:
         dialect = await _dialect_name(db)
         if dialect == "sqlite":
@@ -344,7 +351,15 @@ async def load_latest_scan() -> dict | None:
         data["scanned_at"] = saved_at
         data["last_scan_completed_at"] = saved_at
         total, shortlisted_count, buy_count, watch_count = _count_scan_items(data)
+        scan_id = data.get("scan_id") or data.get("id") or "singleton-id-1"
+        returned_rows = total or shortlisted_count or len(data.get("items") or [])
 
+        logger.info("Loading latest scan... | status=found")
+        logger.info("  User ID      : n/a (singleton latest-scan row)")
+        logger.info("  Latest Scan ID: %s", scan_id)
+        logger.info("  Completed At : %s", saved_at)
+        logger.info("  Returned Rows: %s", returned_rows)
+        logger.info("  Cache Hit/Miss: MISS (DB)")
         logger.info("%s", "=" * 60)
         logger.info("PG LOAD SUCCESS")
         logger.info("  Saved at     : %s", saved_at)
@@ -353,5 +368,9 @@ async def load_latest_scan() -> dict | None:
         logger.info("%s", "=" * 60)
         return data
 
+    logger.info(
+        "Loading latest scan... | status=empty | Latest Scan ID: none | "
+        "Completed At: none | Returned Rows: 0 | Cache Hit/Miss: MISS (DB)"
+    )
     logger.info("PG LOAD | status=empty | No scan saved yet")
     return None

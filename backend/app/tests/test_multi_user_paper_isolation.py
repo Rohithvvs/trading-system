@@ -105,18 +105,31 @@ def _place_buy(service: PaperTradingService, **kwargs):
         limit_price=kwargs.get("limit_price"),
         idempotency_key=kwargs.get("idempotency_key", f"key-{uuid.uuid4()}"),
     )
-    # market hours check is imported inside place_order
+    # Market open so MARKET orders execute immediately in isolation tests
     mock_th = MagicMock()
     mock_th.validate_can_place_buy_order.return_value = None
+    mock_th.is_market_open.return_value = True
+    mock_th.get_market_status.return_value = {
+        "is_open": True,
+        "is_trading_day": True,
+        "status": "OPEN",
+        "reason": "Market open",
+        "current_ist": "2026-05-25T10:00:00+05:30",
+        "open_time": "2026-05-25T09:15:00+05:30",
+        "close_time": "2026-05-25T15:30:00+05:30",
+        "next_open_ist": None,
+        "session": "OPEN",
+    }
+    mock_th.get_next_market_open.return_value = None
     with patch.dict("sys.modules", {}):
         with patch("app.services.trading_hours_service.trading_hours", mock_th):
-            with _mock_price(service, kwargs.get("price", 100.0)):
-                # Also patch the import path used inside place_order dynamically
-                with patch(
-                    "app.services.paper_trading_service.PaperTradingService._validate_symbol",
-                    return_value=None,
-                ):
-                    return service.place_order(payload)
+            with patch("app.services.paper_trading_service.trading_hours", mock_th):
+                with _mock_price(service, kwargs.get("price", 100.0)):
+                    with patch(
+                        "app.services.paper_trading_service.PaperTradingService._validate_symbol",
+                        return_value=None,
+                    ):
+                        return service.place_order(payload)
 
 
 def test_each_user_gets_isolated_ten_lakh_account():
@@ -324,7 +337,7 @@ def test_engine_fill_uses_order_account_not_shared():
         loaded = sys_svc.get_account_by_id(int(order.account_id), for_update=True)
         assert loaded.id == acc_a.id
         assert loaded.id != acc_b.id
-        filled, pos, _, _ = sys_svc._try_fill_order(loaded, order, 100.0)
+        filled, pos, _, _ = sys_svc._try_fill_order(loaded, order, 100.0, require_market_open=False)
         assert filled.status == "FILLED"
         assert pos is not None
         assert pos.account_id == acc_a.id

@@ -225,6 +225,36 @@ async def job_intraday_heartbeat():
             exc=e
         )
 
+
+async def job_execute_pending_market_open_orders():
+    """At market open, execute all PENDING_MARKET_OPEN paper orders across accounts."""
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="Pending market-open order execution triggered.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="job_execute_pending_market_open_orders",
+    )
+    try:
+        from .services.paper_trading_service import PaperTradingService
+
+        summary = await asyncio.to_thread(PaperTradingService.execute_all_pending_market_open_orders)
+        logger_service.log_info(
+            message=f"Pending market-open execution complete: {summary}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_execute_pending_market_open_orders",
+        )
+        logger.info("MARKET_OPEN_TRIGGER | job_summary=%s", summary)
+    except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_execute_pending_market_open_orders",
+            exc=e,
+        )
+
 async def job_market_engine_cool_down():
     from .services.logger_service import logger_service
     logger_service.log_info(
@@ -602,6 +632,15 @@ async def lifespan(app: FastAPI):
         CronTrigger(day_of_week="mon-fri", hour=9, minute="15,30,45", timezone="Asia/Kolkata"),
         id="intraday_heartbeat_1a",
         replace_existing=True,
+    )
+
+    # JOB 3a2: Execute after-hours paper orders at market open (09:15 IST)
+    scheduler.add_job(
+        job_execute_pending_market_open_orders,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=15, timezone="Asia/Kolkata"),
+        id="execute_pending_market_open_orders",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # JOB 3b: Intraday Engine Heartbeat Loop (10:00 AM to 14:45 PM)

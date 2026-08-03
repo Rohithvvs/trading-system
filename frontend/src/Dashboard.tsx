@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchSavedScans, fetchUniverses, loadLatestScan, loadTodayCandidates, runPresetScreener, saveScannerPreset } from "./api";
+import {
+  cacheLatestScanFromScreenerResponse,
+  fetchSavedScans,
+  fetchUniverses,
+  getLatestScan,
+  invalidateLatestScanCaches,
+  loadTodayCandidates,
+  runPresetScreener,
+  saveScannerPreset,
+} from "./api";
 import { getWsBaseUrl } from "./config";
 import { AllAnalyzedStocksTable } from "./components/AllAnalyzedStocksTable";
 import { CandidateTable } from "./components/CandidateTable";
@@ -89,8 +98,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     function loadAndApply() {
-      import("./api").then(({ getLatestScan }) => {
-        getLatestScan().then((data) => {
+      // Force backend latest so refresh never restores an older scan.
+      void getLatestScan({ force: true })
+        .then((data) => {
           if (!data || !data.scan_timestamp) return;
 
           const buySyms = (data.buy_candidates || []).map((c: any) => c.symbol);
@@ -98,7 +108,7 @@ export default function Dashboard() {
           const allCandidates = [
             ...(data.buy_candidates || []),
             ...(data.watch_candidates || []),
-            ...(data.rejected_candidates || [])
+            ...(data.rejected_candidates || []),
           ];
           const short_syms = [...buySyms, ...watchSyms];
 
@@ -117,26 +127,42 @@ export default function Dashboard() {
               technical_signal: c.recommendation,
               technical_score: c.score || 0,
               close: c.close_price || 0,
-              ema_20: 0, sma_30: 0, sma_50: c.sma50 || 0, sma_100: 0, sma_200: c.sma200 || 0,
-              macd: c.macd || 0, macd_signal: 0, supertrend: 0, volume: c.volume || 0, previous_volume: 0,
+              ema_20: 0,
+              sma_30: 0,
+              sma_50: c.sma50 || 0,
+              sma_100: 0,
+              sma_200: c.sma200 || 0,
+              macd: c.macd || 0,
+              macd_signal: 0,
+              supertrend: 0,
+              volume: c.volume || 0,
+              previous_volume: 0,
               conditions: {},
-              matched: c.recommendation !== "REJECTED"
+              matched: c.recommendation !== "REJECTED",
             })),
             analysis: {
-              items: allCandidates.filter((c: any) => c.recommendation !== "REJECTED").map((c: any) => ({
-                symbol: c.symbol,
-                recommendation: { action: c.recommendation, score: c.score, summary: c.reason },
-                current_price: c.close_price,
-                technical_indicators: { sma_50: c.sma50, sma_200: c.sma200, rsi_14: c.rsi, macd: c.macd },
-              }))
+              items: allCandidates
+                .filter((c: any) => c.recommendation !== "REJECTED")
+                .map((c: any) => ({
+                  symbol: c.symbol,
+                  recommendation: { action: c.recommendation, score: c.score, summary: c.reason },
+                  current_price: c.close_price,
+                  technical_indicators: {
+                    sma_50: c.sma50,
+                    sma_200: c.sma200,
+                    rsi_14: c.rsi,
+                    macd: c.macd,
+                  },
+                })),
             },
             all_analyzed_stocks: [],
             disclaimer: "Loaded from latest snapshot",
-            scanned_at: data.scan_timestamp
+            scanned_at: data.scan_timestamp,
+            last_scan_completed_at: data.last_scan_completed_at || data.scan_timestamp,
           };
           applyScanResult(mockResponse as ScreenerResponse, "restored");
-        }).catch(err => console.warn("Failed to load latest scan", err));
-      });
+        })
+        .catch((err) => console.warn("Failed to load latest scan", err));
     }
 
     // Initial load on mount
@@ -311,6 +337,8 @@ export default function Dashboard() {
         visibleAnalysisItems: response.analysis?.items.length ?? 0,
       });
 
+      invalidateLatestScanCaches();
+      cacheLatestScanFromScreenerResponse(response);
       applyScanResult(response, "fresh");
     } catch (requestError: any) {
       // Ignore errors from cancelled scans
