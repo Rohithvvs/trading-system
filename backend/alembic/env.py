@@ -13,7 +13,7 @@ from __future__ import annotations
 from logging.config import fileConfig
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 
@@ -93,6 +93,40 @@ config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 
+def _ensure_alembic_version_width(connection) -> None:
+    """Widen alembic_version.version_num before any revision stamp is written.
+
+    Default Alembic column is VARCHAR(32). Several revision IDs in this project
+    are longer (historically ``20260728_001_rbac_role_normalization`` = 38 chars).
+    Alembic updates version_num *after* each upgrade() step; if the column is
+    still VARCHAR(32), deploy fails with::
+
+        StringDataRightTruncationError: value too long for type character varying(32)
+
+    Widen first (idempotent) so upgrade can proceed on Neon/Render production.
+    """
+    try:
+        dialect = connection.dialect.name
+    except Exception:
+        return
+    if dialect != "postgresql":
+        return
+    try:
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS alembic_version "
+                "ALTER COLUMN version_num TYPE VARCHAR(128)"
+            )
+        )
+        connection.commit()
+    except Exception:
+        # Table may not exist yet (empty DB) — baseline migration creates it.
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
@@ -114,6 +148,11 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
+    # Separate connection + commit so the widen is durable before Alembic
+    # begins its migration transaction and writes version_num.
+    with connectable.connect() as bootstrap_conn:
+        _ensure_alembic_version_width(bootstrap_conn)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
