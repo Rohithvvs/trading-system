@@ -80,7 +80,7 @@ def main():
                 conn = await asyncpg.connect(url)
                 try:
                     await conn.execute(
-                        "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"
+                        "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL)"
                     )
                     await conn.execute("DELETE FROM alembic_version")  # ensure single row
                     await conn.execute(
