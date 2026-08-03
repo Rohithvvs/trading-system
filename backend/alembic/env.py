@@ -1,10 +1,19 @@
-import asyncio
+"""Alembic environment.
+
+Uses a *synchronous* SQLAlchemy engine for online migrations. Async/asyncpg is
+intentionally avoided here: Neon/PgBouncer poolers frequently raise
+InvalidCachedStatementError after DDL on alembic_version, which breaks
+`alembic current` / `upgrade` even when statement_cache_size=0 is set via
+SQLAlchemy's async dialect. Sync psycopg2 is the stable path for migration
+commands while the app continues to use asyncpg at runtime.
+"""
+
+from __future__ import annotations
+
 from logging.config import fileConfig
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
@@ -27,81 +36,65 @@ from app.db.base import Base
 from app.config import settings
 
 # Import models to ensure they are registered with Base.metadata
-from app.models import analysis
-from app.models import paper_trading
-from app.models import stock
-from app.models import fyers_token
-from app.models import workstation
-from app.models import market_data
-from app.models import system_log
-from app.models import infrastructure
-from app.models import research
-from app.models import auth  # users / sessions / audit_logs
-from app.models import feature_permission  # Sprint 3 feature_permissions
+from app.models import analysis  # noqa: F401
+from app.models import paper_trading  # noqa: F401
+from app.models import stock  # noqa: F401
+from app.models import fyers_token  # noqa: F401
+from app.models import workstation  # noqa: F401
+from app.models import market_data  # noqa: F401
+from app.models import system_log  # noqa: F401
+from app.models import infrastructure  # noqa: F401
+from app.models import research  # noqa: F401
+from app.models import auth  # noqa: F401  # users / sessions / audit_logs
+from app.models import feature_permission  # noqa: F401  # Sprint 3 feature_permissions
 
-def _prepare_asyncpg_url(raw_database_url: str) -> tuple[str, dict[str, object]]:
-    """Normalize DB URL for async engines (mirrors app.db.session helper).
 
-    SQLite sync URLs must become sqlite+aiosqlite for create_async_engine /
-    async_engine_from_config, otherwise SQLAlchemy raises:
-    "The asyncio extension requires an async driver... pysqlite is not async".
+def _sync_database_url(raw_database_url: str) -> str:
+    """Convert app DATABASE_URL to a sync SQLAlchemy URL for Alembic.
+
+    - postgresql+asyncpg → postgresql+psycopg2 (or plain postgresql)
+    - strip channel_binding (not accepted by psycopg2)
+    - preserve sslmode for Neon
     """
     parsed = urlsplit(raw_database_url)
-    if parsed.scheme == "sqlite":
-        return raw_database_url.replace("sqlite://", "sqlite+aiosqlite://", 1), {}
-    if parsed.scheme != "postgresql+asyncpg":
-        return raw_database_url, {}
+    scheme = parsed.scheme
+
+    if scheme == "sqlite" or scheme.startswith("sqlite+"):
+        # Offline/local sqlite — keep as-is (sync)
+        return raw_database_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
+
+    if scheme in {"postgresql+asyncpg", "postgres", "postgresql"}:
+        scheme = "postgresql+psycopg2"
+    elif scheme == "postgresql+psycopg2":
+        pass
+    # else leave custom schemes alone
 
     query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
-    filtered_pairs: list[tuple[str, str]] = []
-    sslmode: str | None = None
-
+    filtered: list[tuple[str, str]] = []
     for key, value in query_pairs:
-        if key == "sslmode":
-            sslmode = value.lower()
-            continue
         if key == "channel_binding":
             continue
-        filtered_pairs.append((key, value))
+        filtered.append((key, value))
 
-    connect_args: dict[str, object] = {}
-    if sslmode and sslmode != "disable":
-        connect_args["ssl"] = True
-
-    database_url = urlunsplit(
+    return urlunsplit(
         (
-            parsed.scheme,
+            scheme,
             parsed.netloc,
             parsed.path,
-            urlencode(filtered_pairs, doseq=True),
+            urlencode(filtered, doseq=True),
             parsed.fragment,
         )
     )
-    return database_url, connect_args
 
 
-database_url, connect_args = _prepare_asyncpg_url(settings.database_url)
-config.set_main_option("sqlalchemy.url", database_url)
+database_url = _sync_database_url(settings.database_url)
+# configparser interpolates '%' — escape for set_main_option
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
+    """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -114,36 +107,18 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
-
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-
-    connectable = async_engine_from_config(
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode with a sync engine."""
+    connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        connect_args=connect_args,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-
-    asyncio.run(run_async_migrations())
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 if context.is_offline_mode():

@@ -23,12 +23,16 @@ docker run -d --name trading_redis -p 6379:6379 redis:alpine
 
 ## 3. Database Migration
 Before starting the backend, you must apply the Alembic schema.
+
+**Canonical config:** `backend/alembic.ini` (repo-root `alembic.ini` now points at the same tree).
 ```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r backend/requirements.txt alembic psycopg2-binary
-cd backend
-alembic upgrade head
+# Prefer explicit config (works from repo root or backend/):
+alembic -c backend/alembic.ini upgrade head
+# Or:
+cd backend && alembic upgrade head
 ```
 
 ## 4. Backend Spin-Up
