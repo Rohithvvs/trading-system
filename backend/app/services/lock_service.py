@@ -73,8 +73,19 @@ class DistributedLockService:
             
                 if existing:
                     if existing.locked_by == self.worker_id:
-                        # We already own it, just extend
-                        await self.heartbeat()
+                        # Extend ownership on THIS session — never open a second
+                        # AsyncSession while this transaction is still open.
+                        await db.execute(
+                            update(SystemLock)
+                            .where(
+                                SystemLock.lock_name == self.lock_name,
+                                SystemLock.locked_by == self.worker_id,
+                            )
+                            .values(
+                                expires_at=expires_at,
+                                heartbeat_at=now,
+                            )
+                        )
                         return True
 
                     # Stale if expires_at passed OR no heartbeat within 2 intervals.

@@ -24,6 +24,7 @@ import { fetchSymbolDetail } from "../api";
 import { getCached } from "../utils/appCache";
 import { isPrefetched } from "../utils/researchPrefetcher";
 import { ResearchDashboard } from "./ResearchDashboard";
+import { Re001DetailSection } from "./Re001DetailSection";
 
 type StockDetailPanelProps = {
   row: CandidateRow | null;
@@ -250,6 +251,14 @@ function OverviewTab({
       <section className="subpanel">
         <h3>Recommendation overview</h3>
         <p className="muted-copy">{analysis?.recommendation.summary ?? row.recommendationSummary}</p>
+        <Re001DetailSection
+          decision={
+            (analysis as { lab_engines?: { "RE-001"?: Record<string, unknown> } } | undefined)?.lab_engines?.[
+              "RE-001"
+            ] as import("./Re001DetailSection").Re001DecisionSummary | undefined
+          }
+          symbol={row.symbol}
+        />
         <div className="reason-columns">
           <ReasonList title="Top reasons" items={analysis?.recommendation.reasoning.bullets ?? [row.recommendationSummary]} />
           <ReasonList

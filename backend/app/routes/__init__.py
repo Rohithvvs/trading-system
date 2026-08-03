@@ -18,6 +18,7 @@ from .features import router as features_router
 from .diagnostics import router as diagnostics_router
 from .governance import governance_router
 from .analytics import router as analytics_router
+from .re001_lab import router as re001_lab_router
 # Preserve existing governance command-routing router (GET /api/v1/governance/routes)
 # declared in app.governance.router; the new governance_router above extends it
 # with promotion / kill-switch / attribution endpoints under the same prefix.
@@ -28,6 +29,7 @@ api_router.include_router(health_router)
 api_router.include_router(stocks_router)
 api_router.include_router(analysis_router)
 api_router.include_router(paper_trading_router)
+api_router.include_router(re001_lab_router)
 api_router.include_router(token_router)
 api_router.include_router(internal_router)
 api_router.include_router(broker_tokens_router)

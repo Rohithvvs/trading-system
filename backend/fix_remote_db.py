@@ -80,8 +80,16 @@ def main():
                 conn = await asyncpg.connect(url)
                 try:
                     await conn.execute(
-                        "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"
+                        "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL)"
                     )
+                    # Widen if an older 32-char column already exists.
+                    try:
+                        await conn.execute(
+                            "ALTER TABLE alembic_version "
+                            "ALTER COLUMN version_num TYPE VARCHAR(128)"
+                        )
+                    except Exception:
+                        pass
                     await conn.execute("DELETE FROM alembic_version")  # ensure single row
                     await conn.execute(
                         "INSERT INTO alembic_version (version_num) VALUES ($1)", target

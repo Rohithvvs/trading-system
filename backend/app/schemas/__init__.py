@@ -41,6 +41,14 @@ from .paper_trading import (
     RecommendationPrefillResponse,
 )
 from .fyers_token import FyersTokenCreate, FyersTokenResponse
+from .re001 import (
+    Re001ComparisonRow,
+    Re001DecisionObject,
+    Re001HealthSegment,
+    Re001Registration,
+    Re001ScanComparisonResponse,
+    TradeGuidance,
+)
 
 __all__ = [
     "AnalysisMode",
@@ -78,6 +86,12 @@ __all__ = [
     "FyersTokenCreate",
     "FyersTokenResponse",
     "FundamentalAnalysisResult",
+    "Re001ComparisonRow",
+    "Re001DecisionObject",
+    "Re001HealthSegment",
+    "Re001Registration",
+    "Re001ScanComparisonResponse",
+    "TradeGuidance",
     "SectorOverlayResult",
     "MarketRegimeResult",
     "ShadowExecutionContext",

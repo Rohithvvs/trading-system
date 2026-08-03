@@ -246,6 +246,16 @@ class Settings(BaseSettings):
     shadow_mode_ruleset: str = Field(default="experimental_v1", alias="SHADOW_MODE_RULESET")
     shadow_mode_persistence_enabled: bool = Field(default=False, alias="SHADOW_MODE_PERSISTENCE_ENABLED")
 
+    # RE-001 Trend Continuation lab engine (default OFF — production shortlist authority unchanged)
+    re001_enabled: bool = Field(default=False, alias="RE001_ENABLED")
+    re001_stage: str = Field(default="OFF", alias="RE001_STAGE")  # OFF | LAB_SHADOW | PAPER_LINKED
+    re001_version: str = Field(default="1.0", alias="RE001_VERSION")
+    re001_persist_decisions: bool = Field(default=True, alias="RE001_PERSIST_DECISIONS")
+    re001_compare_with_production: bool = Field(default=True, alias="RE001_COMPARE_WITH_PRODUCTION")
+    re001_timeout_ms: float = Field(default=3000.0, ge=200.0, le=60000.0, alias="RE001_TIMEOUT_MS")
+    # UI kill-switch (default True so feature permission remains primary gate; set false to hide lab APIs)
+    re001_ui_enabled: bool = Field(default=True, alias="RE001_UI_ENABLED")
+
     # Sprint 3: Reduce Scan-Result Fan-out feature flag
     scan_result_minimal_writes: bool = Field(default=False, alias="SCAN_RESULT_MINIMAL_WRITES")
 
@@ -466,6 +476,13 @@ class Settings(BaseSettings):
         registered executor without affecting production recommendations.
         """
         return bool(self.shadow_mode_enabled) and self.shadow_mode_stage != "OFF"
+
+    def is_re001_active(self) -> bool:
+        """True when RE-001 lab evaluation should run (enabled + LAB_SHADOW|PAPER_LINKED)."""
+        if not bool(self.re001_enabled):
+            return False
+        stage = str(self.re001_stage or "OFF").strip().upper()
+        return stage in {"LAB_SHADOW", "PAPER_LINKED"}
 
     @field_validator("portfolio_simulation_enabled")
     @classmethod

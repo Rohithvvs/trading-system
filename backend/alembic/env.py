@@ -2,7 +2,7 @@ import asyncio
 from logging.config import fileConfig
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -114,7 +114,36 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _ensure_alembic_version_width(connection: Connection) -> None:
+    """Allow revision IDs longer than Alembic's default VARCHAR(32).
+
+    Several project revisions exceed 32 characters (e.g.
+    ``20260728_001_rbac_role_normalization``). Without a wider column,
+    greenfield ``alembic upgrade head`` fails when stamping those revisions.
+    """
+    dialect = connection.dialect.name
+    if dialect == "postgresql":
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version ("
+                "version_num VARCHAR(128) NOT NULL PRIMARY KEY)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE alembic_version "
+                "ALTER COLUMN version_num TYPE VARCHAR(128)"
+            )
+        )
+    # SQLite ignores VARCHAR length; other dialects leave the default.
+
+
 def do_run_migrations(connection: Connection) -> None:
+    # Commit width change outside the migration transaction so a later migration
+    # failure cannot roll back the VARCHAR(128) fix (long revision IDs need it).
+    _ensure_alembic_version_width(connection)
+    connection.commit()
+
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():

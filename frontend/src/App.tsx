@@ -69,6 +69,7 @@ const MarketsPage = lazy(() =>
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage").then((m) => ({ default: m.PerformancePage })),
 );
+const RecommendationLabPage = lazy(() => import("./pages/RecommendationLabPage"));
 const DiagnosticsPage = lazy(() =>
   import("./pages/Diagnostics").then((m) => ({ default: m.DiagnosticsPage })),
 );
@@ -631,6 +632,16 @@ export default function App() {
                   <FeatureGuard feature="portfolio_analytics" fallback={<AccessDenied />}>
                     <Suspense fallback={<ViewFallback />}>
                       <PerformancePage />
+                    </Suspense>
+                  </FeatureGuard>
+                }
+              />
+              <Route
+                path="/recommendation-lab"
+                element={
+                  <FeatureGuard feature="recommendation_lab" fallback={<AccessDenied />}>
+                    <Suspense fallback={<ViewFallback />}>
+                      <RecommendationLabPage />
                     </Suspense>
                   </FeatureGuard>
                 }

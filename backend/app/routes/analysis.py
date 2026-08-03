@@ -93,7 +93,7 @@ def rankings(payload: AnalysisRequest, db: AsyncSession = Depends(get_db)) -> Ra
 @router.post("/screener/full")
 async def screener_full(
     payload: ScreenerRequest,
-    _: User = Depends(require_feature("advanced_scanner")),
+    user: User = Depends(require_feature("advanced_scanner")),
 ):
     logger.info(
         "[SCAN] API ENTRY | endpoint=/analysis/screener/full | mode=%s | top_n=%s | lookback=%s | swing=%s | custom_symbols=%s",
@@ -103,6 +103,9 @@ async def screener_full(
         payload.timeframe.swing,
         len(payload.symbols),
     )
+    # RE-001 portfolio context (FR-026): pass authenticated user into scan worker explicitly
+    # (ContextVar alone is fragile across create_task boundaries if callers change).
+    re001_user_id = str(getattr(user, "id", "") or "") or None
 
     q: asyncio.Queue = asyncio.Queue(maxsize=200)
 
@@ -129,6 +132,7 @@ async def screener_full(
             progress_queue=q,
             trigger_source="ui",
             save_history=True,
+            user_id=re001_user_id,
         )
         logger.info("[SCAN] Worker started; opening SSE stream | save_history=True")
     except LockAcquisitionError as lock_exc:

@@ -24,6 +24,15 @@ export const DEFAULT_FEATURE_CATALOG: Record<string, FeaturePermission> = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
+  recommendation_lab: {
+    id: "default-recommendation_lab",
+    feature_key: "recommendation_lab",
+    description: "RE-001 Recommendation Lab comparison and detail surfaces",
+    allowed_roles: ["trader", "admin"],
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
   portfolio_analytics: {
     id: "default-portfolio_analytics",
     feature_key: "portfolio_analytics",

@@ -520,18 +520,70 @@ class PaperTradingService:
     def recommendation_prefill(self, payload: RecommendationPrefillRequest) -> RecommendationPrefillResponse:
         from ..utils.symbol import canonical_symbol
 
-        targets = payload.suggested_targets or []
-        return RecommendationPrefillResponse(
-            symbol=canonical_symbol(payload.symbol),
-            qty=1,
-            limit_price=payload.suggested_entry,
-            stop_loss=payload.suggested_stop,
-            target=targets[0] if targets else None,
-            note=(
-                f"Imported from system recommendation | signal={payload.recommendation_meta.get('signal', 'BUY')} | "
+        symbol = canonical_symbol(payload.symbol)
+        entry = payload.suggested_entry
+        stop = payload.suggested_stop
+        targets = list(payload.suggested_targets or [])
+        source_engine_id = payload.source_engine_id
+        source_engine_version = payload.source_engine_version
+        source_recommendation_id = payload.source_recommendation_id
+
+        # FR-015: when RE-001 recommendation_id is provided, prefer complete RE-001
+        # trade_guidance; else keep client levels (typically production plan).
+        if source_recommendation_id or (source_engine_id or "").upper() == "RE-001":
+            try:
+                from .re001.persistence import get_decision_by_id
+
+                row = None
+                if source_recommendation_id:
+                    row = get_decision_by_id(self.db, source_recommendation_id)
+                if row is not None:
+                    source_engine_id = row.engine_id or "RE-001"
+                    source_engine_version = row.engine_version or source_engine_version or "1.0"
+                    source_recommendation_id = row.recommendation_id
+                    tg = row.trade_guidance if isinstance(row.trade_guidance, dict) else None
+                    if tg and tg.get("complete"):
+                        entry = float(tg.get("entry_high") or tg.get("entry_low") or entry or 0) or entry
+                        stop = float(tg.get("stop_loss") or stop or 0) or stop
+                        t1 = tg.get("target_1")
+                        if t1 is not None:
+                            targets = [float(t1)] + [t for t in targets if t != float(t1)]
+                    # else: keep client-supplied production levels (fallback)
+            except Exception as re001_prefill_exc:
+                # Fail-open: never block paper prefill on lab lookup errors.
+                import logging
+
+                logging.getLogger("app.re001").warning(
+                    "RE-001 paper prefill guidance lookup failed | recommendation_id=%s | err=%s",
+                    source_recommendation_id,
+                    re001_prefill_exc,
+                    exc_info=True,
+                )
+
+        note = (
+            f"Imported from system recommendation | signal={payload.recommendation_meta.get('signal', 'BUY')} | "
+            f"score={payload.recommendation_meta.get('score', 'n/a')} | "
+            f"confidence={payload.recommendation_meta.get('confidence', 'n/a')}"
+        )
+        if source_engine_id:
+            note = (
+                f"Imported from {source_engine_id} "
+                f"v{source_engine_version or 'n/a'} | "
+                f"rec_id={source_recommendation_id or 'n/a'} | "
+                f"signal={payload.recommendation_meta.get('signal', 'BUY')} | "
                 f"score={payload.recommendation_meta.get('score', 'n/a')} | "
                 f"confidence={payload.recommendation_meta.get('confidence', 'n/a')}"
-            ),
+            )
+        return RecommendationPrefillResponse(
+            symbol=symbol,
+            qty=1,
+            limit_price=entry,
+            stop_loss=stop,
+            target=targets[0] if targets else None,
+            note=note,
+            source_engine_id=source_engine_id,
+            source_engine_version=source_engine_version,
+            source_recommendation_id=source_recommendation_id,
         )
 
     def get_workspace(self, symbol: str) -> PaperWorkspaceSnapshot:

@@ -55,6 +55,15 @@ export const RETAIL_NAV: NavItem[] = [
     icon: icon("M4 19V5 M8 19v-8 M12 19v-5 M16 19V9 M20 19v-3"),
   },
   {
+    id: "recommendation-lab",
+    label: "Rec Lab",
+    path: "/recommendation-lab",
+    match: "/recommendation-lab",
+    testId: "nav-recommendation-lab",
+    featureKey: "recommendation_lab",
+    icon: icon("M4 6h16 M4 12h10 M4 18h14"),
+  },
+  {
     id: "profile",
     label: "Profile",
     path: "/profile",

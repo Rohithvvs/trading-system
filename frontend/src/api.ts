@@ -1612,3 +1612,80 @@ export async function resetPassword(token: string, password: string, confirmPass
   }
 }
 
+/** RE-001 recent scan runs (stable scan_run_id list) */
+export async function fetchRe001RecentScans(limit = 20): Promise<{
+  items: Array<{
+    scan_run_id: string;
+    decision_count: number;
+    latest_created_at?: string | null;
+  }>;
+}> {
+  const response = await fetchWithDiagnostics(
+    `/api/v1/recommendation-lab/scans/recent?limit=${limit}`,
+    { method: "GET" },
+    "RE-001 recent scans",
+  );
+  if (!response.ok) {
+    throw mapHttpError(response.status, response.url);
+  }
+  return response.json();
+}
+
+/** RE-001 Recommendation Lab — comparison for a completed scan_run_id */
+export async function fetchRe001ScanComparison(scanRunId: string): Promise<{
+  scan_run_id: string;
+  items: Array<{
+    symbol: string;
+    recommendation_id: string;
+    production_action?: string | null;
+    production_score?: number | null;
+    re001_state: string;
+    confidence_score: number;
+    strategy_name?: string | null;
+    strategy_family?: string | null;
+    is_mismatch?: boolean | null;
+  }>;
+}> {
+  const response = await fetchWithDiagnostics(
+    `/api/v1/recommendation-lab/scans/${encodeURIComponent(scanRunId)}/comparison`,
+    { method: "GET" },
+    "RE-001 lab scan comparison",
+  );
+  if (!response.ok) {
+    throw mapHttpError(response.status, response.url);
+  }
+  return response.json();
+}
+
+/** RE-001 latest decision for a symbol */
+export async function fetchRe001SymbolLatest(symbol: string): Promise<Record<string, unknown>> {
+  const response = await fetchWithDiagnostics(
+    `/api/v1/recommendation-lab/symbols/${encodeURIComponent(symbol)}/latest`,
+    { method: "GET" },
+    "RE-001 lab symbol latest",
+  );
+  if (!response.ok) {
+    throw mapHttpError(response.status, response.url);
+  }
+  return response.json();
+}
+
+/** RE-001 engine registration / stage */
+export async function fetchRe001Registration(): Promise<{
+  engine_id: string;
+  name: string;
+  engine_version: string;
+  stage: string;
+  enabled: boolean;
+}> {
+  const response = await fetchWithDiagnostics(
+    "/api/v1/recommendation-lab/registration",
+    { method: "GET" },
+    "RE-001 registration",
+  );
+  if (!response.ok) {
+    throw mapHttpError(response.status, response.url);
+  }
+  return response.json();
+}
+

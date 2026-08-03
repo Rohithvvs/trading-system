@@ -282,6 +282,10 @@ class RecommendationPrefillRequest(BaseModel):
     suggested_stop: float | None = None
     suggested_targets: list[float] = Field(default_factory=list)
     recommendation_meta: dict[str, float | str]
+    # RE-001 provenance (optional)
+    source_engine_id: str | None = None
+    source_engine_version: str | None = None
+    source_recommendation_id: str | None = None
 
 
 class RecommendationPrefillResponse(BaseModel):
@@ -293,6 +297,9 @@ class RecommendationPrefillResponse(BaseModel):
     stop_loss: float | None = None
     target: float | None = None
     note: str
+    source_engine_id: str | None = None
+    source_engine_version: str | None = None
+    source_recommendation_id: str | None = None
 
 
 class PaperOrderActionResponse(BaseModel):

@@ -124,6 +124,7 @@ class ScanExecutionService:
         progress_queue: asyncio.Queue | None,
         trigger_source: str = "ui",
         save_history: bool = False,
+        user_id: str | None = None,
     ):
         scan_id = str(uuid.uuid4())
         # Shorter TTL + frequent heartbeat so crashed workers release quickly.
@@ -196,7 +197,14 @@ class ScanExecutionService:
 
         asyncio.create_task(
             ScanExecutionService._run_scan_task(
-                payload, progress_queue, trigger_source, scan_id, lock, heartbeat_task, save_history=save_history
+                payload,
+                progress_queue,
+                trigger_source,
+                scan_id,
+                lock,
+                heartbeat_task,
+                save_history=save_history,
+                user_id=user_id,
             )
         )
 
@@ -209,12 +217,26 @@ class ScanExecutionService:
         lock: DistributedLockService,
         heartbeat_task: asyncio.Task | None = None,
         save_history: bool = False,
+        user_id: str | None = None,
     ):
         start_t = time.perf_counter()
         scan_status = "FAILED"
         error_type = None
         duration_ms = 0
         response_data = None
+
+        # RE-001 FR-026/027: bind platform scan_id + optional user into task context
+        # so lab decisions share completed-scan identity and portfolio snapshot.
+        _re001_scan_tok = None
+        _re001_user_tok = None
+        try:
+            from ..services.re001.scan_context import set_scan_run_id, set_user_id
+
+            _re001_scan_tok = set_scan_run_id(scan_id)
+            if user_id:
+                _re001_user_tok = set_user_id(str(user_id))
+        except Exception as re001_ctx_exc:
+            logger.debug("[SCAN] RE-001 context bind skipped | %s", re001_ctx_exc)
 
         try:
             logger.info(
@@ -852,6 +874,16 @@ class ScanExecutionService:
                     },
                 )
         finally:
+            try:
+                from ..services.re001.scan_context import reset_scan_run_id, reset_user_id
+
+                if _re001_scan_tok is not None:
+                    reset_scan_run_id(_re001_scan_tok)
+                if _re001_user_tok is not None:
+                    reset_user_id(_re001_user_tok)
+            except Exception:
+                pass
+
             if heartbeat_task and not heartbeat_task.done():
                 heartbeat_task.cancel()
                 try:

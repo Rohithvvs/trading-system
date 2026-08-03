@@ -249,6 +249,8 @@ class StockAnalysisResult(BaseModel):
     market_cap: float | None = None
     corporate_events: dict | None = None
     social_sentiment_score: float | None = None
+    # RE-001 lab engines block (optional, non-breaking). Production recommendation remains authoritative.
+    lab_engines: dict[str, dict] | None = None
 
 
 class RankingItem(BaseModel):

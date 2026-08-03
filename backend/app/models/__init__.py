@@ -24,6 +24,7 @@ from . import research  # ensure tables are registered with Base.metadata
 from .live_trading import LiveAccount, LivePosition, LiveOrder, BrokerExecutionLog, OrderExecutionEvent
 from .auth import User, UserSession, Device, AuditLog, OTP
 from .feature_permission import FeaturePermission
+from .recommendation_engine import RecommendationEngineDecision
 from .experiment import Experiment
 from .research import (
     ResearchSession,
@@ -67,6 +68,7 @@ __all__ = [
     "AuditLog",
     "OTP",
     "FeaturePermission",
+    "RecommendationEngineDecision",
     "Experiment",
     "ResearchSession",
     "ResearchIdea",

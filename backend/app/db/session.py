@@ -67,6 +67,8 @@ pool_kwargs["pool_size"] = 20
 pool_kwargs["max_overflow"] = 10
 # Recycle before Neon/proxy idle kills (typically ~5 min); 4 min keeps pool warm
 pool_kwargs["pool_recycle"] = 240
+# Fail fast under stampede instead of hanging workers indefinitely
+pool_kwargs["pool_timeout"] = 30
 
 engine = create_async_engine(
     database_url,
@@ -114,15 +116,41 @@ def is_stale_prepared_plan_error(exc: BaseException) -> bool:
     return "InvalidCachedStatement" in msg or "cached statement plan is invalid" in msg
 
 
+def is_asyncpg_concurrency_error(exc: BaseException) -> bool:
+    """True when asyncpg reports concurrent use of one connection/protocol.
+
+    Classic message: ``cannot switch to state N; another operation (M) is in progress``.
+    Always open a *new* session (never retry on the same AsyncSession).
+    """
+    msg = str(exc).lower()
+    if "another operation" in msg and "in progress" in msg:
+        return True
+    if "cannot switch to state" in msg:
+        return True
+    name = type(exc).__name__
+    if name in {"InternalClientError", "InterfaceError"} and "operation" in msg:
+        return True
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None and cause is not exc:
+        return is_asyncpg_concurrency_error(cause)
+    orig = getattr(exc, "orig", None)
+    if orig is not None and orig is not exc:
+        return is_asyncpg_concurrency_error(orig)
+    return False
+
+
 def is_db_connection_error(exc: BaseException) -> bool:
     """True when the underlying DB connection is dead or unusable.
 
     Covers asyncpg/SQLAlchemy ``InterfaceError`` / ``OperationalError`` cases such as
-    ``connection is closed``, server-side idle kills, and pooler disconnects.
+    ``connection is closed``, server-side idle kills, pooler disconnects, and
+    concurrent-operation protocol errors.
     Callers should open a *fresh* session (and optionally dispose the pool) and retry.
     """
+    if is_asyncpg_concurrency_error(exc):
+        return True
     name = type(exc).__name__
-    if name in {"InterfaceError", "OperationalError", "DBAPIError"}:
+    if name in {"InterfaceError", "OperationalError", "DBAPIError", "InternalClientError"}:
         # Narrow DBAPIError to connection-class messages only.
         pass
     msg = str(exc).lower()
@@ -202,11 +230,26 @@ def _attach_engine_listeners(target_engine) -> None:
     def _log_pool_checkout(dbapi_connection, connection_record, connection_proxy):  # noqa: ANN001
         try:
             pool = target_engine.pool
+            conn_id = id(dbapi_connection)
             _db_forensics_logger.info(
-                "DB_POOL_STATUS | pool_size=%s | checked_out=%s | overflow=%s | checkedin=%s",
+                "CONNECTION_CHECKOUT | connection_id=%s | pool_size=%s | checked_out=%s | overflow=%s | checkedin=%s",
+                conn_id,
                 pool.size(),
                 pool.checkedout(),
                 pool.overflow(),
+                pool.checkedin(),
+            )
+        except Exception:
+            pass
+
+    @event.listens_for(sync_eng, "checkin")
+    def _log_pool_checkin(dbapi_connection, connection_record):  # noqa: ANN001
+        try:
+            pool = target_engine.pool
+            _db_forensics_logger.info(
+                "CONNECTION_CHECKIN | connection_id=%s | checked_out=%s | checkedin=%s",
+                id(dbapi_connection),
+                pool.checkedout(),
                 pool.checkedin(),
             )
         except Exception:
@@ -236,8 +279,34 @@ AsyncSessionLocal = RebindableAsyncSessionLocal(
 
 main_event_loop = None
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+
+from contextlib import asynccontextmanager
+import itertools
+import time as _time
+
+_session_id_seq = itertools.count(1)
+
+
+@asynccontextmanager
+async def session_scope(
+    *,
+    worker_id: str | int | None = None,
+    agent_name: str | None = None,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Independent AsyncSession for one worker/task — never share across gather().
+
+    Lifecycle: create → (caller uses) → commit/rollback → close.
+    Logs SESSION_CREATED / SESSION_CLOSED with SESSION_ID for forensics.
+    """
+    session_id = next(_session_id_seq)
+    t0 = _time.perf_counter()
     db = AsyncSessionLocal()
+    _db_forensics_logger.info(
+        "SESSION_CREATED | session_id=%s | worker_id=%s | agent_name=%s",
+        session_id,
+        worker_id if worker_id is not None else "-",
+        agent_name or "-",
+    )
     try:
         yield db
     except Exception as exc:
@@ -245,14 +314,48 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await db.rollback()
         except Exception:
             pass
-        # One-shot pool recovery for post-migration prepared-plan invalidation.
-        # Route handlers that catch exceptions still need their own retry; this
-        # ensures uncaught cases invalidate the pool for subsequent requests.
         if is_stale_prepared_plan_error(exc):
             await dispose_async_pool(reason="stale_prepared_plan")
+        if is_asyncpg_concurrency_error(exc):
+            _db_forensics_logger.error(
+                "SESSION_CONCURRENCY_ERROR | session_id=%s | worker_id=%s | agent_name=%s | error=%s",
+                session_id,
+                worker_id if worker_id is not None else "-",
+                agent_name or "-",
+                str(exc)[:200],
+            )
         raise
     finally:
-        await db.close()
+        try:
+            await db.close()
+        except Exception as close_exc:
+            _db_forensics_logger.warning(
+                "SESSION_CLOSE_FAILED | session_id=%s | error=%s",
+                session_id,
+                str(close_exc)[:200],
+            )
+        _db_forensics_logger.info(
+            "SESSION_CLOSED | session_id=%s | worker_id=%s | agent_name=%s | elapsed_ms=%.1f",
+            session_id,
+            worker_id if worker_id is not None else "-",
+            agent_name or "-",
+            (_time.perf_counter() - t0) * 1000,
+        )
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Request-scoped session. Do **not** share across asyncio.gather workers."""
+    async with session_scope(agent_name="request_get_db") as db:
+        try:
+            yield db
+        except Exception as exc:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            if is_stale_prepared_plan_error(exc):
+                await dispose_async_pool(reason="stale_prepared_plan")
+            raise
 
 sync_database_url = settings.database_url.replace(
     "postgresql+asyncpg",

@@ -122,6 +122,8 @@ export type StockAnalysisResult = {
   market_cap?: number | null;
   corporate_events?: Record<string, string> | null;
   social_sentiment_score?: number | null;
+  /** Optional lab engines block (RE-001). Production recommendation remains authoritative. */
+  lab_engines?: Record<string, Record<string, unknown>> | null;
 };
 
 export type RankingItem = {

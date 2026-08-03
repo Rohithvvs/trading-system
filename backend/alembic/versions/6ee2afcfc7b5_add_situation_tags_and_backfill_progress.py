@@ -28,52 +28,66 @@ def upgrade() -> None:
 
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
+    inspector = sa.inspect(bind)
+    ah_cols = {c["name"] for c in inspector.get_columns("analysis_history")} if "analysis_history" in inspector.get_table_names() else set()
+    tables = set(inspector.get_table_names())
 
-    # 1. Add situation_tags column to analysis_history
-    if is_pg:
-        op.add_column(
-            "analysis_history",
-            sa.Column(
-                "situation_tags",
-                postgresql.ARRAY(sa.Text()),
-                server_default="{}",
-                nullable=False,
-            ),
-        )
-    else:
-        # Non-Postgres (e.g. local sqlite) — TEXT JSON-compatible column
-        op.add_column(
-            "analysis_history",
-            sa.Column("situation_tags", sa.Text(), server_default="{}", nullable=False),
-        )
+    # 1. Add situation_tags column to analysis_history (idempotent for partial upgrades)
+    if "situation_tags" not in ah_cols:
+        if is_pg:
+            op.add_column(
+                "analysis_history",
+                sa.Column(
+                    "situation_tags",
+                    postgresql.ARRAY(sa.Text()),
+                    server_default="{}",
+                    nullable=False,
+                ),
+            )
+        else:
+            # Non-Postgres (e.g. local sqlite) — TEXT JSON-compatible column
+            op.add_column(
+                "analysis_history",
+                sa.Column("situation_tags", sa.Text(), server_default="{}", nullable=False),
+            )
 
     # 2. Create backfill_progress table
-    op.create_table(
-        "backfill_progress",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("job_id", sa.String(length=50), nullable=False),
-        sa.Column("last_processed_id", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="RUNNING"),
-        sa.Column("processed_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("total_count", sa.Integer(), nullable=False),
-        sa.Column(
-            "started_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()" if is_pg else "CURRENT_TIMESTAMP"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()" if is_pg else "CURRENT_TIMESTAMP"),
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_backfill_progress")),
-    )
-    op.create_index(op.f("ix_backfill_progress_id"), "backfill_progress", ["id"], unique=False)
-    op.create_index(
-        op.f("ix_backfill_progress_job_id"), "backfill_progress", ["job_id"], unique=True
-    )
+    if "backfill_progress" not in tables:
+        op.create_table(
+            "backfill_progress",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("job_id", sa.String(length=50), nullable=False),
+            sa.Column("last_processed_id", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("status", sa.String(length=20), nullable=False, server_default="RUNNING"),
+            sa.Column("processed_count", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("total_count", sa.Integer(), nullable=False),
+            sa.Column(
+                "started_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()" if is_pg else "CURRENT_TIMESTAMP"),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()" if is_pg else "CURRENT_TIMESTAMP"),
+            ),
+            sa.PrimaryKeyConstraint("id", name=op.f("pk_backfill_progress")),
+        )
+        op.create_index(op.f("ix_backfill_progress_id"), "backfill_progress", ["id"], unique=False)
+        op.create_index(
+            op.f("ix_backfill_progress_job_id"), "backfill_progress", ["job_id"], unique=True
+        )
+    else:
+        # Table may exist from a partial prior run; ensure indexes.
+        existing_indexes = {ix["name"] for ix in inspector.get_indexes("backfill_progress")}
+        if op.f("ix_backfill_progress_id") not in existing_indexes and "ix_backfill_progress_id" not in existing_indexes:
+            op.create_index(op.f("ix_backfill_progress_id"), "backfill_progress", ["id"], unique=False)
+        if op.f("ix_backfill_progress_job_id") not in existing_indexes and "ix_backfill_progress_job_id" not in existing_indexes:
+            op.create_index(
+                op.f("ix_backfill_progress_job_id"), "backfill_progress", ["job_id"], unique=True
+            )
 
     # 3. GIN index concurrently outside a transaction block (Postgres only)
     if is_pg:

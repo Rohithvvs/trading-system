@@ -37,6 +37,8 @@ class MarketEngineService:
             self._sync_on_connection_change
         )
         self._loop = None
+        # Cap concurrent tick DB sessions so websocket floods never share one connection
+        self._tick_sem = asyncio.Semaphore(8)
 
     def is_market_hours(self, now: datetime | None = None) -> bool:
         """Delegate to trading_hours_service (NSE calendar + session)."""
@@ -149,29 +151,81 @@ class MarketEngineService:
                 }
 
     async def _run_loop(self) -> None:
+        """Main loop: short-lived sessions only — never hold a txn during poll/IO.
+
+        Holding ``async with db.begin()`` across network polls previously caused
+        asyncpg ``another operation is in progress`` when ticks/upserts raced
+        the same pool under scan load.
+        """
         while self._running:
             try:
+                should_reconcile = False
                 async with AsyncSessionLocal() as db:
-                    async with db.begin():
-                        session = await self._get_or_create_session(db)
-                        if session.status in {"STARTING", "RUNNING", "PAUSED_TOKEN_EXPIRED"}:
-                            if session.status == "ERROR_RETRYING":
-                                session.status = "RUNNING"
-                                self.logger.info("MARKET_ENGINE_RECOVERED | Engine recovered from error state")
-                            await self._reconcile_session(db, session)
+                    session = await self._get_or_create_session(db)
+                    if session.status in {
+                        "STARTING",
+                        "RUNNING",
+                        "PAUSED_TOKEN_EXPIRED",
+                        "ERROR_RETRYING",
+                    }:
+                        if session.status == "ERROR_RETRYING":
+                            session.status = "RUNNING"
+                            self.logger.info(
+                                "MARKET_ENGINE_RECOVERED | Engine recovered from error state"
+                            )
+                        should_reconcile = True
+                    await db.commit()
+
+                if should_reconcile:
+                    await self._reconcile_session_isolated()
             except Exception as e:
-                self.logger.exception("MARKET_ENGINE_EXCEPTION | Market engine loop failed | error=%s", str(e))
-                self.logger.error("PRODUCTION_ALERT | category=MARKET_ENGINE_DOWN | error=%s", str(e))
-                await db.rollback()
+                self.logger.exception(
+                    "MARKET_ENGINE_EXCEPTION | Market engine loop failed | error=%s",
+                    str(e),
+                )
+                self.logger.error(
+                    "PRODUCTION_ALERT | category=MARKET_ENGINE_DOWN | error=%s",
+                    str(e),
+                )
+                # Never call db.rollback() here — session is already closed.
             await asyncio.sleep(2)
 
-    async def _reconcile_session(self, db, session: MarketEngineSession) -> None:
+    async def _reconcile_session_isolated(self) -> None:
+        """Reconcile feed + missing prices without a long-held DB transaction."""
+        desired: set[str] = set()
+        token = None
         try:
-            desired = await self._desired_symbols(db)
-            session.monitored_symbols_count = len(desired)
+            async with AsyncSessionLocal() as db:
+                session = await self._get_or_create_session(db)
+                desired = await self._desired_symbols(db)
+                session.monitored_symbols_count = len(desired)
+                if desired:
+                    token = await get_current_access_token(db)
+                session.status = "RUNNING"
+                session.token_status = "VALID" if token else session.token_status
+                session.paused_reason = None
+                if session.started_at is None:
+                    session.started_at = datetime.now(timezone.utc)
+                    positions_count = len(
+                        (
+                            await db.scalars(
+                                select(PaperPosition.id).where(
+                                    PaperPosition.status == "OPEN"
+                                )
+                            )
+                        ).all()
+                    )
+                    self.logger.info(
+                        "MARKET_ENGINE_STARTED | session_id=%s | active_positions=%s | symbols=%s",
+                        session.id,
+                        positions_count,
+                        len(desired),
+                    )
+                await db.commit()
+
+            # Feed + LTP poll run *outside* any open transaction/session.
             self._feed.sync_symbols(desired)
             if desired:
-                token = await get_current_access_token(db)
                 if token:
                     if self._feed.connected:
                         self._feed.start(str(token))
@@ -180,19 +234,28 @@ class MarketEngineService:
                         self._feed.restart(str(token))
                 else:
                     self.logger.warning("No token available to start feed")
-            session.status = "RUNNING"
-            session.token_status = "VALID"
-            session.paused_reason = None
-            if session.started_at is None:
-                session.started_at = datetime.now(timezone.utc)
-                positions_count = len((await db.scalars(select(PaperPosition.id).where(PaperPosition.status == "OPEN"))).all())
-                self.logger.info("MARKET_ENGINE_STARTED | session_id=%s | active_positions=%s | symbols=%s", session.id, positions_count, len(desired))
             await self._poll_missing_prices(desired)
         except (FyersAuthExpiredError, FyersAuthInvalidError):
-            await self._pause_for_token(db, session)
+            try:
+                async with AsyncSessionLocal() as db:
+                    session = await self._get_or_create_session(db)
+                    await self._pause_for_token(db, session)
+                    await db.commit()
+            except Exception:
+                self.logger.exception("Failed to pause market engine for token expiry")
         except Exception:
             self.logger.exception("Market engine reconcile failed")
-            session.status = "ERROR_RETRYING"
+            try:
+                async with AsyncSessionLocal() as db:
+                    session = await self._get_or_create_session(db)
+                    session.status = "ERROR_RETRYING"
+                    await db.commit()
+            except Exception:
+                self.logger.exception("Failed to mark market engine ERROR_RETRYING")
+
+    async def _reconcile_session(self, db, session: MarketEngineSession) -> None:
+        """Legacy helper kept for callers that already hold a short-lived session."""
+        await self._reconcile_session_isolated()
 
     async def _poll_missing_prices(self, symbols: set[str]) -> None:
         import time
@@ -226,18 +289,34 @@ class MarketEngineService:
         from ..utils.symbol import canonical_symbol
         normalized = canonical_symbol(symbol)
         
-        self.logger.info("SYMBOL_NORMALIZED | raw_symbol=%s | canonical_symbol=%s", symbol, normalized)
-        self.logger.debug("TICK_RECEIVED | raw_symbol=%s | canonical_symbol=%s | price=%s", symbol, normalized, price)
+        self.logger.debug(
+            "TICK_RECEIVED | raw_symbol=%s | canonical_symbol=%s | price=%s",
+            symbol,
+            normalized,
+            price,
+        )
         
         self.latest_ltp[normalized] = price
+        # Own session per tick; semaphore bounds concurrent checkouts.
         try:
-            async with AsyncSessionLocal() as db:
-                await self._process_symbol(db, normalized, price, raw_symbol=symbol, is_reconciliation=is_reconciliation)
-                session = await self._get_or_create_session(db)
-                session.last_tick_at = datetime.now(timezone.utc)
-                await db.commit()
+            async with self._tick_sem:
+                async with AsyncSessionLocal() as db:
+                    await self._process_symbol(
+                        db,
+                        normalized,
+                        price,
+                        raw_symbol=symbol,
+                        is_reconciliation=is_reconciliation,
+                    )
+                    session = await self._get_or_create_session(db)
+                    session.last_tick_at = datetime.now(timezone.utc)
+                    await db.commit()
         except Exception:
-            self.logger.exception("Tick processing error for raw_symbol=%s canonical_symbol=%s", symbol, normalized)
+            self.logger.exception(
+                "Tick processing error for raw_symbol=%s canonical_symbol=%s",
+                symbol,
+                normalized,
+            )
 
     async def _process_symbol(self, db, symbol: str, price: float, raw_symbol: str = "", is_reconciliation: bool = False) -> None:
         # Outside market hours: do not execute orders (PENDING_MARKET_OPEN stays pending).
@@ -531,37 +610,47 @@ class MarketEngineService:
     async def _sweep_historical_positions(self) -> None:
         from datetime import timedelta
         try:
+            # Phase 1: load IDs only, then close session before parallel work.
+            five_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+            target_ids: list[int] = []
+            active_count = 0
             async with AsyncSessionLocal() as db:
-                five_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
-                # Find OPEN positions where last_reconciled_at is NULL or older than 5 mins
                 stmt = select(PaperPosition).where(
                     PaperPosition.status == "OPEN",
                     PaperPosition.lifecycle_state.in_(ACTIVE_POSITION_STATES),
-                    PaperPosition.monitor_enabled.is_(True)
+                    PaperPosition.monitor_enabled.is_(True),
                 )
                 positions = list((await db.scalars(stmt)).all())
-                
-                # Filter locally to avoid complex timezone null checks in sqlite/postgres mix
-                target_positions = [
-                    p for p in positions 
-                    if p.last_reconciled_at is None or p.last_reconciled_at.replace(tzinfo=None) < five_mins_ago.replace(tzinfo=None)
+                active_count = len(positions)
+                target_ids = [
+                    int(p.id)
+                    for p in positions
+                    if p.last_reconciled_at is None
+                    or p.last_reconciled_at.replace(tzinfo=None)
+                    < five_mins_ago.replace(tzinfo=None)
                 ]
-                
-                if not target_positions:
-                    return
-                    
-                self.logger.info("RECONCILIATION_SWEEP_STARTED | active_positions=%s | target_symbols=%s", len(positions), len(target_positions))
-                
-                # Semaphore to protect FYERS API
-                sem = asyncio.Semaphore(3)
-                
-                async def reconcile_pos(pos: PaperPosition):
-                    async with sem:
-                        await self._reconcile_ohlcv_sequence(pos.id)
-                
-                await asyncio.gather(*(reconcile_pos(p) for p in target_positions))
-                self.logger.info("RECONCILIATION_SWEEP_COMPLETED | target_symbols=%s", len(target_positions))
-                
+
+            if not target_ids:
+                return
+
+            self.logger.info(
+                "RECONCILIATION_SWEEP_STARTED | active_positions=%s | target_symbols=%s",
+                active_count,
+                len(target_ids),
+            )
+
+            # Each reconcile opens its own session — never share the load session.
+            sem = asyncio.Semaphore(3)
+
+            async def reconcile_pos(position_id: int):
+                async with sem:
+                    await self._reconcile_ohlcv_sequence(position_id)
+
+            await asyncio.gather(*(reconcile_pos(pid) for pid in target_ids))
+            self.logger.info(
+                "RECONCILIATION_SWEEP_COMPLETED | target_symbols=%s", len(target_ids)
+            )
+
         except Exception as e:
             self.logger.exception("RECONCILIATION_SWEEP_FAILED | error=%s", str(e))
 

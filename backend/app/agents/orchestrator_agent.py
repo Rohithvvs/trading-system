@@ -70,7 +70,35 @@ class OrchestratorAgent:
             request.timeframe.lookback_window,
         )
         import asyncio
-        
+        from ..services.re001.scan_context import (
+            get_scan_run_id,
+            new_scan_run_id,
+            reset_scan_run_id,
+            set_scan_run_id,
+        )
+
+        # Stable scan cohort id for RE-001 lab decisions (FR-027)
+        _scan_tok = None
+        if not get_scan_run_id():
+            _scan_tok = set_scan_run_id(new_scan_run_id("full"))
+        try:
+            return await self._run_full_impl(
+                request,
+                progress_callback=progress_callback,
+                prefetched_candles=prefetched_candles,
+            )
+        finally:
+            if _scan_tok is not None:
+                reset_scan_run_id(_scan_tok)
+
+    async def _run_full_impl(
+        self,
+        request: AnalysisRequest,
+        progress_callback=None,
+        prefetched_candles: dict[str, dict[AnalysisMode, list[OHLCVPoint]]] | None = None,
+    ) -> FullAnalysisResponse:
+        import asyncio
+
         modes = self._resolve_modes(request.mode)
 
         # Seed from screener prefetched candles when available (avoids duplicate OHLCV fetch).
@@ -386,6 +414,24 @@ class OrchestratorAgent:
         return AnalysisResponse(items=items, rankings=rankings, disclaimer=advisory_payload())
 
     async def run_screener(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
+        from ..services.re001.scan_context import (
+            get_scan_run_id,
+            new_scan_run_id,
+            reset_scan_run_id,
+            set_scan_run_id,
+        )
+
+        # FR-027: prefer platform scan_id when scan execution already set context.
+        _scan_tok = None
+        if not get_scan_run_id():
+            _scan_tok = set_scan_run_id(new_scan_run_id("screener"))
+        try:
+            return await self._run_screener_impl(request, progress_callback=progress_callback)
+        finally:
+            if _scan_tok is not None:
+                reset_scan_run_id(_scan_tok)
+
+    async def _run_screener_impl(self, request: ScreenerRequest, progress_callback=None) -> ScreenerResponse:
         if progress_callback:
             progress_callback({"stage": "Authenticating & Waking Agents...", "progress": 15, "heartbeat": True})
         self.logger.info(
@@ -1253,7 +1299,7 @@ class OrchestratorAgent:
         sector_overlay.original_action = recommendation.action
         sector_overlay.challenger_action = challenger_recommendation.action
 
-        await self._persist_analysis(
+        analysis_history_id = await self._persist_analysis(
             stock_id=stock_id,
             mode=request.mode.value,
             technical_score=technical_score,
@@ -1265,6 +1311,68 @@ class OrchestratorAgent:
             symbol=symbol,
             articles=articles
         )
+
+        # RE-001 lab engine: isolated async, fail-open; never mutates production recommendation.
+        re001_decision = None
+        try:
+            if settings.is_re001_active():
+                from ..db.session import SessionLocal
+                from ..services.re001 import run_re001_isolated_async
+                from ..services.re001.portfolio_loader import load_user_portfolio_dict
+                from ..services.re001.scan_context import get_scan_run_id, get_user_id
+
+                primary_candles = self._primary_candle_set(candles_by_mode)
+                uid = get_user_id()
+                scan_run_id = get_scan_run_id()
+                user_portfolio = None
+                try:
+                    # Bound portfolio DB read separately from RE-001 eval timeout.
+                    # timeout_s=0 avoids nested ThreadPool when already on a worker thread.
+                    user_portfolio = await asyncio.wait_for(
+                        asyncio.to_thread(load_user_portfolio_dict, uid, timeout_s=0),
+                        timeout=2.0,
+                    )
+                except Exception as portfolio_exc:
+                    self.logger.warning(
+                        "RE-001 portfolio snapshot skipped | symbol=%s | scan_run_id=%s | err=%s",
+                        symbol,
+                        scan_run_id,
+                        portfolio_exc,
+                    )
+                    user_portfolio = None
+                re001_decision = await run_re001_isolated_async(
+                    symbol=symbol,
+                    mode=request.mode.value,
+                    scan_run_id=scan_run_id,
+                    candles=primary_candles,
+                    technical_results=technical_results,
+                    sentiment_score=sentiment_score,
+                    fundamental_result=fundamental_result,
+                    backtests=backtests or [],
+                    production_recommendation=recommendation,
+                    market_regime=market_regime,
+                    sector_overlay=sector_overlay,
+                    market_breadth_soft_score=None,
+                    user_portfolio=user_portfolio,
+                    risk_settings=None,  # FR-026: no invented system portfolio for unauthenticated scans
+                    analysis_history_id=analysis_history_id,
+                    db_session_factory=SessionLocal,
+                )
+        except Exception as re001_exc:
+            try:
+                from ..services.re001.scan_context import get_scan_run_id as _get_re001_scan
+
+                _re001_scan = _get_re001_scan()
+            except Exception:
+                _re001_scan = None
+            self.logger.warning(
+                "RE-001 hook failed (production path unchanged) | symbol=%s | scan_run_id=%s | err=%s",
+                symbol,
+                _re001_scan,
+                re001_exc,
+                exc_info=True,
+            )
+            re001_decision = None
 
         # FEAT-011 Spec 1: Shadow Execution Context hook
         # Gate: master toggle AND stage != OFF (ACTIVE is reserved but still isolated).
@@ -1353,6 +1461,38 @@ class OrchestratorAgent:
             market_regime.market_state,
         )
 
+        lab_engines = None
+        if re001_decision is not None:
+            try:
+                lab_engines = {
+                    "RE-001": re001_decision.model_dump(mode="json"),
+                }
+            except Exception:
+                lab_engines = {
+                    "RE-001": {
+                        "engine_id": getattr(re001_decision, "engine_id", "RE-001"),
+                        "recommendation_state": getattr(
+                            re001_decision, "recommendation_state", None
+                        ),
+                        "confidence_score": getattr(
+                            re001_decision, "confidence_score", None
+                        ),
+                        "strategy_name": getattr(re001_decision, "strategy_name", None),
+                        "explanation": getattr(re001_decision, "explanation", None),
+                        "production_action": getattr(
+                            re001_decision, "production_action", None
+                        ),
+                        "reason_codes": getattr(re001_decision, "reason_codes", None),
+                        "market_regime": getattr(re001_decision, "market_regime", None),
+                        "recommendation_id": getattr(
+                            re001_decision, "recommendation_id", None
+                        ),
+                        "engine_version": getattr(
+                            re001_decision, "engine_version", None
+                        ),
+                    }
+                }
+
         return StockAnalysisResult(
             symbol=symbol,
             ohlcv=self._primary_candle_set(candles_by_mode),
@@ -1372,6 +1512,7 @@ class OrchestratorAgent:
             data_quality=data_quality,
             trade_readiness=self._trade_readiness(recommendation, technical_results, data_quality),
             confidence_breakdown=self._confidence_breakdown(technical_score, sentiment_score, best_backtest, recommendation),
+            lab_engines=lab_engines,
         )
 
     async def _persist_analysis(
@@ -1386,7 +1527,7 @@ class OrchestratorAgent:
         market_regime: Any = None,
         symbol: str = None,
         articles: list[Any] = None,
-    ) -> None:
+    ) -> int | None:
         from ..db.session import AsyncSessionLocal
         from ..services.taxonomy_classifier import determine_situation_tags
 
@@ -1455,6 +1596,8 @@ class OrchestratorAgent:
             )
             db.add(backtest_entry)
             await db.commit()
+            await db.refresh(analysis_entry)
+            return int(analysis_entry.id) if analysis_entry.id is not None else None
 
     async def _get_or_create_stock(self, symbol: str) -> int:
         from ..db.session import AsyncSessionLocal

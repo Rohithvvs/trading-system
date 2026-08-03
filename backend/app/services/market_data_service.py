@@ -6,11 +6,22 @@ import asyncio
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import select, func
 from sqlalchemy.exc import OperationalError
-from ..db.session import engine, AsyncSessionLocal
+from ..db.session import (
+    engine,
+    AsyncSessionLocal,
+    is_asyncpg_concurrency_error,
+    is_db_connection_error,
+    session_scope,
+)
 from ..models.market_data import HistoricalCandle
 from ..utils import get_logger, safe_int
 
 logger = get_logger("app.market_data")
+
+# Bound concurrent writers so we never thrash the asyncpg pool (pool_size=20).
+# Each upsert opens one session; keep well below pool to leave headroom for
+# market-engine, locks, and request sessions.
+_UPSERT_MAX_CONCURRENCY = 4
 
 class MarketDataService:
     async def get_latest_candle_time(self, symbol: str, timeframe: str) -> datetime | None:
@@ -200,10 +211,17 @@ class MarketDataService:
 
         for attempt in range(1, max_retries + 1):
             start_time = time.monotonic()
+            inserted_count = 0
+            updated_count = 0
+            duplicate_count = 0
             try:
-                async with AsyncSessionLocal() as db:
+                # One session owns the write transaction end-to-end.
+                # Never nest a second AsyncSession inside this context — that
+                # pattern contributed to asyncpg "another operation in progress".
+                async with session_scope(
+                    worker_id=symbol, agent_name="market_data.upsert_chunk"
+                ) as db:
                     async with db.begin():
-                        # Observability: count duplicates
                         existing_stmt = select(HistoricalCandle.timestamp).where(
                             HistoricalCandle.symbol == symbol,
                             HistoricalCandle.resolution == timeframe,
@@ -227,39 +245,44 @@ class MarketDataService:
                             },
                         )
                         await db.execute(stmt)
-                    
-                    # Post-Commit Verification
-                    # Post-Commit Verification must run outside the begin() block
-                    async with AsyncSessionLocal() as verify_db:
-                        verify_stmt = select(HistoricalCandle.timestamp).where(
-                            HistoricalCandle.symbol == symbol,
-                            HistoricalCandle.resolution == timeframe
-                        ).order_by(HistoricalCandle.timestamp.desc()).limit(1)
-                        verified_ts = (await verify_db.execute(verify_stmt)).scalar_one_or_none()
-                    if not verified_ts:
-                        logger.error("silent_rollback_detected", extra={"symbol": symbol, "resolution": timeframe})
-                    
-                    elapsed_ms = (time.monotonic() - start_time) * 1000
-                    
-                    logger.info(
-                        "pg_chunked_batch_executed",
-                        extra={
-                            "symbol": symbol,
-                            "resolution": timeframe,
-                            "inserted_count": inserted_count,
-                            "updated_count": updated_count,
-                            "duplicate_count": duplicate_count,
-                            "batch_size": batch_size,
-                            "elapsed_ms": elapsed_ms,
-                            "retry_attempt": attempt,
-                        }
+
+                # Post-commit verification uses a *separate* session after the
+                # writer is fully closed (no nested connection checkout).
+                async with session_scope(
+                    worker_id=symbol, agent_name="market_data.upsert_verify"
+                ) as verify_db:
+                    verify_stmt = select(HistoricalCandle.timestamp).where(
+                        HistoricalCandle.symbol == symbol,
+                        HistoricalCandle.resolution == timeframe
+                    ).order_by(HistoricalCandle.timestamp.desc()).limit(1)
+                    verified_ts = (await verify_db.execute(verify_stmt)).scalar_one_or_none()
+                if not verified_ts:
+                    logger.error(
+                        "silent_rollback_detected",
+                        extra={"symbol": symbol, "resolution": timeframe},
                     )
-                    return
+
+                elapsed_ms = (time.monotonic() - start_time) * 1000
+                logger.info(
+                    "pg_chunked_batch_executed",
+                    extra={
+                        "symbol": symbol,
+                        "resolution": timeframe,
+                        "inserted_count": inserted_count,
+                        "updated_count": updated_count,
+                        "duplicate_count": duplicate_count,
+                        "batch_size": batch_size,
+                        "elapsed_ms": elapsed_ms,
+                        "retry_attempt": attempt,
+                    }
+                )
+                return
             except OperationalError as e:
                 elapsed_ms = (time.monotonic() - start_time) * 1000
                 is_locked = "database is locked" in str(e) or "database table is locked" in str(e)
+                retriable = is_locked or is_db_connection_error(e)
                 
-                if attempt < max_retries and is_locked:
+                if attempt < max_retries and retriable:
                     sleep_time = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
                     logger.warning(
                         "database_lock_retry",
@@ -269,7 +292,8 @@ class MarketDataService:
                             "attempt": attempt,
                             "max_retries": max_retries,
                             "lock_wait_ms": elapsed_ms,
-                            "sleep_time_s": sleep_time
+                            "sleep_time_s": sleep_time,
+                            "error": str(e)[:200],
                         }
                     )
                     await asyncio.sleep(sleep_time)
@@ -289,6 +313,23 @@ class MarketDataService:
                     raise e
             except Exception as e:
                 elapsed_ms = (time.monotonic() - start_time) * 1000
+                # Concurrent connection use / pool desync: retry with a fresh session
+                if attempt < max_retries and (
+                    is_asyncpg_concurrency_error(e) or is_db_connection_error(e)
+                ):
+                    sleep_time = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+                    logger.warning(
+                        "candle_upsert_concurrency_retry",
+                        extra={
+                            "symbol": symbol,
+                            "resolution": timeframe,
+                            "attempt": attempt,
+                            "sleep_time_s": sleep_time,
+                            "error": str(e)[:200],
+                        },
+                    )
+                    await asyncio.sleep(sleep_time)
+                    continue
                 logger.error(
                     "candle_upsert_failed",
                     extra={
@@ -547,23 +588,62 @@ class MarketDataService:
     ) -> int:
         """
         Upsert candle frames for many symbols. Returns number of symbols written.
-        Uses parallel per-symbol upserts bounded by a semaphore.
+
+        Each symbol uses its own AsyncSession (via upsert_candles/_upsert_chunk).
+        Concurrency is capped below the pool size so market-engine / request
+        sessions still have free connections — prevents asyncpg
+        "another operation is in progress" under scan load.
         """
         if not updates:
             return 0
-        upsert_sem = asyncio.Semaphore(10)
+        upsert_sem = asyncio.Semaphore(_UPSERT_MAX_CONCURRENCY)
 
-        async def _upsert_one(symbol: str, timeframe: str, df: pd.DataFrame) -> int:
+        async def _upsert_one(
+            idx: int, symbol: str, timeframe: str, df: pd.DataFrame
+        ) -> int:
             if df is None or df.empty:
                 return 0
             async with upsert_sem:
-                await self.upsert_candles(symbol, timeframe, df)
+                logger.debug(
+                    "QUERY_START | op=upsert_candles | worker_id=%s | symbol=%s | timeframe=%s",
+                    idx,
+                    symbol,
+                    timeframe,
+                )
+                t0 = time.monotonic()
+                try:
+                    await self.upsert_candles(symbol, timeframe, df)
+                finally:
+                    logger.debug(
+                        "QUERY_END | op=upsert_candles | worker_id=%s | symbol=%s | elapsed_ms=%.0f",
+                        idx,
+                        symbol,
+                        (time.monotonic() - t0) * 1000,
+                    )
             return 1
 
         results = await asyncio.gather(
-            *(_upsert_one(sym, tf, d) for sym, tf, d in updates)
+            *(_upsert_one(i, sym, tf, d) for i, (sym, tf, d) in enumerate(updates)),
+            return_exceptions=True,
         )
-        return sum(results)
+        written = 0
+        errors: list[BaseException] = []
+        for r in results:
+            if isinstance(r, BaseException):
+                errors.append(r)
+            else:
+                written += int(r or 0)
+        if errors:
+            # Re-raise first concurrency/connection error so scan can fail cleanly
+            # after partial progress; remaining symbols already logged in upsert.
+            logger.error(
+                "upsert_candles_multi partial failure | written=%s | failed=%s | first_error=%s",
+                written,
+                len(errors),
+                str(errors[0])[:200],
+            )
+            raise errors[0]
+        return written
 
     @staticmethod
     def is_daily_cache_fresh_enough(

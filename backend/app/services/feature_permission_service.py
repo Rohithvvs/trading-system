@@ -88,6 +88,12 @@ DEFAULT_FEATURES: list[dict[str, Any]] = [
         "allowed_roles": [UserRole.TRADER.value, UserRole.ADMIN.value],
         "is_active": True,
     },
+    {
+        "feature_key": "recommendation_lab",
+        "description": "RE-001 Recommendation Lab comparison and detail surfaces",
+        "allowed_roles": [UserRole.TRADER.value, UserRole.ADMIN.value],
+        "is_active": True,
+    },
 ]
 
 
