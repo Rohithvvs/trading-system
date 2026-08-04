@@ -93,17 +93,17 @@ config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 
-def _ensure_alembic_version_width(connection) -> None:
-    """Widen alembic_version.version_num before any revision stamp is written.
+def _ensure_alembic_version_width(connection, *, label: str = "pre") -> None:
+    """Widen alembic_version.version_num before/after revision stamps.
 
-    Default Alembic column is VARCHAR(32). Several revision IDs in this project
-    are longer (historically ``20260728_001_rbac_role_normalization`` = 38 chars).
-    Alembic updates version_num *after* each upgrade() step; if the column is
-    still VARCHAR(32), deploy fails with::
+    Default Alembic column is VARCHAR(32). Historical revision IDs in this
+    project exceed that (e.g. ``20260728_001_rbac_role_normalization`` = 36
+    chars). Alembic updates version_num *after* each upgrade() step; if the
+    column is still VARCHAR(32), deploy fails with::
 
         StringDataRightTruncationError: value too long for type character varying(32)
 
-    Widen first (idempotent) so upgrade can proceed on Neon/Render production.
+    Idempotent. Safe when the table does not exist yet (empty DB).
     """
     try:
         dialect = connection.dialect.name
@@ -111,20 +111,39 @@ def _ensure_alembic_version_width(connection) -> None:
         return
     if dialect != "postgresql":
         return
+    # Prefer an explicit length check so re-runs are no-ops without noise,
+    # and so we only ALTER when the column is still too narrow.
+    sql = text(
+        """
+        DO $$
+        DECLARE
+            maxlen int;
+        BEGIN
+            SELECT character_maximum_length INTO maxlen
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'alembic_version'
+              AND column_name = 'version_num';
+
+            IF maxlen IS NOT NULL AND maxlen < 128 THEN
+                ALTER TABLE public.alembic_version
+                    ALTER COLUMN version_num TYPE VARCHAR(128);
+                RAISE NOTICE 'alembic_version.version_num widened to VARCHAR(128)';
+            END IF;
+        END $$;
+        """
+    )
     try:
-        connection.execute(
-            text(
-                "ALTER TABLE IF EXISTS alembic_version "
-                "ALTER COLUMN version_num TYPE VARCHAR(128)"
-            )
-        )
+        connection.execute(sql)
         connection.commit()
-    except Exception:
+        print(f"alembic env: version_num width check ok ({label})")
+    except Exception as exc:
         # Table may not exist yet (empty DB) — baseline migration creates it.
         try:
             connection.rollback()
         except Exception:
             pass
+        print(f"alembic env: version_num width check skipped ({label}): {exc!r}")
 
 
 def run_migrations_offline() -> None:
@@ -152,12 +171,17 @@ def run_migrations_online() -> None:
     # Separate connection + commit so the widen is durable before Alembic
     # begins its migration transaction and writes version_num.
     with connectable.connect() as bootstrap_conn:
-        _ensure_alembic_version_width(bootstrap_conn)
+        _ensure_alembic_version_width(bootstrap_conn, label="pre-upgrade")
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
+
+    # If alembic_version was first created mid-upgrade as VARCHAR(32), widen
+    # it now so a later deploy with a longer revision id cannot fail on stamp.
+    with connectable.connect() as bootstrap_conn:
+        _ensure_alembic_version_width(bootstrap_conn, label="post-upgrade")
 
 
 if context.is_offline_mode():

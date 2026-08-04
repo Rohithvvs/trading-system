@@ -86,14 +86,30 @@ def _engine():
 
 
 def _widen_version_column(eng) -> None:
+    """Widen version_num when it is still the Alembic default VARCHAR(32)."""
     with eng.begin() as conn:
         conn.execute(
             text(
-                "ALTER TABLE IF EXISTS alembic_version "
-                "ALTER COLUMN version_num TYPE VARCHAR(128)"
+                """
+                DO $$
+                DECLARE
+                    maxlen int;
+                BEGIN
+                    SELECT character_maximum_length INTO maxlen
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'alembic_version'
+                      AND column_name = 'version_num';
+
+                    IF maxlen IS NOT NULL AND maxlen < 128 THEN
+                        ALTER TABLE public.alembic_version
+                            ALTER COLUMN version_num TYPE VARCHAR(128);
+                    END IF;
+                END $$;
+                """
             )
         )
-    print("OK: alembic_version.version_num -> VARCHAR(128) (idempotent)")
+    print("OK: alembic_version.version_num width check (VARCHAR(128), idempotent)")
 
 
 def _read_stamps(eng) -> list[str]:

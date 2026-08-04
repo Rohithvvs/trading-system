@@ -3,10 +3,15 @@ services:
     name: trading-backend
     env: python
     buildCommand: pip install -r backend/requirements.txt
-    # Prefer run_migrations.py over raw `alembic upgrade head`:
+    # Prefer start_render.py over raw `alembic upgrade head`:
     # - absolute script/version paths
-    # - widen alembic_version.version_num
+    # - widen alembic_version.version_num (VARCHAR(32) truncation fix)
     # - remap/recover ghost stamps (e.g. can't locate 20260723_widen_reason_codes)
+    #
+    # IMPORTANT: If the Render dashboard has a Start Command override, update it to:
+    #   python backend/scripts/start_render.py
+    # Dashboard overrides take precedence over this file and will keep failing
+    # with StringDataRightTruncationError if they still run bare alembic.
     preDeployCommand: |
       python backend/scripts/run_migrations.py &&
       python -c "
@@ -17,9 +22,7 @@ sys.path.insert(0, str(root))
 from backend.scripts.import_stocks_master import import_csv
 asyncio.run(import_csv(str(root / 'ind_nifty500list.csv'), 'NIFTY500'))
 " || echo "Stocks master import step finished (data may already exist or will be seeded on app start)"
-    # If the Render dashboard overrides startCommand, set it to the same migration runner:
-    #   python backend/scripts/run_migrations.py && uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
-    startCommand: python backend/scripts/run_migrations.py && uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python backend/scripts/start_render.py
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
