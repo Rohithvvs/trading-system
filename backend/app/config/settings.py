@@ -144,6 +144,10 @@ class Settings(BaseSettings):
 
     # Allow the app to start with empty stocks_master (useful for initial deploys / data seeding)
     require_universe_data: bool = Field(default=True, alias="REQUIRE_UNIVERSE_DATA")
+    # When true, startup runs `alembic upgrade head` if the DB is empty or behind.
+    # Never stamps head on an empty database. Prefer preDeploy migrations in prod;
+    # enable for local empty-DB bootstrap: ALEMBIC_AUTO_UPGRADE=true
+    alembic_auto_upgrade: bool = Field(default=False, alias="ALEMBIC_AUTO_UPGRADE")
     news_provider: str = "marketaux"
     news_api_key: str = ""
     news_base_url: str = "https://api.marketaux.com/v1/news/all"
