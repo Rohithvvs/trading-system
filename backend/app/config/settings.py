@@ -144,6 +144,10 @@ class Settings(BaseSettings):
 
     # Allow the app to start with empty stocks_master (useful for initial deploys / data seeding)
     require_universe_data: bool = Field(default=True, alias="REQUIRE_UNIVERSE_DATA")
+    # When true, startup runs `alembic upgrade head` if the DB is empty or behind.
+    # Never stamps head on an empty database. Prefer preDeploy migrations in prod;
+    # enable for local empty-DB bootstrap: ALEMBIC_AUTO_UPGRADE=true
+    alembic_auto_upgrade: bool = Field(default=False, alias="ALEMBIC_AUTO_UPGRADE")
     news_provider: str = "marketaux"
     news_api_key: str = ""
     news_base_url: str = "https://api.marketaux.com/v1/news/all"
@@ -380,21 +384,41 @@ class Settings(BaseSettings):
         if tls_raw:
             self.smtp_use_tls = tls_raw.lower() in {"1", "true", "yes", "on"}
 
-        if self.smtp_host:
+        # Note: this may run before setup_logging() attaches handlers (import order
+        # in main.py). Call log_smtp_config_snapshot() again after logging is ready.
+        self._log_smtp_config_snapshot(prefix="SMTP load-time")
+        return self
+
+    def log_smtp_config_snapshot(self) -> None:
+        """Emit non-secret SMTP config for ops (safe after setup_logging)."""
+        self._log_smtp_config_snapshot(prefix="SMTP startup")
+
+    def _log_smtp_config_snapshot(self, prefix: str = "SMTP") -> None:
+        password_set = bool((self.smtp_password or "").strip())
+        if (self.smtp_host or "").strip() and (self.smtp_user or "").strip() and password_set:
             _logger.info(
-                "SMTP configured | host=%s port=%s user=%s from=%s tls=%s",
+                "%s | configured=True | host=%s port=%s user=%s from=%s from_name=%s "
+                "tls=%s password_set=%s",
+                prefix,
                 self.smtp_host,
                 self.smtp_port,
                 self.smtp_user or "(none)",
                 self.smtp_from or self.smtp_user or "(none)",
+                self.smtp_from_name or "(none)",
                 self.smtp_use_tls,
+                password_set,
             )
         else:
             _logger.warning(
-                "SMTP not configured | set SMTP_HOST/SMTP_USER/SMTP_PASSWORD "
-                "(or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) for password-reset emails"
+                "%s | configured=False | host=%r user=%r password_set=%s from=%r | "
+                "set SMTP_HOST/SMTP_USER/SMTP_PASSWORD "
+                "(or MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD) for password-reset emails",
+                prefix,
+                self.smtp_host,
+                self.smtp_user,
+                password_set,
+                self.smtp_from,
             )
-        return self
 
     @field_validator("database_url", mode="before")
     def _validate_db_url(cls, v, info):

@@ -89,6 +89,11 @@ from .core import log_manager  # ensure module-level loggers (api/http) are crea
 request_logger = get_logger("app.http")
 config_logger = get_logger("app.config")
 logger = get_logger("app.scheduler")
+# Settings() runs before handlers exist; re-emit SMTP status so console/file show it.
+try:
+    settings.log_smtp_config_snapshot()
+except Exception as _smtp_log_exc:  # pragma: no cover
+    config_logger.warning("Could not log SMTP config snapshot: %s", _smtp_log_exc)
 
 
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED, EVENT_JOB_SUBMITTED
@@ -218,6 +223,36 @@ async def job_intraday_heartbeat():
             module="Scheduler",
             endpoint="job_intraday_heartbeat",
             exc=e
+        )
+
+
+async def job_execute_pending_market_open_orders():
+    """At market open, execute all PENDING_MARKET_OPEN paper orders across accounts."""
+    from .services.logger_service import logger_service
+    logger_service.log_info(
+        message="Pending market-open order execution triggered.",
+        source="JOB",
+        module="Scheduler",
+        endpoint="job_execute_pending_market_open_orders",
+    )
+    try:
+        from .services.paper_trading_service import PaperTradingService
+
+        summary = await asyncio.to_thread(PaperTradingService.execute_all_pending_market_open_orders)
+        logger_service.log_info(
+            message=f"Pending market-open execution complete: {summary}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_execute_pending_market_open_orders",
+        )
+        logger.info("MARKET_OPEN_TRIGGER | job_summary=%s", summary)
+    except Exception as e:
+        logger_service.log_error(
+            message=f"Scheduled job failed: {str(e)}",
+            source="JOB",
+            module="Scheduler",
+            endpoint="job_execute_pending_market_open_orders",
+            exc=e,
         )
 
 async def job_market_engine_cool_down():
@@ -381,12 +416,6 @@ async def lifespan(app: FastAPI):
         ) from db_exc
     app.state.singleton_worker_lease = worker_lease
     app.state.task_supervisor = TaskSupervisor()
-    
-    from .services.partition_manager import verify_and_create_partitions
-    try:
-        await verify_and_create_partitions()
-    except Exception as e:
-        logger.error(f"Failed to verify partitions: {e}")
 
     # JWT secret hardening (production/staging fail-closed).
     try:
@@ -404,18 +433,59 @@ async def lifespan(app: FastAPI):
     def _is_prod_like() -> bool:
         return str(_startup_settings.app_env).strip().lower() in {"production", "prod", "staging"}
 
+    # ------------------------------------------------------------------
+    # BOOTSTRAP ORDER (production-safe for empty + existing DBs):
+    #   1) DB connectivity (lease above)
+    #   2) Alembic validate / optional upgrade (creates schemas+tables)
+    #   3) Dispose async pool (stale prepared plans after DDL)
+    #   4) Partition verification (requires market_data schema)
+    #   5) Admin / feature seeds, universe, jobs
+    # ------------------------------------------------------------------
+    logger.info("STARTUP | stage=1_connectivity | database lease acquired=%s", worker_lease.acquired)
+
+    def _run_schema_gate() -> None:
+        from .db.session import check_alembic_head
+
+        logger.info(
+            "STARTUP | stage=2_alembic | validating schema lineage "
+            "(auto_upgrade=%s)",
+            getattr(_startup_settings, "alembic_auto_upgrade", False),
+        )
+        check_alembic_head()
+        logger.info("STARTUP | stage=2_alembic | schema at expected head")
+
+    async def _post_migration_partitions() -> None:
+        from .services.partition_manager import verify_and_create_partitions
+
+        logger.info("STARTUP | stage=3_partitions | verify/create candle partitions")
+        try:
+            await verify_and_create_partitions()
+            logger.info("STARTUP | stage=3_partitions | complete")
+        except Exception as e:
+            # Guarded partition manager should not raise for missing schema;
+            # log and continue for non-fatal partition races only.
+            logger.error("STARTUP | stage=3_partitions | failed: %s", e)
+            if _is_prod_like():
+                raise
+
     if not worker_lease.acquired:
         logger.warning("Another instance owns singleton workers; API-only mode enabled for this pod.")
         # Still ensure schema + default admin on API-only pods after migration gate.
         try:
-            from .db.session import check_alembic_head
             from .services.admin_bootstrap_service import ensure_default_admin_safe
             from .services.feature_permission_service import (
                 assert_feature_permissions_table_ready,
                 ensure_default_feature_permissions,
             )
 
-            check_alembic_head()
+            _run_schema_gate()
+            try:
+                from .db.session import dispose_async_pool
+
+                await dispose_async_pool(reason="post_alembic_startup")
+            except Exception:
+                logger.warning("Could not dispose async DB pool after alembic check", exc_info=True)
+            await _post_migration_partitions()
             async with AsyncSessionLocal() as admin_db_session:
                 await ensure_default_admin_safe(admin_db_session, fail_closed=_is_prod_like())
             # Sprint 3: table readiness (M-5) + idempotent catalog seed (H-1: commit on dedicated session)
@@ -444,12 +514,20 @@ async def lifespan(app: FastAPI):
     try:
         from .services.screener_service import ScreenerService
         from .config import settings
-        from .db.session import check_alembic_head
-        
-        # Enforce Alembic Migration Gate BEFORE admin bootstrap (H-4).
-        logger.info("STARTUP PROGRESS: Validating database schema lineage...")
-        check_alembic_head()
-        logger.info("STARTUP PROGRESS: Database schema is up-to-date.")
+
+        # Alembic gate BEFORE partitions / admin bootstrap (empty DB safe).
+        _run_schema_gate()
+
+        # Drop any async connections that may hold prepared plans from before DDL
+        try:
+            from .db.session import dispose_async_pool
+
+            await dispose_async_pool(reason="post_alembic_startup")
+        except Exception:
+            logger.warning("Could not dispose async DB pool after alembic check", exc_info=True)
+
+        # Partitions only after market_data schema exists (migrations).
+        await _post_migration_partitions()
 
         # Default admin seed only after schema is current (FR-011..014).
         try:
@@ -488,15 +566,7 @@ async def lifespan(app: FastAPI):
             # Non-prod: list/update paths also ensure seeds; log for ops visibility.
             logger.warning("FEATURE_PERMISSIONS_SEED | failed: %s", e)
 
-        # Drop any async connections that may hold prepared plans from before DDL
-        try:
-            from .db.session import dispose_async_pool
-
-            await dispose_async_pool(reason="post_alembic_startup")
-        except Exception:
-            logger.warning("Could not dispose async DB pool after alembic check", exc_info=True)
-        
-        logger.info("STARTUP PROGRESS: settings module loaded successfully.")
+        logger.info("STARTUP | stage=4_app_services | settings/universe bootstrap")
         
         # Run startup validation for screener health
         from .services.universe_service import UniverseService
@@ -597,6 +667,15 @@ async def lifespan(app: FastAPI):
         CronTrigger(day_of_week="mon-fri", hour=9, minute="15,30,45", timezone="Asia/Kolkata"),
         id="intraday_heartbeat_1a",
         replace_existing=True,
+    )
+
+    # JOB 3a2: Execute after-hours paper orders at market open (09:15 IST)
+    scheduler.add_job(
+        job_execute_pending_market_open_orders,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=15, timezone="Asia/Kolkata"),
+        id="execute_pending_market_open_orders",
+        replace_existing=True,
+        max_instances=1,
     )
 
     # JOB 3b: Intraday Engine Heartbeat Loop (10:00 AM to 14:45 PM)

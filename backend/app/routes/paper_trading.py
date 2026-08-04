@@ -30,10 +30,12 @@ from ..schemas.paper_trading import (
     PaperAccountCapitalUpdateRequest,
     TransactionPageResponse,
     MarketEngineStatusResponse,
+    MarketSessionStatusResponse,
     PaperTradeHistoryItem,
 )
 from ..services.paper_trading_service import PaperTradingService
 from ..services.market_engine_service import market_engine
+from ..services.trading_hours_service import trading_hours
 from ..utils import sanitize_for_json
 from ..config import settings
 from ..core.deps import get_current_user_id_sync, require_feature_sync
@@ -243,6 +245,40 @@ async def stop_market_engine() -> MarketEngineStatusResponse:
 @router.get("/engine/status", response_model=MarketEngineStatusResponse)
 async def get_market_engine_status() -> MarketEngineStatusResponse:
     return JSONResponse(content=sanitize_for_json(await market_engine.status()))
+
+
+@router.get("/market-session", response_model=MarketSessionStatusResponse)
+def get_market_session_status() -> MarketSessionStatusResponse:
+    """NSE market session status (open/closed/holiday/weekend) for order lifecycle UI."""
+    status = trading_hours.get_market_status()
+    return JSONResponse(content=sanitize_for_json(status))
+
+
+@router.post("/orders/execute-pending-market-open")
+def execute_pending_market_open_orders(
+    service: PaperTradingService = Depends(get_service),
+):
+    """
+    Manually trigger execution of PENDING_MARKET_OPEN orders for the current user.
+    Primary execution path is the 09:15 IST scheduler; this supports recovery and tests.
+    """
+    try:
+        # Prefer account-scoped refresh (also runs on dashboard reads when market is open)
+        account = service._get_or_create_account(for_update=True)
+        service._refresh_pending_orders(account.id)
+        service.db.commit()
+        pending = service.get_pending_orders()
+        return JSONResponse(
+            content=sanitize_for_json(
+                {
+                    "message": "Pending market-open orders re-evaluated.",
+                    "market_open": trading_hours.is_market_open(),
+                    "open_orders": [o.model_dump(mode="json") for o in pending],
+                }
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 import asyncio

@@ -1,7 +1,14 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
 
-import { fetchUniverses, loadLatestScan, runPresetScreener, saveScannerPreset } from "./api";
+import {
+  cacheLatestScanFromScreenerResponse,
+  fetchUniverses,
+  invalidateLatestScanCaches,
+  loadLatestScan,
+  runPresetScreener,
+  saveScannerPreset,
+} from "./api";
 
 const AllAnalyzedStocksTable = lazy(() =>
   import("./components/AllAnalyzedStocksTable").then((m) => ({ default: m.AllAnalyzedStocksTable })),
@@ -154,18 +161,20 @@ export default function App() {
   }, [user?.id]);
 
   useEffect(() => {
-    function loadAndApply() {
-      void loadLatestScan().then((saved) => {
+    function loadAndApply(force = true) {
+      // Always force-fetch the newest completed scan on mount/refresh so
+      // sessionStorage SWR cannot restore an older historical scan.
+      void loadLatestScan({ force }).then((saved) => {
         if (!saved) return;
         applyScanResult(saved, "restored");
       });
     }
 
-    loadAndApply();
+    loadAndApply(true);
 
     const intervalId = setInterval(() => {
       console.info("[scanner] 30-min auto-polling new cached scan...");
-      loadAndApply();
+      loadAndApply(true);
     }, 30 * 60 * 1000);
 
     return () => clearInterval(intervalId);
@@ -237,6 +246,16 @@ export default function App() {
     response.shortlisted_symbols = response.shortlisted_symbols || [];
     response.buy_candidate_symbols = response.buy_candidate_symbols || [];
     response.watch_candidate_symbols = response.watch_candidate_symbols || [];
+    // Keep timestamp card and table aligned even if one field is missing.
+    const completedAt =
+      response.last_scan_completed_at ??
+      response.scanned_at ??
+      response.analysis?.generated_at ??
+      null;
+    if (completedAt) {
+      response.last_scan_completed_at = completedAt;
+      response.scanned_at = response.scanned_at ?? completedAt;
+    }
 
     setScreenerResult(response);
     setScanHistory((current) => saveScanHistory(response, current));
@@ -289,6 +308,9 @@ export default function App() {
       );
 
       if (scanStartTime) setLastScanDuration(Math.round((Date.now() - scanStartTime) / 1000));
+      // Ensure "Last Scan Completed" and results stay on this run across F5.
+      invalidateLatestScanCaches();
+      cacheLatestScanFromScreenerResponse(response);
       applyScanResult(response, "fresh");
       toast.success("Scan complete", `${response.buy_candidate_symbols?.length ?? 0} BUY · ${response.watch_candidate_symbols?.length ?? 0} WATCH`);
     } catch (requestError: any) {

@@ -78,9 +78,19 @@ class PaperOrderResponse(BaseModel):
     stop_price: float | None = None
     stop_loss: float | None = None
     target: float | None = None
-    status: Literal["PENDING", "FILLED", "CANCELLED", "REJECTED"]
+    status: Literal[
+        "PENDING",
+        "PENDING_MARKET_OPEN",
+        "OPEN",
+        "EXECUTED",
+        "FILLED",
+        "PARTIALLY_EXECUTED",
+        "CANCELLED",
+        "REJECTED",
+    ]
     lifecycle_state: Literal[
         "PENDING_ENTRY",
+        "PENDING_MARKET_OPEN",
         "ENTRY_FILLED",
         "OPEN_POSITION",
         "EXIT_FILLED",
@@ -89,6 +99,7 @@ class PaperOrderResponse(BaseModel):
         "ERROR_RETRYING",
     ] = "PENDING_ENTRY"
     requested_entry_price: float | None = None
+    execution_price: float | None = None
     monitor_enabled: bool = True
     paused_reason: str | None = None
     notes: str | None = None
@@ -101,10 +112,24 @@ class PaperOrderResponse(BaseModel):
     price_fetched_at: datetime | None = None
     is_price_stale: bool = False
     created_at: datetime
+    scheduled_execution: datetime | None = None
+    executed_at: datetime | None = None
     filled_at: datetime | None = None
     filled_price: float | None = None
-
+    market_session: str | None = None
     product_type: str | None = None
+
+
+class MarketSessionStatusResponse(BaseModel):
+    is_open: bool
+    is_trading_day: bool
+    status: str
+    reason: str
+    current_ist: str
+    open_time: str
+    close_time: str
+    next_open_ist: str | None = None
+    session: str | None = None
 
 
 class PaperTradeHistoryItem(BaseModel):

@@ -23,13 +23,30 @@ docker run -d --name trading_redis -p 6379:6379 redis:alpine
 
 ## 3. Database Migration
 Before starting the backend, you must apply the Alembic schema.
+
+**Canonical config:** `backend/alembic.ini` (repo-root `alembic.ini` now points at the same tree).
+
+**Prefer the production-safe runner** (widens `alembic_version.version_num`, remaps renamed revisions, recovers ghost stamps):
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install -r backend/requirements.txt alembic psycopg2-binary
-cd backend
-alembic upgrade head
+pip install -r backend/requirements.txt
+python backend/scripts/run_migrations.py
 ```
+
+Raw Alembic also works for local empty DBs (env.py widens `version_num` first):
+```bash
+alembic -c backend/alembic.ini upgrade head
+# Or:
+cd backend && alembic upgrade head
+```
+
+### Render start command (required)
+If the service has a **dashboard Start Command override**, set it to:
+```bash
+python backend/scripts/start_render.py
+```
+Do **not** use `alembic -c backend/alembic.ini upgrade head && uvicorn ...` on Render — that path historically failed with `value too long for type character varying(32)` when stamping long revision IDs, and skips ghost-stamp recovery.
 
 ## 4. Backend Spin-Up
 Modify `app_host` inside settings or bind explicitly via `uvicorn`.

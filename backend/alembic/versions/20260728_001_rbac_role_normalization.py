@@ -1,6 +1,6 @@
 """Normalize user role values and add check constraint.
 
-Revision ID: 20260728_001_rbac_role_normalization
+Revision ID: 20260728_001_rbac_role_norm
 Revises: 20260723_widen_reason_codes
 Create Date: 2026-07-28
 """
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "20260728_001_rbac_role_normalization"
+revision: str = "20260728_001_rbac_role_norm"
 down_revision: Union[str, Sequence[str], None] = "20260723_widen_reason_codes"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -59,6 +59,9 @@ def _has_check_constraint(inspector: sa.Inspector, table: str, name: str) -> boo
 
 def upgrade() -> None:
     conn = op.get_bind()
+    if conn.dialect.name == "postgresql":
+        op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+
     inspector = sa.inspect(conn)
     tables = inspector.get_table_names()
     if "users" not in tables:

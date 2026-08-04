@@ -47,6 +47,7 @@ import {
 import TokenStatus from "./TokenStatus";
 import { MetricCardSkeleton, TableSkeleton, ChartSkeleton } from "./Skeleton";
 import { getCached, CACHE_KEYS } from "../utils/appCache";
+import { formatOrderStatus, isPendingMarketOpen } from "../utils/tradingHours";
 import {
   extractPaperAvailableCash,
   logPaperCapital,
@@ -900,7 +901,20 @@ export function PaperTradingPage({
         await loadPositions(ticket.symbol);
       } else {
         const response = await placePaperOrder(ticket, idempotencyKey);
-        setStatusMessage(response.message);
+        const st = response.order?.status;
+        if (st === "PENDING_MARKET_OPEN") {
+          setStatusMessage(
+            response.message ||
+              "Order accepted. Market is closed — will execute at next market open.",
+          );
+        } else if (st === "FILLED" || st === "EXECUTED") {
+          setStatusMessage(
+            response.message ||
+              `Your ${ticket.side} order for ${ticket.symbol} has been executed successfully.`,
+          );
+        } else {
+          setStatusMessage(response.message);
+        }
         setIdempotencyKey(crypto.randomUUID());
         await Promise.all([
           loadPendingOrders(ticket.symbol),
@@ -2090,19 +2104,36 @@ function OrderCard({ order, selectedSymbol, onSelect, onEdit, onDelete }: {
   onEdit: (order: PaperOrder) => void;
   onDelete: (orderId: number) => void;
 }) {
+  const pendingMarket = isPendingMarketOpen(order.status);
+  const statusClass =
+    order.status === "PENDING" || pendingMarket || order.status === "OPEN"
+      ? "is-neutral"
+      : order.status === "FILLED" || order.status === "EXECUTED"
+        ? "is-positive"
+        : "is-risk";
   return (
     <div className={`paper-card ${selectedSymbol === order.symbol ? "is-selected" : ""}`}>
       <div className="paper-card__header">
         <button type="button" className="paper-card__symbol" onClick={() => onSelect(order.symbol)}>{order.symbol}</button>
-        <span className={`status-tag ${order.status === "PENDING" ? "is-neutral" : order.status === "FILLED" ? "is-positive" : "is-risk"}`}>{order.status}</span>
+        <span className={`status-tag ${statusClass}`}>{formatOrderStatus(order.status)}</span>
       </div>
       <div className="paper-card__body">
         <div className="paper-card__field"><span className="paper-card__field-label">Side</span><span className="paper-card__field-value">{order.side}</span></div>
         <div className="paper-card__field"><span className="paper-card__field-label">Type</span><span className="paper-card__field-value">{order.type}</span></div>
         <div className="paper-card__field"><span className="paper-card__field-label">Qty</span><span className="paper-card__field-value">{order.qty}</span></div>
-        <div className="paper-card__field"><span className="paper-card__field-label">Price</span><span className="paper-card__field-value">{order.price?.toFixed(2) ?? "--"}</span></div>
-        <div className="paper-card__field"><span className="paper-card__field-label">Lifecycle</span><span className="paper-card__field-value">{formatLifecycle(order.lifecycle_state, order.paused_reason)}</span></div>
-        <div className="paper-card__field"><span className="paper-card__field-label">Placed</span><span className="paper-card__field-value">{new Date(order.created_at).toLocaleString()}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Requested Price</span><span className="paper-card__field-value">{order.price?.toFixed(2) ?? order.requested_entry_price?.toFixed(2) ?? "--"}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Status</span><span className="paper-card__field-value">{formatOrderStatus(order.status)}</span></div>
+        <div className="paper-card__field"><span className="paper-card__field-label">Order Time</span><span className="paper-card__field-value">{new Date(order.created_at).toLocaleString()}</span></div>
+        {pendingMarket && (
+          <div className="paper-card__field">
+            <span className="paper-card__field-label">Expected Execution</span>
+            <span className="paper-card__field-value">
+              {order.scheduled_execution
+                ? new Date(order.scheduled_execution).toLocaleString()
+                : "Next Market Open"}
+            </span>
+          </div>
+        )}
       </div>
       <div className="paper-card__actions">
         <button type="button" className="button ghost-button" onClick={() => onEdit(order)}>Edit</button>
@@ -2126,7 +2157,15 @@ const OrdersTable = memo(function OrdersTable({
   onDelete: (orderId: number) => void;
 }) {
   if (!orders.length) {
-    return <div className="empty-state"><h2>No pending orders</h2><p>Limit and stop orders will stay here until your simulated trigger is reached.</p></div>;
+    return (
+      <div className="empty-state">
+        <h2>No pending orders</h2>
+        <p>
+          After-hours MARKET orders stay here as Pending Market Open until the next session.
+          Limit and stop orders stay here until their simulated trigger is reached.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -2139,30 +2178,45 @@ const OrdersTable = memo(function OrdersTable({
               <th>Side</th>
               <th>Type</th>
               <th>Qty</th>
-              <th>Order price</th>
-              <th>Placed</th>
+              <th>Requested Price</th>
+              <th>Order Time</th>
               <th>Status</th>
-              <th>Lifecycle</th>
+              <th>Expected Execution</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => (
+            {orders.map((order) => {
+              const pendingMarket = isPendingMarketOpen(order.status);
+              const statusClass =
+                order.status === "PENDING" || pendingMarket || order.status === "OPEN"
+                  ? "is-neutral"
+                  : order.status === "FILLED" || order.status === "EXECUTED"
+                    ? "is-positive"
+                    : "is-risk";
+              return (
               <tr key={order.id} className={selectedSymbol === order.symbol ? "is-selected" : ""}>
                 <td><button type="button" className="text-button" onClick={() => onSelect(order.symbol)}>{order.symbol}</button></td>
                 <td>{order.side}</td>
                 <td>{order.type}</td>
                 <td>{order.qty}</td>
-                <td className="number-cell">{order.price?.toFixed(2) ?? "--"}</td>
+                <td className="number-cell">{order.price?.toFixed(2) ?? order.requested_entry_price?.toFixed(2) ?? "--"}</td>
                 <td>{new Date(order.created_at).toLocaleString()}</td>
-                <td><span className={`status-tag ${order.status === "PENDING" ? "is-neutral" : order.status === "FILLED" ? "is-positive" : "is-risk"}`}>{order.status}</span></td>
-                <td>{formatLifecycle(order.lifecycle_state, order.paused_reason)}</td>
+                <td><span className={`status-tag ${statusClass}`}>{formatOrderStatus(order.status)}</span></td>
+                <td>
+                  {pendingMarket
+                    ? (order.scheduled_execution
+                        ? new Date(order.scheduled_execution).toLocaleString()
+                        : "Next Market Open")
+                    : formatLifecycle(order.lifecycle_state, order.paused_reason)}
+                </td>
                 <td style={{ display: 'flex', gap: 8 }}>
                   <button type="button" className="button ghost-button small-button" onClick={() => onEdit(order)}>Edit</button>
                   <button type="button" className="button ghost-button small-button" onClick={() => onDelete(order.id)}>Cancel</button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -2177,6 +2231,7 @@ const OrdersTable = memo(function OrdersTable({
 
 function formatLifecycle(state?: string | null, pausedReason?: string | null) {
   if (!state) return "--";
+  if (state === "PENDING_MARKET_OPEN") return "Pending Market Open";
   if (pausedReason) return `${state} (${pausedReason})`;
   return state.replace(/_/g, " ");
 }

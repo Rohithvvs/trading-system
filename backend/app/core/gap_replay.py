@@ -88,7 +88,7 @@ async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
     all_symbols = set()
     for account in accounts:
         open_positions = list((await db.scalars(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN"))).all())
-        pending_orders = list((await db.scalars(select(PaperOrder).where(PaperOrder.account_id == account.id, PaperOrder.status == "PENDING"))).all())
+        pending_orders = list((await db.scalars(select(PaperOrder).where(PaperOrder.account_id == account.id, PaperOrder.status.in_(("PENDING", "PENDING_MARKET_OPEN", "OPEN", "PARTIALLY_EXECUTED")))).all())
         all_symbols.update({p.symbol for p in open_positions} | {o.symbol for o in pending_orders})
     
     # Pre-fetch all candles
@@ -102,7 +102,7 @@ async def run_gap_replay(db: AsyncSession, fyers_service: FyersService) -> Dict:
 
     for account in accounts:
         open_positions = list((await db.scalars(select(PaperPosition).where(PaperPosition.account_id == account.id, PaperPosition.status == "OPEN"))).all())
-        pending_orders = list((await db.scalars(select(PaperOrder).where(PaperOrder.account_id == account.id, PaperOrder.status == "PENDING"))).all())
+        pending_orders = list((await db.scalars(select(PaperOrder).where(PaperOrder.account_id == account.id, PaperOrder.status.in_(("PENDING", "PENDING_MARKET_OPEN", "OPEN", "PARTIALLY_EXECUTED")))).all())
 
         if not open_positions and not pending_orders:
             continue

@@ -45,7 +45,8 @@ export function prefetchAppData(): void {
 
   const runWorkstation = () => {
     void Promise.all([
-      cachedFetch(CACHE_KEYS.latestScan, () => loadLatestScan(), { swr: true }).catch(() => null),
+      // Prefer a fresh network read so prefetch does not pin an old scan in cache.
+      loadLatestScan({ force: true }).catch(() => null),
       cachedFetch(CACHE_KEYS.marketOverview, () => fetchMarketOverview(), { swr: true }).catch(() => null),
       cachedFetch(CACHE_KEYS.apiHealth, () => fetchApiHealth(), { swr: true }).catch(() => null),
       cachedFetch(CACHE_KEYS.universes, () => fetchUniverses(), { swr: true, ttlMs: 30 * 60 * 1000 }).catch(

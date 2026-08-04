@@ -318,39 +318,105 @@ def _record_rate_limit(key: str) -> None:
     _forgot_rate_cache.setdefault(key, []).append(now)
 
 async def request_password_reset(db: AsyncSession, email: str, ip_address: str | None = None) -> dict:
+    """Start password reset. Always returns the same message (no user enumeration).
+
+    Logs every branch: rate-limit, user missing, SMTP attempt, sent / not sent.
+    Email send only runs when a matching user row exists.
+    """
+    auth_logger = logging.getLogger("app.auth")
+    # Normalize for lookup; EmailStr is usually lowercased, but DB rows may differ.
+    email_norm = (email or "").strip().lower()
     ip_key = f"ip:{ip_address}" if ip_address else None
-    email_key = f"email:{email}"
+    email_key = f"email:{email_norm}"
+
+    auth_logger.info(
+        "PASSWORD_RESET_REQUEST | email=%s | ip=%s | smtp_host_set=%s | smtp_user_set=%s | smtp_password_set=%s",
+        email_norm,
+        ip_address,
+        bool((settings.smtp_host or "").strip()),
+        bool((settings.smtp_user or "").strip()),
+        bool((settings.smtp_password or "").strip()),
+    )
+
     if ip_key and _rate_limit_exceeded(ip_key):
+        auth_logger.warning(
+            "PASSWORD_RESET_RATE_LIMITED | scope=ip | email=%s | ip=%s",
+            email_norm,
+            ip_address,
+        )
         return {"message": "If an account exists, a password reset link has been sent."}
     if _rate_limit_exceeded(email_key):
+        auth_logger.warning(
+            "PASSWORD_RESET_RATE_LIMITED | scope=email | email=%s | ip=%s",
+            email_norm,
+            ip_address,
+        )
         return {"message": "If an account exists, a password reset link has been sent."}
 
-    stmt = select(User).where(User.email == email)
+    # Case-insensitive match: prefer exact lowercased storage; fall back to ilike.
+    stmt = select(User).where(User.email == email_norm)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
+    if user is None and email_norm:
+        stmt_ci = select(User).where(User.email.ilike(email_norm))
+        result_ci = await db.execute(stmt_ci)
+        user = result_ci.scalar_one_or_none()
 
-    if user:
-        token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
-        user.reset_password_token = token_hash
-        user.reset_password_expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
-        await db.commit()
-
-        frontend_url = (settings.frontend_url or "http://localhost:5173").rstrip("/")
-        reset_url = f"{frontend_url}/auth/reset-password?token={token}"
-        # SMTP is blocking I/O — do not hold the event loop during Gmail handshake.
-        sent = await asyncio.to_thread(send_password_reset_email, email, reset_url)
-        if not sent:
-            logging.getLogger("app.auth").warning(
-                "PASSWORD_RESET_EMAIL_NOT_SENT | email=%s | url_host=%s",
-                email,
-                frontend_url,
-            )
-
-        await AuditService.log_event(
-            db, str(user.id), "password_reset_requested", ip_address,
-            metadata={"email": email, "email_sent": sent}
+    if not user:
+        # Intentional silence toward the client; log server-side so ops can debug.
+        auth_logger.info(
+            "PASSWORD_RESET_USER_NOT_FOUND | email=%s | ip=%s | "
+            "(200 returned; no email attempted)",
+            email_norm,
+            ip_address,
         )
+        if ip_key:
+            _record_rate_limit(ip_key)
+        _record_rate_limit(email_key)
+        return {"message": "If an account exists, a password reset link has been sent."}
+
+    auth_logger.info(
+        "PASSWORD_RESET_USER_FOUND | email=%s | user_id=%s | provider=%s",
+        email_norm,
+        user.id,
+        getattr(user, "provider", None),
+    )
+
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    user.reset_password_token = token_hash
+    user.reset_password_expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+    await db.commit()
+
+    frontend_url = (settings.frontend_url or "http://localhost:5173").rstrip("/")
+    reset_url = f"{frontend_url}/auth/reset-password?token={token}"
+    recipient = (user.email or email_norm).strip()
+    auth_logger.info(
+        "PASSWORD_RESET_EMAIL_DISPATCH | email=%s | frontend_url=%s | token_len=%s",
+        recipient,
+        frontend_url,
+        len(token),
+    )
+    # SMTP is blocking I/O — do not hold the event loop during Gmail handshake.
+    sent = await asyncio.to_thread(send_password_reset_email, recipient, reset_url)
+    if sent:
+        auth_logger.info(
+            "PASSWORD_RESET_EMAIL_OK | email=%s | url_host=%s",
+            recipient,
+            frontend_url,
+        )
+    else:
+        auth_logger.warning(
+            "PASSWORD_RESET_EMAIL_NOT_SENT | email=%s | url_host=%s | "
+            "(check app.email logs for SMTP configured / exception detail)",
+            recipient,
+            frontend_url,
+        )
+
+    await AuditService.log_event(
+        db, str(user.id), "password_reset_requested", ip_address,
+        metadata={"email": recipient, "email_sent": sent}
+    )
 
     if ip_key:
         _record_rate_limit(ip_key)

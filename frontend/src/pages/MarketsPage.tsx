@@ -132,10 +132,11 @@ export const MarketsPage = memo(function MarketsPage({
     }
 
     try {
-      // Wave 1 (critical path): market + scan — paint KPIs ASAP
+      // Wave 1 (critical path): market + scan — paint KPIs ASAP.
+      // Force-fetch latest scan so refresh never restores an older session cache.
       const [marketData, latestData] = await Promise.all([
         fetchMarketOverview().catch(() => null),
-        getLatestScan().catch(() => null),
+        getLatestScan({ force: true }).catch(() => null),
       ]);
       if (!mounted.current) return;
       if (marketData) setMarket(marketData);

@@ -688,11 +688,23 @@ class LatestScanService:
         return None
 
     async def get_latest_completed_scan(self):
-        """Dashboard loader — flag-aware snapshot/canonical resolution (C1/C2)."""
+        """Dashboard loader — flag-aware snapshot/canonical resolution (C1/C2).
+
+        Always returns the newest completed scan (ORDER BY scan_timestamp DESC /
+        max scanned_at), never an arbitrary first row.
+        """
+        logger.info(
+            "Loading latest scan... | endpoint=/scanner/latest | "
+            "User ID: n/a (global latest) | Cache Hit/Miss: pending"
+        )
         logger.info("latest_scan_requested")
         payload = await self.resolve_dashboard_payload()
 
         if not payload:
+            logger.info(
+                "Loading latest scan... | status=empty | Latest Scan ID: none | "
+                "Completed At: none | Returned Rows: 0 | Cache Hit/Miss: MISS (DB)"
+            )
             logger.info("latest_scan_not_found")
             from ..observability.scan_diagnostics import log_dashboard_request
 
@@ -705,22 +717,37 @@ class LatestScanService:
         watch_n = len(payload.get("watch_candidates") or [])
         rejected_n = len(payload.get("rejected_candidates") or [])
         scan_id = payload.get("scan_id")
+        completed_at = (
+            payload.get("last_scan_completed_at")
+            or payload.get("scan_timestamp")
+            or payload.get("scanned_at")
+        )
+        returned_rows = buy_n + watch_n + rejected_n
+        logger.info(
+            "Loading latest scan... | status=found | User ID: n/a | "
+            "Latest Scan ID: %s | Completed At: %s | Returned Rows: %s | "
+            "Cache Hit/Miss: MISS (DB produce)",
+            scan_id,
+            completed_at,
+            returned_rows,
+        )
         logger.info(
             "latest_scan_loaded | scan_id=%s | buy=%s | watch=%s | rejected=%s | "
-            "header_buy=%s | header_watch=%s",
+            "header_buy=%s | header_watch=%s | completed_at=%s",
             scan_id,
             buy_n,
             watch_n,
             rejected_n,
             payload.get("buy_count"),
             payload.get("watch_count"),
+            completed_at,
         )
         from ..observability.scan_diagnostics import log_dashboard_request
 
         log_dashboard_request(
             scan_id=str(scan_id) if scan_id is not None else None,
             endpoint="/scanner/latest",
-            returned_records=buy_n + watch_n + rejected_n,
+            returned_records=returned_rows,
             query_duration_ms=0,
         )
         return payload

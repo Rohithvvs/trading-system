@@ -634,11 +634,24 @@ export async function deletePaperOrder(orderId: number): Promise<PaperOrderActio
   return response.json() as Promise<PaperOrderActionResponse>;
 }
 
-export async function loadLatestScan(): Promise<ScreenerResponse | null> {
+/**
+ * Load the newest completed scan for the Scanner page.
+ * On page reload/navigation, pass `{ force: true }` so sessionStorage SWR
+ * cannot restore an older scan over the backend's latest.
+ */
+export async function loadLatestScan(opts?: { force?: boolean }): Promise<ScreenerResponse | null> {
+  const force = Boolean(opts?.force);
   return cachedFetch(
     CACHE_KEYS.latestScan,
     async () => {
-      const response = await fetchWithDiagnostics("/analysis/scan/latest", undefined, "Load latest scan");
+      const qs = force ? "?force=true" : "";
+      const response = await fetchWithDiagnostics(
+        `/analysis/scan/latest${qs}`,
+        force
+          ? { headers: { "Cache-Control": "no-cache", Accept: "application/json" } }
+          : undefined,
+        "Load latest scan",
+      );
       if (!response.ok) {
         return null;
       }
@@ -648,18 +661,27 @@ export async function loadLatestScan(): Promise<ScreenerResponse | null> {
       }
       return data as ScreenerResponse;
     },
-    { swr: true, softTimeoutMs: 3000 },
+    // Never serve a stale latest-scan on intentional refresh/force; soft timeout may
+    // still wait for network without substituting an older cached scan.
+    { force, swr: !force, softTimeoutMs: force ? 15_000 : 3000 },
   );
 }
 
-export async function getLatestScan(): Promise<any> {
+/**
+ * Dashboard-shaped latest scan (GET /scanner/latest).
+ * Use `{ force: true }` on page load so refresh always shows the newest scan.
+ */
+export async function getLatestScan(opts?: { force?: boolean }): Promise<any> {
+  const force = Boolean(opts?.force);
   return cachedFetch(
     `${CACHE_KEYS.latestScan}:scanner`,
     async () => {
-      const response = await fetchWithDiagnostics("/scanner/latest", {
+      const qs = force ? "?force=true" : "";
+      const response = await fetchWithDiagnostics(`/scanner/latest${qs}`, {
         method: "GET",
         headers: {
-          "Accept": "application/json",
+          Accept: "application/json",
+          ...(force ? { "Cache-Control": "no-cache" } : {}),
         },
       }, "Get latest scan");
 
@@ -669,8 +691,70 @@ export async function getLatestScan(): Promise<any> {
 
       return await response.json();
     },
-    { swr: true, softTimeoutMs: 3000 },
+    { force, swr: !force, softTimeoutMs: force ? 15_000 : 3000 },
   );
+}
+
+/** Drop client caches for latest scan so the next load hits the backend. */
+export function invalidateLatestScanCaches(): void {
+  invalidateCache(CACHE_KEYS.latestScan);
+  invalidateCache(`${CACHE_KEYS.latestScan}:scanner`);
+}
+
+/**
+ * After a successful Run Scan, persist the response into client caches so
+ * soft navigation keeps the newest scan and F5 cannot restore an older entry
+ * from sessionStorage.
+ */
+export function cacheLatestScanFromScreenerResponse(response: ScreenerResponse): void {
+  const completedAt =
+    response.last_scan_completed_at ??
+    response.scanned_at ??
+    response.analysis?.generated_at ??
+    new Date().toISOString();
+
+  // Analysis/Screener shape used by App.tsx loadLatestScan
+  setCached(CACHE_KEYS.latestScan, {
+    ...response,
+    available: true,
+    last_scan_completed_at: completedAt,
+    scanned_at: response.scanned_at ?? completedAt,
+  });
+
+  // Dashboard shape used by Markets/Workstation getLatestScan
+  const buySyms = response.buy_candidate_symbols ?? [];
+  const watchSyms = response.watch_candidate_symbols ?? [];
+  const analysisItems = response.analysis?.items ?? [];
+  const bySymbol = new Map(analysisItems.map((item) => [item.symbol, item]));
+
+  const toCandidate = (symbol: string, recommendation: string) => {
+    const item = bySymbol.get(symbol);
+    return {
+      symbol,
+      recommendation,
+      score: item?.recommendation?.score ?? 0,
+      close_price: 0,
+      reason: item?.recommendation?.summary ?? null,
+      confidence: item?.recommendation?.confidence ?? 0,
+    };
+  };
+
+  setCached(`${CACHE_KEYS.latestScan}:scanner`, {
+    scan_id: (response as any).scan_id ?? `live-${completedAt}`,
+    scan_timestamp: completedAt,
+    last_scan_completed_at: completedAt,
+    total_scanned: response.scanned_symbols ?? 0,
+    valid_symbols: response.data_valid_symbols?.length ?? 0,
+    buy_count: buySyms.length,
+    watch_count: watchSyms.length,
+    rejected_count: Math.max(
+      (response.shortlisted_symbols?.length ?? 0) - buySyms.length - watchSyms.length,
+      0,
+    ),
+    buy_candidates: buySyms.map((s) => toCandidate(s, "BUY")),
+    watch_candidates: watchSyms.map((s) => toCandidate(s, "WATCH")),
+    rejected_candidates: [],
+  });
 }
 
 
@@ -819,6 +903,19 @@ export async function fetchPendingPaperOrders(): Promise<PaperOrder[]> {
     throw new Error(message || "Failed to load pending orders");
   }
   return response.json() as Promise<PaperOrder[]>;
+}
+
+export async function fetchMarketSessionStatus(): Promise<import('./types').MarketSessionStatusResponse> {
+  const response = await fetchWithDiagnostics(
+    `/paper-trading/market-session`,
+    undefined,
+    "Market session status",
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to load market session status");
+  }
+  return response.json() as Promise<import('./types').MarketSessionStatusResponse>;
 }
 
 export async function fetchPaperOrderHistory(): Promise<PaperOrder[]> {

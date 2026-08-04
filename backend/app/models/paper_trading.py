@@ -67,6 +67,24 @@ class PaperPosition(Base):
     )
 
 
+# Open / working order statuses (appear in Orders tab; no position yet unless PARTIALLY_EXECUTED)
+OPEN_ORDER_STATUSES = frozenset({
+    "PENDING",
+    "PENDING_MARKET_OPEN",
+    "OPEN",
+    "PARTIALLY_EXECUTED",
+})
+# Terminal statuses
+TERMINAL_ORDER_STATUSES = frozenset({
+    "FILLED",
+    "EXECUTED",
+    "CANCELLED",
+    "REJECTED",
+})
+# After-hours / weekend / holiday orders awaiting next session
+PENDING_MARKET_OPEN_STATUS = "PENDING_MARKET_OPEN"
+
+
 class PaperOrder(Base):
     __tablename__ = "paper_trading_orders"
 
@@ -82,7 +100,8 @@ class PaperOrder(Base):
     stop_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     target: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), index=True)
+    # PENDING | PENDING_MARKET_OPEN | OPEN | FILLED/EXECUTED | PARTIALLY_EXECUTED | CANCELLED | REJECTED
+    status: Mapped[str] = mapped_column(String(32), index=True)
     requested_entry_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     monitor_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     paused_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -93,6 +112,10 @@ class PaperOrder(Base):
     source_score: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     source_confidence: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     filled_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    # Next session when a PENDING_MARKET_OPEN order is expected to execute
+    scheduled_execution: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Market session label at placement: OPEN | CLOSED | PRE_OPEN | WEEKEND | HOLIDAY
+    market_session: Mapped[str | None] = mapped_column(String(32), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(
         String(128),
         unique=True,
@@ -108,6 +131,7 @@ class PaperOrder(Base):
     __table_args__ = (
         Index("idx_orders_active_symbol", "symbol", "status", "lifecycle_state", "monitor_enabled"),
         Index("idx_orders_account_status_created", "account_id", "status", "created_at"),
+        Index("idx_orders_pending_market_open", "status", "scheduled_execution"),
     )
 
 

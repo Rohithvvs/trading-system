@@ -813,9 +813,24 @@ export function PaperOrderPage() {
         } as Partial<PaperOrderTicketState> & Record<string, unknown>);
         toast.success("✓ Paper Order Updated Successfully");
       } else {
-        await placePaperOrder(normalized, idempotencyKey);
+        const response = await placePaperOrder(normalized, idempotencyKey);
         setIdempotencyKey(crypto.randomUUID());
-        toast.success("✓ Paper Order Placed Successfully");
+        const orderStatus = response.order?.status;
+        if (orderStatus === "PENDING_MARKET_OPEN") {
+          toast.success(
+            "Order accepted",
+            "The market is currently closed. Your order has been placed successfully and will be executed automatically when the market opens.",
+          );
+        } else if (orderStatus === "FILLED" || orderStatus === "EXECUTED") {
+          toast.success(
+            `Your ${normalized.side} order for ${normalized.symbol} has been executed successfully.`,
+            response.position
+              ? "Position has been added to your portfolio."
+              : response.message || "Order filled.",
+          );
+        } else {
+          toast.success("✓ Paper Order Placed Successfully", response.message || undefined);
+        }
       }
 
       invalidatePaperCaches();
